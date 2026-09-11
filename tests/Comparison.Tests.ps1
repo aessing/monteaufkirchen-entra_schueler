@@ -128,10 +128,12 @@ Describe 'Stable student identity and directory comparison' {
                     if (-not [string]::IsNullOrWhiteSpace([string]$user.UserPrincipalName)) {
                         $usersByUpn[$user.UserPrincipalName] = $user
                         [void] $reserved.Add($user.UserPrincipalName)
+                        if (-not $owners.ContainsKey($user.UserPrincipalName)) { $owners[$user.UserPrincipalName] = @() }
                         $owners[$user.UserPrincipalName] = @($owners[$user.UserPrincipalName]) + $user.Id
                     }
                     if (-not [string]::IsNullOrWhiteSpace([string]$user.Mail)) {
                         [void] $reserved.Add($user.Mail)
+                        if (-not $owners.ContainsKey($user.Mail)) { $owners[$user.Mail] = @() }
                         $owners[$user.Mail] = @($owners[$user.Mail]) + $user.Id
                     }
                     $managerByUserId[$user.Id] = $user.TestManagerId
@@ -141,6 +143,7 @@ Describe 'Stable student identity and directory comparison' {
                 $matchesByName = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
                 foreach ($group in $Groups) {
                     $groupsById[$group.Id] = $group
+                    if (-not $matchesByName.ContainsKey($group.DisplayName)) { $matchesByName[$group.DisplayName] = @() }
                     $matchesByName[$group.DisplayName] = @($matchesByName[$group.DisplayName]) + $group
                     if (@($matchesByName[$group.DisplayName]).Count -eq 1) {
                         $groupsByName[$group.DisplayName] = $group
@@ -253,6 +256,25 @@ Describe 'Stable student identity and directory comparison' {
         }
 
         Context 'preflight collision handling' {
+            It 'keeps one unique row and one Entra claim out of duplicate errors' {
+                $required = @(Get-RequiredTestGroups)
+                $user = New-TestUser -Id student-id
+                $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($user, $teacher) -RoleMemberIds @('student-id') -Groups $required -DirectGroups @{
+                    'student-id' = @($required)
+                }
+
+                $result = Compare-StudentDirectory -Students @(
+                    New-TestStudent -EntraObjectId student-id -StoredUpn mmueller@monteaufkirchen.com
+                ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
+
+                $result.Errors | Should -BeNullOrEmpty
+                @($result.Errors | Where-Object { $_.Field -in @('EntraObjectId', 'StoredUpn', 'NormalizedName', 'ResolvedEntraObjectId') }) |
+                    Should -BeNullOrEmpty
+                $result.ExistingStudents.Count | Should -Be 1
+                $result.Departures | Should -BeNullOrEmpty
+            }
+
             It 'reports a stale explicit object ID and suppresses new and departure actions' {
                 $nameMatch = New-TestUser -Id name-match
                 $snapshot = New-TestSnapshot -Users @($nameMatch) -RoleMemberIds @('name-match')
@@ -294,6 +316,19 @@ Describe 'Stable student identity and directory comparison' {
 
                 $result.Errors.Field | Should -Contain 'EntraObjectId'
                 $result.Errors.Field | Should -Contain 'StoredUpn'
+                $result.Errors.Field | Should -Contain 'NormalizedName'
+                $result.NewStudents | Should -BeNullOrEmpty
+                $result.Departures | Should -BeNullOrEmpty
+            }
+
+            It 'suppresses departures when a nonempty row cannot produce a normalized name' {
+                $user = New-TestUser -Id student-id
+                $snapshot = New-TestSnapshot -Users @($user) -RoleMemberIds @('student-id')
+
+                $result = Compare-StudentDirectory -Students @(
+                    New-TestStudent -GivenName '---' -Surname '...' -RowNumber 2
+                ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
+
                 $result.Errors.Field | Should -Contain 'NormalizedName'
                 $result.NewStudents | Should -BeNullOrEmpty
                 $result.Departures | Should -BeNullOrEmpty
@@ -422,6 +457,28 @@ Describe 'Stable student identity and directory comparison' {
                 $changedName.ChangedStudents[0].DesiredState.MailNickname | Should -Be 'mmueller'
                 $changedSurname.ChangedStudents[0].DesiredState.UserPrincipalName | Should -Be 'mschmidt@monteaufkirchen.com'
                 $changedSurname.ChangedStudents[0].DesiredState.MailNickname | Should -Be 'mschmidt'
+            }
+
+            It 'preserves every numbered UPN candidate boundary from 2 through 100 without old collisions' {
+                $required = @(Get-RequiredTestGroups)
+                foreach ($suffix in 2, 9, 10, 19, 100) {
+                    $upn = "mariamueller$suffix@monteaufkirchen.com"
+                    $user = New-TestUser -Id "student-$suffix" -UserPrincipalName $upn -ManagerId "teacher-$suffix"
+                    $teacher = New-TestUser -Id "teacher-$suffix" -GivenName Lea -Surname Lehrerin -UserPrincipalName "lea.$suffix@monteaufkirchen.com"
+                    $directGroups = @{}
+                    $directGroups[$user.Id] = @($required)
+                    $snapshot = New-TestSnapshot -Users @($user, $teacher) -RoleMemberIds @($user.Id) -Groups $required -DirectGroups $directGroups
+
+                    $result = Compare-StudentDirectory -Students @(
+                        New-TestStudent -EntraObjectId $user.Id
+                    ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
+
+                    $result.Errors | Should -BeNullOrEmpty
+                    $result.ExistingStudents.Count | Should -Be 1
+                    $result.ExistingStudents[0].DesiredState.UserPrincipalName | Should -Be $upn
+                    @($result.ExistingStudents[0].Differences | Where-Object Field -eq UserPrincipalName) |
+                        Should -BeNullOrEmpty
+                }
             }
 
             It 'reserves selected addresses in workbook order and reports the fallback' {
@@ -595,8 +652,13 @@ Describe 'Stable student identity and directory comparison' {
                     New-TestStudent -EntraObjectId student-id
                 ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
 
-                $result.Errors.Field | Should -Contain 'SEC-A-CLS-JK1-3g2_1'
-                ($result.Errors.Message -join ' ') | Should -Match 'fehlt'
+                $issue = @($result.Errors | Where-Object Field -eq 'SEC-A-CLS-JK1-3g2_1')
+                $issue.Count | Should -Be 1
+                $issue[0].Severity | Should -Be 'Error'
+                $issue[0].Area | Should -Be 'Group'
+                $issue[0].Current | Should -Be 0
+                $issue[0].Desired | Should -Be 1
+                $issue[0].Message | Should -Match 'fehlt'
             }
 
             It 'reports missing, ambiguous, and dynamic mandatory target groups' {

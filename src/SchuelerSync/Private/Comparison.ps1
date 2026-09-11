@@ -218,7 +218,7 @@ function Add-ComparisonAddressOwner {
     $normalized = $Address.Trim().ToLowerInvariant()
     if ([string]::IsNullOrWhiteSpace($normalized)) { return }
     [void] $ReservedAddresses.Add($normalized)
-    $owners = @($AddressOwners[$normalized])
+    $owners = if ($AddressOwners.Contains($normalized)) { @($AddressOwners[$normalized]) } else { @() }
     $ownerIds = @(Get-AddressOwnerIds $Owner)
     foreach ($ownerRecord in @($Owner)) {
         if ($null -eq $ownerRecord) { continue }
@@ -268,7 +268,7 @@ function Test-ValidStudentUpnCandidate {
         }
     }
     $localPart = "$(ConvertTo-UpnToken $Student.GivenName)$(ConvertTo-UpnToken $Student.Surname)"
-    $pattern = '^{0}(?<suffix>[2-9][0-9]*)@{1}$' -f [regex]::Escape($localPart), [regex]::Escape($Domain.Trim())
+    $pattern = '^{0}(?<suffix>(?:[2-9]|[1-9][0-9]+))@{1}$' -f [regex]::Escape($localPart), [regex]::Escape($Domain.Trim())
     return $UserPrincipalName.Trim() -match "(?i)$pattern"
 }
 
@@ -280,7 +280,10 @@ function Get-ComparisonGroupMatches {
 
     $index = Get-ComparisonPropertyValue -InputObject $Snapshot -Name GroupMatchesByDisplayName
     if ($null -ne $index) {
-        return @($index[$DisplayName])
+        if ($index.Contains($DisplayName)) {
+            return @($index[$DisplayName] | Where-Object { $null -ne $_ })
+        }
+        return @()
     }
     $singleIndex = Get-ComparisonPropertyValue -InputObject $Snapshot -Name GroupsByDisplayName
     if ($null -ne $singleIndex -and $null -ne $singleIndex[$DisplayName]) {
@@ -357,13 +360,21 @@ function Compare-StudentDirectory {
     for ($index = 0; $index -lt $Students.Count; $index++) {
         $student = $Students[$index]
         $objectId = ([string](Get-ComparisonPropertyValue -InputObject $student -Name EntraObjectId)).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($objectId)) { $objectIdRows[$objectId] = @($objectIdRows[$objectId]) + $index }
+        if (-not [string]::IsNullOrWhiteSpace($objectId)) {
+            if (-not $objectIdRows.ContainsKey($objectId)) { $objectIdRows[$objectId] = @() }
+            $objectIdRows[$objectId] = @($objectIdRows[$objectId]) + $index
+        }
         $storedUpn = ([string](Get-ComparisonPropertyValue -InputObject $student -Name StoredUpn)).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($storedUpn)) { $storedUpnRows[$storedUpn] = @($storedUpnRows[$storedUpn]) + $index }
+        if (-not [string]::IsNullOrWhiteSpace($storedUpn)) {
+            if (-not $storedUpnRows.ContainsKey($storedUpn)) { $storedUpnRows[$storedUpn] = @() }
+            $storedUpnRows[$storedUpn] = @($storedUpnRows[$storedUpn]) + $index
+        }
         try {
             $nameKey = Get-NormalizedStudentNameKey -Student $student
+            if (-not $nameRows.ContainsKey($nameKey)) { $nameRows[$nameKey] = @() }
             $nameRows[$nameKey] = @($nameRows[$nameKey]) + $index
         } catch {
+            $hasIdentityAmbiguity = $true
             [void]$invalidIndices.Add($index)
             $errors.Add((New-ComparisonIssue -Severity Error -Area Identity -Field NormalizedName -Current $null -Desired 'eindeutiger normalisierter Name' -Message $_.Exception.Message -Student $student))
         }
@@ -405,6 +416,7 @@ function Compare-StudentDirectory {
     foreach ($record in $records) {
         if ($null -eq $record.Identity.User) { continue }
         $userId = [string](Get-ComparisonPropertyValue -InputObject $record.Identity.User -Name Id)
+        if (-not $claims.ContainsKey($userId)) { $claims[$userId] = @() }
         $claims[$userId] = @($claims[$userId]) + $record
     }
     foreach ($userId in @($claims.Keys)) {
