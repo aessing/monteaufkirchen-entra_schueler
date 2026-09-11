@@ -69,3 +69,7 @@ $RECYCLE.BIN/
 
 # ----------------------- Local worktrees ------------------------ #
 .worktrees/
+
+# ---------------------- Schüler-Importdaten ---------------------- #
+# Contains personal data and generated initial passwords.
+/*.xlsx
