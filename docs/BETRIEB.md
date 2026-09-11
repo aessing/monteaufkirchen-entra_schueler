@@ -74,6 +74,9 @@ Für eine Teilaktion:
 
 ## 5. Autorisierten Lauf starten
 
+> [!CAUTION]
+> Abgänge sind alle nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Klasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Aktion mit `-DisableUsers` oder `-RevokeSessions` muss die Excel-Datei deshalb die vollständige konfigurierte Schülerpopulation enthalten. Eine einzelne Testklasse ist in einer gemeinsam genutzten produktiven Rollengruppe nicht isoliert. Verwende für destruktive Tests einen vollständig isolierten Mandanten oder eine Rollengruppe, deren Mitglieder ausschließlich synthetische Testkonten sind.
+
 Vollständiger Lauf:
 
 ```powershell

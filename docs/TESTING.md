@@ -1,6 +1,9 @@
 # Test- und Abnahmeplan für die Parallels-VM
 
-Die Tests verwenden ausschließlich erfundene Konten in einer dafür vorgesehenen Testklasse und einem kontrollierten Testmandantenbereich. Führe keine Live-Mutation mit echten Schülerdaten aus.
+Die Tests verwenden ausschließlich erfundene Konten. Führe keine Live-Mutation mit echten Schülerdaten aus.
+
+> [!CAUTION]
+> Abgänge sind alle nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Testklasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Abgangsaktion muss die Excel-Datei die vollständige konfigurierte Schülerpopulation enthalten. Eine Testklasse in einer gemeinsam genutzten produktiven Rollengruppe ist nicht isoliert und kann reale Schüler als Abgänge markieren. Live-Tests mit `-Update`, `-DisableUsers` oder `-RevokeSessions` sind deshalb nur in einem vollständig isolierten Mandanten oder mit einer konfigurierten Schüler-Rollengruppe erlaubt, deren Mitglieder ausschließlich synthetische Konten sind.
 
 ## Freigabekriterien
 
@@ -37,7 +40,13 @@ Im Repository-Root:
 
 ```powershell
 Invoke-Pester .\tests -Output Detailed
-Invoke-ScriptAnalyzer -Path .\Sync-SchuelerEntra.ps1,.\src -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
+
+$analyzerFindings = @(
+  Invoke-ScriptAnalyzer -Path '.\Sync-SchuelerEntra.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
+  Invoke-ScriptAnalyzer -Path '.\src' -Recurse -Settings '.\PSScriptAnalyzerSettings.psd1'
+)
+$analyzerFindings | Format-Table RuleName,Severity,ScriptName,Line,Message -Wrap
+if ($analyzerFindings) { throw 'PSScriptAnalyzer-Befunde gefunden.' }
 
 $parseErrors = foreach ($file in Get-ChildItem . -Recurse -File | Where-Object Extension -in '.ps1','.psm1','.psd1') {
   $tokens = $null
@@ -82,7 +91,7 @@ Verwende erfundene Personen, zum Beispiel:
 | Klassenwechsel | Mira | Beispielstern | `JK4-6m2_4` | UPN eines Test-Managers |
 | Abgang | Theo | Demoklang | nur im Mandanten | UPN eines Test-Managers |
 
-Alle Testkonten und Gruppen müssen eindeutig als synthetisch gekennzeichnet und nach der Abnahme kontrolliert bereinigt werden. Nutze keine Namen existierender Kinder oder Beschäftigter.
+Alle Testkonten und Gruppen müssen eindeutig als synthetisch gekennzeichnet und nach der Abnahme kontrolliert bereinigt werden. Nutze keine Namen existierender Kinder oder Beschäftigter. Erstelle diese Live-Testpopulation nur im vollständig isolierten Mandanten oder in der ausschließlich synthetischen konfigurierten Schüler-Rollengruppe. Eine bloße Testklasse innerhalb der produktiven Rollengruppe reicht nicht aus.
 
 Erzeuge eine Arbeitskopie außerhalb des Repository-Roots:
 
