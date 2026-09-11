@@ -415,7 +415,7 @@ function New-DisabledEntraStudent {
     }
 
     if ($PSCmdlet.ShouldProcess($userPrincipalName, 'Create disabled Entra student')) {
-        return New-MgUser -BodyParameter $body
+        return New-MgUser -BodyParameter $body -ErrorAction Stop
     }
 }
 
@@ -424,7 +424,7 @@ function New-StudentWithPasswordRetry {
     param(
         [Parameter(Mandatory)][object] $Desired,
         [Parameter(Mandatory)][string] $InitialPassword,
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]] $UsedPasswords
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]] $UsedPasswords
     )
 
     $nestedShouldProcessParameters = @{}
@@ -436,7 +436,7 @@ function New-StudentWithPasswordRetry {
     $password = $InitialPassword
     for ($attempt = 1; $attempt -le 6; $attempt++) {
         try {
-            $user = New-DisabledEntraStudent -Desired $Desired -Password $password @nestedShouldProcessParameters
+            $user = New-DisabledEntraStudent -Desired $Desired -Password $password -ErrorAction Stop @nestedShouldProcessParameters
             if ($null -eq $user) { return }
             [void]$UsedPasswords.Add($password)
             return [pscustomobject]@{
@@ -504,10 +504,10 @@ function Set-EntraStudentAttributes {
             User = $null
         }
     }
-    Update-MgUser -UserId $UserId -BodyParameter $body
+    Update-MgUser -UserId $UserId -BodyParameter $body -ErrorAction Stop
 
     $properties = [string[]]@($body.Keys)
-    $user = Get-MgUser -UserId $UserId -Property $properties
+    $user = Get-MgUser -UserId $UserId -Property $properties -ErrorAction Stop
     foreach ($field in $properties) {
         $actual = Get-EntraMutationPropertyValue -InputObject $user -Name $field
         if (-not (Test-EntraMutationValueEqual -Field $field -Current $actual -Desired $body[$field])) {
@@ -544,10 +544,10 @@ function Set-EntraStudentManager {
                 Verified = $false
             }
         }
-        Set-MgUserManagerByRef -UserId $UserId -BodyParameter $body
+        Set-MgUserManagerByRef -UserId $UserId -BodyParameter $body -ErrorAction Stop
     }
 
-    $manager = Get-MgUserManager -UserId $UserId
+    $manager = Get-MgUserManager -UserId $UserId -ErrorAction Stop
     $actualManagerId = [string](Get-EntraMutationPropertyValue -InputObject $manager -Name Id)
     if (-not [string]::Equals($actualManagerId, $DesiredManagerId, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Entra manager '$DesiredManagerId' could not be verified for user '$UserId'."
@@ -564,7 +564,7 @@ function Get-FreshEntraUserDirectGroups {
     param([Parameter(Mandatory)][string] $UserId)
 
     return @(
-        Get-MgUserMemberOfAsGroup -UserId $UserId -All |
+        Get-MgUserMemberOfAsGroup -UserId $UserId -All -ErrorAction Stop |
             ForEach-Object {
                 $inheritedProperty = $_.PSObject.Properties['IsInherited']
                 $isInherited = $null -ne $inheritedProperty -and [bool]$inheritedProperty.Value
@@ -618,7 +618,7 @@ function Sync-EntraStudentGroups {
         if ($currentIds.Contains($groupId)) { continue }
         $displayName = [string](Get-EntraMutationPropertyValue -InputObject $group -Name DisplayName)
         if ($PSCmdlet.ShouldProcess($displayName, "Add Entra student '$UserId' to group")) {
-            New-MgGroupMemberByRef -GroupId $groupId -BodyParameter $memberReference
+            New-MgGroupMemberByRef -GroupId $groupId -BodyParameter $memberReference -ErrorAction Stop
             $addedGroupIds.Add($groupId)
         } else {
             $writeSkipped = $true
@@ -658,7 +658,7 @@ function Sync-EntraStudentGroups {
         if (-not $isManaged -or $isInherited -or $isDynamic) { continue }
 
         if ($PSCmdlet.ShouldProcess($displayName, "Remove Entra student '$UserId' from competing managed group")) {
-            Remove-MgGroupMemberByRef -GroupId $groupId -DirectoryObjectId $UserId
+            Remove-MgGroupMemberByRef -GroupId $groupId -DirectoryObjectId $UserId -ErrorAction Stop
             $removedGroupIds.Add($groupId)
         } else {
             $removalSkipped = $true
@@ -722,9 +722,9 @@ function Enable-EntraStudent {
     if (-not $PSCmdlet.ShouldProcess($UserId, 'Enable Entra student')) {
         return [pscustomobject]@{ UserId = $UserId; AccountEnabled = $false; Changed = $false; Verified = $false }
     }
-    Update-MgUser -UserId $UserId -AccountEnabled:$true
+    Update-MgUser -UserId $UserId -AccountEnabled:$true -ErrorAction Stop
 
-    $user = Get-MgUser -UserId $UserId -Property @('id', 'accountEnabled')
+    $user = Get-MgUser -UserId $UserId -Property @('id', 'accountEnabled') -ErrorAction Stop
     if (-not [bool](Get-EntraMutationPropertyValue -InputObject $user -Name AccountEnabled)) {
         throw "Enabled state could not be verified for Entra user '$UserId'."
     }
@@ -744,9 +744,9 @@ function Disable-EntraStudent {
     if (-not $PSCmdlet.ShouldProcess($UserId, 'Disable Entra student')) {
         return [pscustomobject]@{ UserId = $UserId; AccountEnabled = $null; Changed = $false; Verified = $false }
     }
-    Update-MgUser -UserId $UserId -AccountEnabled:$false
+    Update-MgUser -UserId $UserId -AccountEnabled:$false -ErrorAction Stop
 
-    $user = Get-MgUser -UserId $UserId -Property @('id', 'accountEnabled')
+    $user = Get-MgUser -UserId $UserId -Property @('id', 'accountEnabled') -ErrorAction Stop
     $accountEnabled = Get-EntraMutationPropertyValue -InputObject $user -Name AccountEnabled
     if ($null -eq $accountEnabled -or [bool]$accountEnabled) {
         throw "Disabled state could not be verified for Entra user '$UserId'."
@@ -769,6 +769,6 @@ function Revoke-EntraStudentSessions {
 
     if (-not $Selected) { return }
     if ($PSCmdlet.ShouldProcess($UserId, 'Revoke Entra student sign-in sessions')) {
-        return Revoke-MgUserSignInSession -UserId $UserId
+        return Revoke-MgUserSignInSession -UserId $UserId -ErrorAction Stop
     }
 }

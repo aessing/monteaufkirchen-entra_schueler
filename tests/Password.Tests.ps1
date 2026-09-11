@@ -5,11 +5,12 @@ BeforeAll {
 
 Describe 'Student password generation' {
     InModuleScope SchuelerSync {
-        It 'creates exactly twelve friendly characters' {
+        It 'accepts an initially empty collection and creates exactly twelve friendly characters' {
             $used = [Collections.Generic.HashSet[string]]::new()
             $password = New-StudentPassword -UsedPasswords $used
             $password.Length | Should -Be 12
             $password | Should -Match '^[A-Z][a-z]+[A-Z][a-z]+[0-9]{2}$'
+            $used.Count | Should -Be 1
         }
 
         It 'does not return a password already reserved in the run' {

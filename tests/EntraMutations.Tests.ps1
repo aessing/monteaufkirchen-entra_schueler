@@ -52,6 +52,8 @@ Describe 'Verified Entra student mutations' {
             CreateBodies = [Collections.Generic.List[object]]::new()
             CreateFailuresRemaining = 0
             CreateFailureMessage = ''
+            CreateWriteErrorsRemaining = 0
+            CreateWriteErrorMessage = ''
             DirectGroupReads = [Collections.Generic.Queue[object]]::new()
             GroupAddFailureId = ''
             UserReads = [Collections.Generic.Queue[object]]::new()
@@ -62,6 +64,10 @@ Describe 'Verified Entra student mutations' {
         Mock New-MgUser -ModuleName SchuelerSync {
             $global:EntraMutationState.Events.Add('create-disabled')
             $global:EntraMutationState.CreateBodies.Add($BodyParameter)
+            if ($global:EntraMutationState.CreateWriteErrorsRemaining -gt 0) {
+                $global:EntraMutationState.CreateWriteErrorsRemaining--
+                Write-Error $global:EntraMutationState.CreateWriteErrorMessage
+            }
             if ($global:EntraMutationState.CreateFailuresRemaining -gt 0) {
                 $global:EntraMutationState.CreateFailuresRemaining--
                 throw [InvalidOperationException]::new($global:EntraMutationState.CreateFailureMessage)
@@ -146,8 +152,39 @@ Describe 'Verified Entra student mutations' {
                     $BodyParameter.PasswordProfile.Count -eq 2 -and
                     $BodyParameter.PasswordProfile.Password -eq $password -and
                     $BodyParameter.PasswordProfile.ForceChangePasswordNextSignIn -eq $false -and
-                    -not $BodyParameter.ContainsKey('LegalAgeGroupClassification')
+                    -not $BodyParameter.ContainsKey('LegalAgeGroupClassification') -and
+                    $ErrorAction -eq 'Stop'
                 }
+            }
+
+            It 'accepts an initially empty password collection on the first create attempt' {
+                $usedPasswords = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
+                $result = New-StudentWithPasswordRetry -Desired $global:EntraMutationDesired -InitialPassword 'LegoWolke42' -UsedPasswords $usedPasswords -Confirm:$false
+
+                $result.Attempts | Should -Be 1
+                $usedPasswords.Count | Should -Be 1
+                Should -Invoke New-MgUser -Times 1 -Exactly -ParameterFilter {
+                    $ErrorAction -eq 'Stop'
+                }
+            }
+
+            It 'turns a non-terminating Graph password-policy error into a caught retry' {
+                $global:EntraMutationState.CreateWriteErrorsRemaining = 1
+                $global:EntraMutationState.CreateWriteErrorMessage = 'Request_BadRequest: PasswordProfile.Password does not comply with password complexity requirements.'
+                $usedPasswords = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
+                $previousErrorActionPreference = $ErrorActionPreference
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    $result = New-StudentWithPasswordRetry -Desired $global:EntraMutationDesired -InitialPassword 'LegoWolke42' -UsedPasswords $usedPasswords -Confirm:$false
+                } finally {
+                    $ErrorActionPreference = $previousErrorActionPreference
+                }
+
+                $result.Attempts | Should -Be 2
+                $global:EntraMutationState.CreateBodies.Count | Should -Be 2
+                @($global:EntraMutationState.CreateBodies | ForEach-Object { $_.PasswordProfile.Password } | Select-Object -Unique).Count | Should -Be 2
             }
 
             It 'uses at most five fresh replacement passwords after recognized policy rejections' {
@@ -245,10 +282,13 @@ Describe 'Verified Entra student mutations' {
                     $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
                     $BodyParameter.Count -eq 1 -and
                     $BodyParameter.DisplayName -eq 'Mia Beispiel' -and
-                    -not $BodyParameter.ContainsKey('LegalAgeGroupClassification')
+                    -not $BodyParameter.ContainsKey('LegalAgeGroupClassification') -and
+                    $ErrorAction -eq 'Stop'
                 }
                 Should -Invoke Get-MgUser -Times 1 -Exactly -ParameterFilter {
-                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $Property -contains 'DisplayName'
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
+                    $Property -contains 'DisplayName' -and
+                    $ErrorAction -eq 'Stop'
                 }
             }
 
@@ -277,10 +317,11 @@ Describe 'Verified Entra student mutations' {
                 Should -Invoke Set-MgUserManagerByRef -Times 1 -Exactly -ParameterFilter {
                     $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
                     $BodyParameter.Count -eq 1 -and
-                    $BodyParameter['@odata.id'] -eq 'https://graph.microsoft.com/v1.0/users/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+                    $BodyParameter['@odata.id'] -eq 'https://graph.microsoft.com/v1.0/users/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' -and
+                    $ErrorAction -eq 'Stop'
                 }
                 Should -Invoke Get-MgUserManager -Times 1 -Exactly -ParameterFilter {
-                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $ErrorAction -eq 'Stop'
                 }
                 $global:EntraMutationState.Events | Should -Be @('set-manager', 'read-manager')
             }
@@ -348,10 +389,14 @@ Describe 'Verified Entra student mutations' {
                 )
                 Should -Invoke New-MgGroupMemberByRef -Times 3 -Exactly -ParameterFilter {
                     $BodyParameter.Count -eq 1 -and
-                    $BodyParameter['@odata.id'] -eq 'https://graph.microsoft.com/v1.0/directoryObjects/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    $BodyParameter['@odata.id'] -eq 'https://graph.microsoft.com/v1.0/directoryObjects/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
+                    $ErrorAction -eq 'Stop'
                 }
                 Should -Invoke Remove-MgGroupMemberByRef -Times 2 -Exactly -ParameterFilter {
-                    $DirectoryObjectId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    $DirectoryObjectId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $ErrorAction -eq 'Stop'
+                }
+                Should -Invoke Get-MgUserMemberOfAsGroup -Times 2 -Exactly -ParameterFilter {
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $All -and $ErrorAction -eq 'Stop'
                 }
             }
 
@@ -439,10 +484,14 @@ Describe 'Verified Entra student mutations' {
 
                 $result.Verified | Should -BeTrue
                 Should -Invoke Update-MgUser -Times 1 -Exactly -ParameterFilter {
-                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $AccountEnabled -eq $true
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
+                    $AccountEnabled -eq $true -and
+                    $ErrorAction -eq 'Stop'
                 }
                 Should -Invoke Get-MgUser -Times 1 -Exactly -ParameterFilter {
-                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $Property -contains 'accountEnabled'
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
+                    $Property -contains 'accountEnabled' -and
+                    $ErrorAction -eq 'Stop'
                 }
                 $global:EntraMutationState.Events | Should -Be @('account-enabled-True', 'read-user')
             }
@@ -470,9 +519,13 @@ Describe 'Verified Entra student mutations' {
 
                 $result.Verified | Should -BeTrue
                 Should -Invoke Update-MgUser -Times 1 -Exactly -ParameterFilter {
-                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $AccountEnabled -eq $false
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
+                    $AccountEnabled -eq $false -and
+                    $ErrorAction -eq 'Stop'
                 }
-                Should -Invoke Get-MgUser -Times 1 -Exactly
+                Should -Invoke Get-MgUser -Times 1 -Exactly -ParameterFilter {
+                    $ErrorAction -eq 'Stop'
+                }
             }
 
             It 'fails departure verification when accountEnabled remains true' {
@@ -495,7 +548,7 @@ Describe 'Verified Entra student mutations' {
                 $notSelected | Should -BeNullOrEmpty
                 $selected.Value | Should -BeTrue
                 Should -Invoke Revoke-MgUserSignInSession -Times 1 -Exactly -ParameterFilter {
-                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    $UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $ErrorAction -eq 'Stop'
                 }
             }
         }

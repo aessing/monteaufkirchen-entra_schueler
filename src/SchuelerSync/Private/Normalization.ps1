@@ -126,7 +126,7 @@ $script:StudentPasswordWords = @(
 
 function New-StudentPassword {
     param(
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]] $UsedPasswords,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]] $UsedPasswords,
         [scriptblock] $RandomIndexScriptBlock
     )
     $pairs = @()
