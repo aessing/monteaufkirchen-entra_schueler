@@ -1,6 +1,7 @@
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+[CmdletBinding(DefaultParameterSetName = 'Sync', SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [Parameter(ParameterSetName = 'Sync')]
+    [ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
     [string] $File = (Join-Path $PSScriptRoot 'Schueler.xlsx'),
     [Parameter(ParameterSetName = 'Sync')][switch] $Update,
     [Parameter(ParameterSetName = 'Sync')][switch] $CreateNewUsers,
@@ -10,7 +11,7 @@ param(
     [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
     [switch] $ConfigureExchangeOnlineOnly,
     [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
-    [Alias('UPN', 'UserPrincipalName')][string[]] $Mail
+    [Alias('UPN', 'UserPrincipalName')][ValidateNotNullOrEmpty()][string[]] $Mail
 )
 
 Set-StrictMode -Version Latest
@@ -24,4 +25,6 @@ if ($PSCmdlet.ParameterSetName -eq 'Sync' -and -not $PSBoundParameters.ContainsK
     $forwardParameters['File'] = $File
 }
 
-Invoke-SchuelerSync @forwardParameters
+$result = Invoke-SchuelerSync @forwardParameters
+$result
+if ($result.HasErrors) { exit 1 }

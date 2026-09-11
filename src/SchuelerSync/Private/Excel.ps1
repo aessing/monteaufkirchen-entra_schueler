@@ -203,12 +203,14 @@ function Get-RequiredWorkbookUpdateValue {
 }
 
 function Write-StudentWorkbookUpdates {
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][object[]] $Updates,
         [switch] $SkipGitSafetyCheck
     )
 
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and atomically persist student workbook updates')) { return }
     $context = Read-StudentWorkbook -Path $Path
     $updatesByRow = @{}
     foreach ($update in $Updates) {
