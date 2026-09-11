@@ -643,6 +643,7 @@ Describe 'Exchange Online student mailbox adapter' {
                         Differences = @()
                     }
                 }
+                Mock Write-Progress -ModuleName SchuelerSync { return }
             }
 
             It 'sleeps once per pending batch and checks only remaining users' {
@@ -664,6 +665,12 @@ Describe 'Exchange Online student mailbox adapter' {
                 $result.AttemptsByUpn[$upns[1]] | Should -Be 2
                 $result.AttemptsByUpn[$upns[2]] | Should -Be 3
                 Should -Invoke Get-StudentMailboxState -Times 6 -Exactly
+                Should -Invoke Write-Progress -ModuleName SchuelerSync -ParameterFilter {
+                    $Activity -eq 'Exchange-Postfächer bereitstellen' -and $Status -match 'Warte 60 Sekunden'
+                } -Times 2 -Exactly
+                Should -Invoke Write-Progress -ModuleName SchuelerSync -ParameterFilter {
+                    $Activity -eq 'Exchange-Postfächer bereitstellen' -and $Completed
+                } -Times 1 -Exactly
             }
 
             It 'returns immediately when every mailbox is ready' {

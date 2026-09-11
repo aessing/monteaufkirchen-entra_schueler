@@ -76,6 +76,8 @@ $RECYCLE.BIN/
 # Custom workbooks can also live in subdirectories or use uppercase extensions.
 *.[xX][lL][sS][xX]
 !tests/fixtures/Schueler-Testdaten.xlsx
+# Recommended destination for reports containing personal student data.
+/Berichte/
 # Never allow generated confidential artifacts to inherit a fixture exception.
 *.backup-*.[xX][lL][sS][xX]
 .*.tmp.[xX][lL][sS][xX]

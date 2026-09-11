@@ -11,7 +11,10 @@ param(
     [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
     [switch] $ConfigureExchangeOnlineOnly,
     [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
-    [Alias('UPN', 'UserPrincipalName')][ValidateNotNullOrEmpty()][string[]] $Mail
+    [Alias('UPN', 'UserPrincipalName')][ValidateNotNullOrEmpty()][string[]] $Mail,
+    [Parameter(ParameterSetName = 'Sync')]
+    [Parameter(ParameterSetName = 'ExchangeOnly')]
+    [ValidateNotNullOrEmpty()][string] $OutputFile
 )
 
 Set-StrictMode -Version Latest

@@ -19,9 +19,18 @@ function Invoke-SchuelerSync {
         [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
         [switch] $ConfigureExchangeOnlineOnly,
         [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
-        [Alias('UPN', 'UserPrincipalName')][ValidateNotNullOrEmpty()][string[]] $Mail
+        [Alias('UPN', 'UserPrincipalName')][ValidateNotNullOrEmpty()][string[]] $Mail,
+        [Parameter(ParameterSetName = 'Sync')]
+        [Parameter(ParameterSetName = 'ExchangeOnly')]
+        [ValidateNotNullOrEmpty()][string] $OutputFile
     )
     $ErrorActionPreference = 'Stop'
+    $progressActivity = 'Schülerabgleich'
+    $reportHeader = [Collections.Generic.List[string]]::new()
+    if ($PSBoundParameters.ContainsKey('OutputFile')) {
+        $OutputFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFile)
+    }
+    try {
     $config = Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/SchuelerSync.psd1')
     $actions = [Collections.Generic.List[object]]::new()
     $comparisonPrinted = $false
@@ -30,6 +39,7 @@ function Invoke-SchuelerSync {
     $common = @{ WhatIf = [bool]$WhatIfPreference }
     if ($PSBoundParameters.ContainsKey('Confirm')) { $common.Confirm = $PSBoundParameters.Confirm }
     if ($PSCmdlet.ParameterSetName -eq 'ExchangeOnly') {
+        Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Exchange Online ...' -PercentComplete 10
         $targets = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($address in $Mail) {
             $normalized = ([string]$address).Trim().ToLowerInvariant()
@@ -38,6 +48,7 @@ function Invoke-SchuelerSync {
         }
         try {
             $null = Connect-SchuelerExchangeOnline
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe und konfiguriere Exchange-Postfächer ...' -PercentComplete 35
             $batch = Wait-StudentMailbox -UserPrincipalName @($targets) -Config $config.Exchange -Configure `
                 -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
             foreach ($action in @(ConvertTo-ExchangeActionResult -Batch $batch -WhatIfMode:$WhatIfPreference)) { $actions.Add($action) }
@@ -47,23 +58,36 @@ function Invoke-SchuelerSync {
     } else {
         $selection = Resolve-UpdateSelection -Update:$Update -CreateNewUsers:$CreateNewUsers -UpdateUsers:$UpdateUsers -DisableUsers:$DisableUsers -RevokeSessions:$RevokeSessions
         try {
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Lese Excel-Datei ...' -PercentComplete 5
             $File = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($File)
             $workbook = Read-StudentWorkbook -Path $File
             foreach ($student in $workbook.Students) {
                 $password = [string](Get-ComparisonPropertyValue $student Password)
                 if ($password) { [void]$secrets.Add($password) }
             }
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Microsoft Entra ID ...' -PercentComplete 10
             $context = Connect-SchuelerGraph
             $tenantId = [string](Get-ComparisonPropertyValue $context TenantId)
             if ([string]::IsNullOrWhiteSpace($tenantId)) { throw 'Graph-Kontext enthält keine Tenant-ID.' }
-            Write-Information "Entra-Tenant: $tenantId | Konto: $([string](Get-ComparisonPropertyValue $context Account))" -InformationAction Continue
+            $tenantLine = "Entra-Tenant: $tenantId | Konto: $([string](Get-ComparisonPropertyValue $context Account))"
+            $reportHeader.Add($tenantLine)
+            Write-Information $tenantLine -InformationAction Continue
             if ($config.ExpectedTenantId -and $tenantId -ine [string]$config.ExpectedTenantId) { throw 'Der verbundene Graph-Tenant stimmt nicht mit ExpectedTenantId überein.' }
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Lade Entra-Benutzer, Gruppen und Schülerrolle ...' -PercentComplete 15
             $snapshot = Get-EntraSnapshot -Config $config
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Exchange Online ...' -PercentComplete 30
             $null = Connect-SchuelerExchangeOnline
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Lade Exchange-Empfängeradressen ...' -PercentComplete 35
             $recipients = Get-ExchangeRecipientAddress
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Vergleiche Schülerdaten ...' -PercentComplete 40
             $comparison = Compare-StudentDirectory -Students @($workbook.Students) -Snapshot $snapshot -Config $config -ExchangeAddressOwners $recipients.AddressOwners
             # Read current identities, even when a rename is planned, exactly once during preflight.
-            foreach ($entry in @($comparison.ChangedStudents) + @($comparison.ExistingStudents)) {
+            $mailboxEntries = @($comparison.ChangedStudents) + @($comparison.ExistingStudents)
+            $mailboxIndex = 0
+            foreach ($entry in $mailboxEntries) {
+                $mailboxIndex++
+                $mailboxPercent = if ($mailboxEntries.Count -eq 0) { 70 } else { 55 + [int](20 * $mailboxIndex / $mailboxEntries.Count) }
+                Write-Progress -Id 1 -Activity $progressActivity -Status "Prüfe Exchange-Postfach $mailboxIndex von $($mailboxEntries.Count): $($entry.User.UserPrincipalName)" -PercentComplete $mailboxPercent
                 try {
                     $state = Get-StudentMailboxState -UserPrincipalName $entry.User.UserPrincipalName -Config $config.Exchange
                     $comparison = Add-ExchangeComparison -Comparison $comparison -UserId $entry.User.Id -MailboxState $state
@@ -160,12 +184,16 @@ function Invoke-SchuelerSync {
     $safeComparison = ConvertTo-SafeStudentComparison -Comparison $comparison -File $File -Secrets @($secrets)
     # Only allowlisted projections cross the public output boundary, never workbook rows or password profiles.
     foreach ($action in $actions) { $action.Message = Protect-StudentMessage -Message $action.Message -Secrets @($secrets) }
-    Write-StudentComparisonReport -Comparison $safeComparison -Actions @($actions) -ActionsOnly:$comparisonPrinted
+    Write-Progress -Id 1 -Activity $progressActivity -Status 'Erzeuge Ergebnisbericht ...' -PercentComplete 95
+    Write-StudentComparisonReport -Comparison $safeComparison -Actions @($actions) -ActionsOnly:$comparisonPrinted -HeaderLines @($reportHeader) -OutputFile $OutputFile
     [pscustomobject]@{
         Mode = if ($ConfigureExchangeOnlineOnly) { 'ExchangeOnly' } elseif ($Update) { 'Update' } else { 'Compare' }
         Comparison = $safeComparison
         Actions = [object[]]@($actions)
         HasErrors = (@($comparison.Errors).Count -gt 0 -or @($actions | Where-Object Status -eq Failed).Count -gt 0)
+    }
+    } finally {
+        Write-Progress -Id 1 -Activity $progressActivity -Completed
     }
 }
 

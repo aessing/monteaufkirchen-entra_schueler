@@ -466,8 +466,13 @@ function Wait-StudentMailbox {
     $ready = [Collections.Generic.List[object]]::new()
     $failed = [Collections.Generic.List[object]]::new()
 
+    try {
     for ($attempt = 0; $attempt -le $MaxRetries -and $pending.Count -gt 0; $attempt++) {
-        if ($attempt -gt 0) { & $SleepAction $RetryDelaySeconds }
+        if ($attempt -gt 0) {
+            Write-Progress -Id 3 -Activity 'Exchange-Postfächer bereitstellen' -Status "Warte $RetryDelaySeconds Sekunden vor Versuch $($attempt + 1) von $($MaxRetries + 1), $($pending.Count) Postfach/Postfächer ausstehend ..." -PercentComplete ([int](100 * $attempt / ($MaxRetries + 1)))
+            & $SleepAction $RetryDelaySeconds
+        }
+        Write-Progress -Id 3 -Activity 'Exchange-Postfächer bereitstellen' -Status "Prüfe Versuch $($attempt + 1) von $($MaxRetries + 1), $($pending.Count) Postfach/Postfächer ausstehend ..." -PercentComplete ([int](100 * ($attempt + 1) / ($MaxRetries + 1)))
         foreach ($upn in @($pending)) {
             $attemptsByUpn[$upn] = [int]$attemptsByUpn[$upn] + 1
             try {
@@ -510,6 +515,9 @@ function Wait-StudentMailbox {
             [void]$pending.Remove($upn)
         }
         if ($WhatIfPreference) { break }
+    }
+    } finally {
+        Write-Progress -Id 3 -Activity 'Exchange-Postfächer bereitstellen' -Completed
     }
 
     return [pscustomobject]@{

@@ -433,7 +433,7 @@ Describe 'Stable student identity and directory comparison' {
                     Should -Be 'Set'
             }
 
-            It 'keeps a valid current UPN for unchanged names and recalculates it after a name change' {
+            It 'keeps the current identity addresses for existing students after a name change' {
                 $groups = @(Get-RequiredTestGroups)
                 $current = New-TestUser -Id student-id -GivenName Maria -Surname Müller -UserPrincipalName mamueller@monteaufkirchen.com
                 $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
@@ -453,10 +453,37 @@ Describe 'Stable student identity and directory comparison' {
                 ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
 
                 $unchanged.ExistingStudents[0].DesiredState.UserPrincipalName | Should -Be 'mamueller@monteaufkirchen.com'
-                $changedName.ChangedStudents[0].DesiredState.UserPrincipalName | Should -Be 'mmueller@monteaufkirchen.com'
-                $changedName.ChangedStudents[0].DesiredState.MailNickname | Should -Be 'mmueller'
-                $changedSurname.ChangedStudents[0].DesiredState.UserPrincipalName | Should -Be 'mschmidt@monteaufkirchen.com'
-                $changedSurname.ChangedStudents[0].DesiredState.MailNickname | Should -Be 'mschmidt'
+                $changedName.ChangedStudents[0].DesiredState.UserPrincipalName | Should -Be 'mamueller@monteaufkirchen.com'
+                $changedName.ChangedStudents[0].DesiredState.Mail | Should -Be 'mamueller@monteaufkirchen.com'
+                $changedName.ChangedStudents[0].DesiredState.MailNickname | Should -Be 'mamueller'
+                $changedSurname.ChangedStudents[0].DesiredState.UserPrincipalName | Should -Be 'mamueller@monteaufkirchen.com'
+                $changedSurname.ChangedStudents[0].DesiredState.Mail | Should -Be 'mamueller@monteaufkirchen.com'
+                $changedSurname.ChangedStudents[0].DesiredState.MailNickname | Should -Be 'mamueller'
+                @($changedName.ChangedStudents[0].Differences | Where-Object Field -in @('UserPrincipalName', 'Mail', 'MailNickname')) |
+                    Should -BeNullOrEmpty
+                @($changedSurname.ChangedStudents[0].Differences | Where-Object Field -in @('UserPrincipalName', 'Mail', 'MailNickname')) |
+                    Should -BeNullOrEmpty
+            }
+
+            It 'reports the current student while directory details are compared' {
+                Mock Write-Progress { return }
+                $groups = @(Get-RequiredTestGroups)
+                $current = New-TestUser -Id student-id
+                $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($current, $teacher) -RoleMemberIds @('student-id') -Groups $groups -DirectGroups @{
+                    'student-id' = @($groups)
+                }
+
+                Compare-StudentDirectory -Students @(
+                    New-TestStudent -EntraObjectId student-id
+                ) -Snapshot $snapshot -Config $script:ComparisonTestConfig | Out-Null
+
+                Should -Invoke Write-Progress -ParameterFilter {
+                    $Activity -eq 'Schülerdetails prüfen' -and $Status -match '1 von 1' -and $Status -match 'Müller, Maria'
+                } -Times 1 -Exactly
+                Should -Invoke Write-Progress -ParameterFilter {
+                    $Activity -eq 'Schülerdetails prüfen' -and $Completed
+                } -Times 1 -Exactly
             }
 
             It 'preserves every numbered UPN candidate boundary from 2 through 100 without old collisions' {

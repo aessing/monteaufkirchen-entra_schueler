@@ -17,7 +17,7 @@ Describe 'Documentation contract' {
     It 'derives every documented public selector from the executable command' {
         foreach ($parameter in @(
                 'File', 'Update', 'CreateNewUsers', 'DisableUsers', 'UpdateUsers',
-                'RevokeSessions', 'ConfigureExchangeOnlineOnly', 'Mail', 'WhatIf',
+                'RevokeSessions', 'ConfigureExchangeOnlineOnly', 'Mail', 'OutputFile', 'WhatIf',
                 'Confirm', 'Verbose'
             )) {
             $command.Parameters.Keys | Should -Contain $parameter
@@ -45,6 +45,13 @@ Describe 'Documentation contract' {
         $readme | Should -Match ([regex]::Escape('-WhatIf'))
         $readme | Should -Match ([regex]::Escape('-ConfigureExchangeOnlineOnly'))
         $readme | Should -Match ([regex]::Escape('-Mail'))
+        $readme | Should -Match ([regex]::Escape('-OutputFile'))
+    }
+
+    It 'keeps the recommended report directory out of Git' {
+        $reportPath = Join-Path $repoRoot 'Berichte/Schueler-Abgleich.txt'
+        $null = & git -C $repoRoot check-ignore --no-index $reportPath
+        $LASTEXITCODE | Should -Be 0
     }
 
     It 'documents runtime modules, Graph scopes, roles and privacy boundaries' {

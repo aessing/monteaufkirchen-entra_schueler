@@ -453,11 +453,17 @@ function Compare-StudentDirectory {
         [void]$claimedUserIds.Add([string]$record.Identity.User.Id)
     }
 
-    foreach ($record in @($records | Sort-Object Index)) {
+    $recordIndex = 0
+    $orderedRecords = @($records | Sort-Object Index)
+    foreach ($record in $orderedRecords) {
+        $recordIndex++
         if (-not $record.IsValid) { continue }
         $student = $record.Student
         $user = $record.Identity.User
         $userId = if ($null -eq $user) { '' } else { [string]$user.Id }
+        $studentLabel = [string](Get-ComparisonPropertyValue -InputObject $student -Name NameMitRufname)
+        $studentPercent = if ($orderedRecords.Count -eq 0) { 0 } else { [int](100 * $recordIndex / $orderedRecords.Count) }
+        Write-Progress -Id 2 -ParentId 1 -Activity 'Schülerdetails prüfen' -Status "Prüfe Schüler $recordIndex von $($orderedRecords.Count): $studentLabel" -PercentComplete $studentPercent
 
         if ($null -eq $user) {
             $outsideOwners = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -516,24 +522,13 @@ function Compare-StudentDirectory {
 
         $selectedUpn = $null
         $selection = $null
-        $namesUnchanged = $false
         if ($null -ne $user) {
-            try {
-                $namesUnchanged = [string]::Equals(
-                    (Get-NormalizedStudentNameKey -Student $student),
-                    (Get-NormalizedStudentNameKey -Student $user),
-                    [StringComparison]::Ordinal
-                )
-            } catch {
-                $namesUnchanged = $false
-            }
             $currentUpn = ([string](Get-ComparisonPropertyValue -InputObject $user -Name UserPrincipalName)).Trim()
-            if ($namesUnchanged -and
-                -not [string]::IsNullOrWhiteSpace($currentUpn) -and
-                (Test-ValidStudentUpnCandidate -Student $student -UserPrincipalName $currentUpn -Domain $Config.Domain) -and
-                (Test-AddressOwnedOnlyBy -AddressOwners $addressOwners -Address $currentUpn -OwnerId $userId)) {
-                $selectedUpn = $currentUpn.ToLowerInvariant()
+            if ([string]::IsNullOrWhiteSpace($currentUpn)) {
+                $errors.Add((New-ComparisonIssue -Severity Error -Area Identity -Field UserPrincipalName -Current $null -Desired 'bestehender UPN' -Message 'Ein bestehender Schüler besitzt keinen UPN.' -Student $student -User $user))
+                continue
             }
+            $selectedUpn = $currentUpn
         }
         if ([string]::IsNullOrWhiteSpace($selectedUpn)) {
             $selectionReserved = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -551,7 +546,7 @@ function Compare-StudentDirectory {
         $reservationOwner = if ([string]::IsNullOrWhiteSpace($userId)) { "excel-row-$($student.RowNumber)" } else { $userId }
         Add-ComparisonAddressOwner -AddressOwners $addressOwners -ReservedAddresses $reservedAddresses -Address $selectedUpn -Owner $reservationOwner
         $firstCandidate = @(Get-UpnCandidate -GivenName $student.GivenName -Surname $student.Surname -Domain $Config.Domain)[0]
-        if (-not [string]::Equals($selectedUpn, $firstCandidate, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($null -eq $user -and -not [string]::Equals($selectedUpn, $firstCandidate, [StringComparison]::OrdinalIgnoreCase)) {
             $collisions = @(if ($null -ne $selection) { $selection.Collisions })
             $warnings.Add((New-ComparisonIssue -Severity Warning -Area Entra -Field UserPrincipalName -Current $collisions -Desired $selectedUpn -Message "UPN-Fallback auf '$selectedUpn' nach $($collisions.Count) aktueller Kollision(en)." -Student $student -User $user))
         }
@@ -644,6 +639,7 @@ function Compare-StudentDirectory {
             $existingStudents.Add($entry)
         }
     }
+    Write-Progress -Id 2 -ParentId 1 -Activity 'Schülerdetails prüfen' -Completed
 
     if (-not $hasIdentityAmbiguity) {
         foreach ($memberId in @($Snapshot.StudentRoleMemberIds)) {

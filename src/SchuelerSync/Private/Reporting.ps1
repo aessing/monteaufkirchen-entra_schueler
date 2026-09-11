@@ -78,7 +78,13 @@ function ConvertTo-SafeStudentComparison {
 
 function Write-StudentComparisonReport {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][object] $Comparison, [AllowEmptyCollection()][object[]] $Actions = @(), [switch] $ActionsOnly)
+    param(
+        [Parameter(Mandatory)][object] $Comparison,
+        [AllowEmptyCollection()][object[]] $Actions = @(),
+        [switch] $ActionsOnly,
+        [AllowEmptyCollection()][string[]] $HeaderLines = @(),
+        [AllowNull()][string] $OutputFile
+    )
     $tables = [ordered]@{
         'Neuzugänge' = @($Comparison.NewStudents | Select-Object -Property @('RowNumber', 'NameMitRufname', 'DisplayName', 'ClassName', 'UserPrincipalName'))
         'Abgänge' = @($Comparison.Departures | Select-Object -Property @('UserId', 'DisplayName', 'UserPrincipalName', 'AccountEnabled'))
@@ -99,12 +105,29 @@ function Write-StudentComparisonReport {
         'Warnungen und Fehler' = @($Comparison.Warnings) + @($Comparison.Errors)
         'Aktionsergebnisse' = @($Actions)
     }
+    $reportParts = [Collections.Generic.List[string]]::new()
+    foreach ($line in $HeaderLines) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) { $reportParts.Add($line) }
+    }
     foreach ($title in $tables.Keys) {
         if ($ActionsOnly -and $title -ne 'Aktionsergebnisse') { continue }
         Write-Information "$title ($(@($tables[$title]).Count))" -InformationAction Continue
         if (@($tables[$title]).Count -gt 0) {
             Write-Information ($tables[$title] | Format-Table -AutoSize -Wrap | Out-String -Width 220) -InformationAction Continue
         }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OutputFile)) {
+        foreach ($title in $tables.Keys) {
+            $reportParts.Add("$title ($(@($tables[$title]).Count))")
+            if (@($tables[$title]).Count -gt 0) {
+                $reportParts.Add(($tables[$title] | Format-Table -AutoSize -Wrap | Out-String -Width 220).TrimEnd())
+            }
+        }
+        $parentDirectory = Split-Path -Path $OutputFile -Parent
+        if (-not [string]::IsNullOrWhiteSpace($parentDirectory) -and -not (Test-Path -LiteralPath $parentDirectory -PathType Container)) {
+            $null = New-Item -ItemType Directory -Path $parentDirectory -Force
+        }
+        Set-Content -LiteralPath $OutputFile -Value ($reportParts -join [Environment]::NewLine) -Encoding utf8
     }
 }
 

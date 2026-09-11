@@ -44,6 +44,12 @@ Eine andere `.xlsx`-Datei kannst du mit `-File` angeben. Relative Pfade beziehen
 .\Sync-SchuelerEntra.ps1 -File 'C:\Schuelerimport\Schueler-2026.xlsx'
 ```
 
+Mit `-OutputFile` speicherst du den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Eine vorhandene Datei wird ersetzt. Der empfohlene Ordner `Berichte` ist wegen der enthaltenen personenbezogenen Daten von Git ausgeschlossen:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -OutputFile '.\Berichte\Schueler-Abgleich.txt'
+```
+
 Prüfe einen vollständigen Lauf zuerst mit `-WhatIf`:
 
 ```powershell

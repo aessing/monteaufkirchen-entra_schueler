@@ -35,6 +35,7 @@ Describe 'Public orchestration' {
             Mock Invoke-StudentDeparture { return }
             Mock Wait-StudentMailbox { [pscustomobject]@{ Ready = @(); Missing = @(); Failed = @() } }
             Mock Write-Information { return }
+            Mock Write-Progress { return }
         }
         It 'compares each matched mailbox once without any mutation or wait' {
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx'
@@ -46,6 +47,28 @@ Describe 'Public orchestration' {
             $result.Comparison.NewStudents.Count | Should -Be 1
             $result.Comparison.Departures.Count | Should -Be 1
             ($result | ConvertTo-Json -Depth 30) | Should -Not -Match 'NeverReport12|"Password"'
+        }
+        It 'reports visible progress and completes the progress display' {
+            Invoke-SchuelerSync -File 'synthetic.xlsx' | Out-Null
+
+            Should -Invoke Write-Progress -ParameterFilter { $Activity -eq 'Schülerabgleich' -and $Status -match 'Entra' }
+            Should -Invoke Write-Progress -ParameterFilter { $Activity -eq 'Schülerabgleich' -and $Completed } -Times 1 -Exactly
+        }
+        It 'writes the complete human-readable report to a UTF-8 text file' {
+            $reportPath = Join-Path $TestDrive 'berichte/laufbericht.txt'
+
+            Invoke-SchuelerSync -File 'synthetic.xlsx' -OutputFile $reportPath | Out-Null
+
+            Test-Path -LiteralPath $reportPath -PathType Leaf | Should -BeTrue
+            $report = Get-Content -LiteralPath $reportPath -Raw -Encoding utf8
+            $report | Should -Match 'Entra-Tenant: test-tenant'
+            $report | Should -Match 'Neuzugänge \(1\)'
+            $report | Should -Match 'Abgänge \(1\)'
+            $report | Should -Match 'Änderungen \(\d+\)'
+            $report | Should -Match 'Bestehende \(1\)'
+            $report | Should -Match 'Warnungen und Fehler \(\d+\)'
+            $report | Should -Match 'Aktionsergebnisse \(0\)'
+            $report | Should -Not -Match 'NeverReport12|"Password"'
         }
         It 'uses the repository workbook default and PowerShell-relative custom paths' {
             Invoke-SchuelerSync | Out-Null

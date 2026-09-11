@@ -262,6 +262,10 @@ Sobald mindestens einer der folgenden Schalter angegeben wird, führt das Skript
 
 `-Mail` ist ein Array. Die Aliase sind `-UPN` und `-UserPrincipalName`. Dieser Parametersatz ist nicht mit `-File`, `-Update` oder den vier Graph-Aktionsschaltern kombinierbar. Er ändert nur die unten beschriebene Exchange-Konfiguration.
 
+`-OutputFile <Pfad>` schreibt den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Relative Pfade beziehen sich auf das aktuelle PowerShell-Arbeitsverzeichnis. Fehlende Unterordner werden angelegt und eine vorhandene Datei wird für jeden Lauf ersetzt. Der Parameter funktioniert im Vergleichs-, Update- und Exchange-Only-Modus. Die laufend aktualisierte Fortschrittsanzeige bleibt ausschließlich im Terminal. Verwende bevorzugt den per `.gitignore` ausgeschlossenen Ordner `Berichte`, da der Bericht personenbezogene Schülerdaten enthält.
+
+Bestehende Entra-Benutzer behalten ihren aktuellen UPN auch dann, wenn sich Vorname oder Nachname in Excel ändern. Mail und `mailNickname` werden für den Sollvergleich aus diesem bestehenden UPN abgeleitet. Nur bei Neuzugängen erzeugt das Skript einen neuen kollisionsfreien UPN.
+
 ### Gemeinsame PowerShell-Schalter
 
 `-WhatIf` führt keine Graph-, Excel- oder Exchange-Schreiboperation aus. Für Exchange erfolgt nur die sofortige Verfügbarkeitsprüfung, ohne Wartezeit. `-Confirm` aktiviert die üblichen PowerShell-Rückfragen. `-Verbose` aktiviert die üblichen ausführlichen Meldungen.
