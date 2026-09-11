@@ -216,6 +216,19 @@ function Get-RequiredWorkbookUpdateValue {
     return ConvertTo-WorkbookCellText $property.Value
 }
 
+function Move-StudentWorkbookFile {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string] $Source,
+        [Parameter(Mandatory)][string] $Destination
+    )
+    if (-not $PSCmdlet.ShouldProcess($Destination, "Move workbook from '$Source' without replacing any file")) {
+        throw 'Dateiverschiebung wurde nicht bestätigt.'
+    }
+    # The two-argument overload refuses existing targets, including ones created after our checks.
+    [IO.File]::Move($Source, $Destination)
+}
+
 function Write-StudentWorkbookUpdates {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -225,7 +238,7 @@ function Write-StudentWorkbookUpdates {
         [switch] $SkipGitSafetyCheck
     )
 
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and atomically persist student workbook updates')) { return }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and safely commit student workbook updates')) { return }
     $context = Read-StudentWorkbook -Path $Path
     if ([string]::IsNullOrWhiteSpace($ExpectedSourceHash)) { $ExpectedSourceHash = $context.SourceHash }
     Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
@@ -265,8 +278,9 @@ function Write-StudentWorkbookUpdates {
     }
     $temporaryPath = Join-Path $directory ('.{0}.{1}.tmp{2}' -f $baseName, [guid]::NewGuid().Guid, $extension)
     $package = $null
+    $sourceMoved = $false
+    $installed = $false
     try {
-        Copy-Item -LiteralPath $context.Path -Destination $backupPath -ErrorAction Stop
         Copy-Item -LiteralPath $context.Path -Destination $temporaryPath -ErrorAction Stop
         # Credentials are attached only to bytes from the original preflight, never a newer row ordering.
         Assert-StudentWorkbookVersion -Path $temporaryPath -ExpectedSourceHash $ExpectedSourceHash
@@ -325,17 +339,57 @@ function Write-StudentWorkbookUpdates {
 
         $savedHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256 -ErrorAction Stop).Hash
         Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
-        [IO.File]::Move($temporaryPath, $context.Path, $true)
+        # Move the actual source out of the way before checking it. A late edit is now in
+        # this exact backup, and a recreated original path can never be overwritten.
+        Move-StudentWorkbookFile -Source $context.Path -Destination $backupPath -Confirm:$false
+        $sourceMoved = $true
+        Assert-StudentWorkbookVersion -Path $backupPath -ExpectedSourceHash $ExpectedSourceHash
+        Move-StudentWorkbookFile -Source $temporaryPath -Destination $context.Path -Confirm:$false
+        $installed = $true
         return [pscustomobject]@{
             Path = $context.Path
             BackupPath = $backupPath
             SourceHash = $savedHash
         }
     } catch {
-        if (Test-Path -LiteralPath $temporaryPath) {
-            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        $commitFailure = $_.Exception.Message
+        $restoreFailure = ''
+        $preserveTemporary = $false
+        if ($null -ne $package) {
+            $package.Dispose()
+            $package = $null
         }
-        throw
+        if ($sourceMoved -and -not $installed) {
+            if (-not (Test-Path -LiteralPath $context.Path)) {
+                try {
+                    Move-StudentWorkbookFile -Source $backupPath -Destination $context.Path -Confirm:$false
+                    $sourceMoved = $false
+                } catch {
+                    $restoreFailure = $_.Exception.Message
+                }
+            }
+            # A concurrent original or a failed restore must leave every recoverable version intact.
+            $preserveTemporary = $sourceMoved
+        }
+        if (-not (Test-Path -LiteralPath $context.Path)) {
+            # A failed initial move can also race with another process removing the source.
+            $preserveTemporary = $true
+        }
+        if (-not $preserveTemporary -and (Test-Path -LiteralPath $temporaryPath)) {
+            try {
+                Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+            } catch {
+                $preserveTemporary = $true
+                $restoreFailure = $_.Exception.Message
+            }
+        }
+        if ($sourceMoved -and -not $installed) {
+            throw "Excel-Rückschreibung abgebrochen: $commitFailure Wiederherstellung: $restoreFailure Quelldatei: '$($context.Path)'. Verdrängte Quelle/Sicherung: '$backupPath'. Vorbereitete vertrauliche Datei: '$temporaryPath'. Keine vorhandene Datei wurde überschrieben. Diese Dateien vor einem erneuten Lauf administrativ vergleichen und die gewünschte Quelle wiederherstellen."
+        }
+        if ($preserveTemporary) {
+            throw "Excel-Rückschreibung abgebrochen: $commitFailure Quelle prüfen: '$($context.Path)'. Vertrauliche Arbeitskopie zur Wiederherstellung erhalten: '$temporaryPath'. $restoreFailure Die Arbeitskopie erst nach Wiederherstellung beziehungsweise Prüfung sicher entfernen."
+        }
+        throw "Excel-Rückschreibung abgebrochen: $commitFailure Die Quelle liegt unter '$($context.Path)'. Vergleich erneut starten."
     } finally {
         if ($null -ne $package) {
             $package.Dispose()
