@@ -49,9 +49,12 @@ function Open-StudentWorkbookPackage {
     param([Parameter(Mandatory)][string] $Path)
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
+    if ($null -eq (Get-Module -Name ImportExcel)) {
+        # The adapter never uses AutoSize. ImportExcel nevertheless probes System.Drawing on macOS and emits an irrelevant warning.
+        Import-Module ImportExcel -ErrorAction Stop 3>$null
+    }
     if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($resolvedPath)) {
         # ImportExcel's opener uses Test-Path -Path. Its EPPlus FileInfo overload preserves literal names.
-        Import-Module ImportExcel -ErrorAction Stop
         return [OfficeOpenXml.ExcelPackage]::new([IO.FileInfo]::new($resolvedPath))
     }
     return Open-ExcelPackage -Path $resolvedPath -ErrorAction Stop

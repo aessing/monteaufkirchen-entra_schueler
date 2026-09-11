@@ -195,6 +195,25 @@ Erwartung:
 
 Melde das Testkonto einmal mit dem Initialpasswort an. Es darf kein erzwungener Passwortwechsel erscheinen.
 
+### Manuellen Add-Modus testen
+
+Verwende ausschließlich ein erfundenes Testkonto und starte ohne Transcript:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin'
+```
+
+Erwartung bei der Neuanlage:
+
+- keine Excel-Datei wird gelesen oder verändert
+- das Passwort hat genau 12 Zeichen und erscheint genau einmal im Terminal, auch bei einem simulierten Teilfehler nach der Kontoerstellung
+- Ergebnisobjekt und `-OutputFile` enthalten das Passwort nicht
+- Konto, Pflichtattribute, Manager und Gruppen werden vor der Aktivierung verifiziert
+- Exchange wird sofort und danach höchstens fünfmal mit jeweils 60 Sekunden Wartezeit geprüft
+
+Führe denselben Befehl danach erneut mit einer geänderten Klasse aus. Erwartung: Der vorhandene Schüler wird aktualisiert. Es entsteht kein weiteres Konto und kein neues Passwort. Der vorhandene UPN bleibt unverändert. Deaktiviere das synthetische Konto und wiederhole `-Add`. Das Konto darf erst nach geprüftem Pflichtzustand aktiviert werden. Simuliere außerdem einen Fehler nach der Kontoerstellung und prüfe den ausgegebenen Wiederanlauf mit `-EntraObjectId`.
+
 ## 8. UPN-Kollision testen
 
 Reserviere den ersten UPN-Kandidaten mit einem synthetischen Benutzer oder Exchange-Empfänger. Führe den Vergleich aus und prüfe:
@@ -246,6 +265,17 @@ Erwartung:
 - Konto, Lizenz und Gruppen wurden nicht gelöscht
 - ein erneuter Vergleich zeigt den weiterhin in der Schüler-Rollengruppe vorhandenen deaktivierten Abgang
 - ein erneuter lesender Lauf führt keine Mutation aus
+
+### Manuellen Remove-Modus testen
+
+Verwende einen erfundenen UPN, der direkt Mitglied der Schüler-Rollengruppe ist:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com'
+```
+
+Erwartung: Genau dieses Konto wird deaktiviert und seine Sitzungen werden widerrufen. Der Benutzer wird nicht gelöscht. Gruppen und Lizenzen bleiben erhalten. Wiederhole den Test mit einem Benutzer außerhalb der direkten Schüler-Rollengruppe. Dieser Lauf muss vor jeder Mutation fehlschlagen.
 
 ## 11. Exchange Online testen
 

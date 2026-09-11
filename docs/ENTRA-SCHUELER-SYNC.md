@@ -4,7 +4,7 @@ Diese Dokumentation beschreibt den fachlichen Vertrag und die tatsächlich imple
 
 ## Zweck und Grenzen
 
-`Sync-SchuelerEntra.ps1` gleicht Schülerdaten aus genau einer `.xlsx`-Datei mit Microsoft Entra ID und Exchange Online ab. Der Lauf ohne `-Update` ist der Standard und bleibt vollständig lesend. Das Skript löscht keine Benutzer. Abgänge werden nur bei entsprechender Auswahl deaktiviert und ihre Sitzungen optional widerrufen. Gruppen und Lizenzen eines Abgangs bleiben erhalten.
+`Sync-SchuelerEntra.ps1` gleicht Schülerdaten aus genau einer `.xlsx`-Datei mit Microsoft Entra ID und Exchange Online ab. Der Lauf ohne Aktionsparameter ist der Standard und bleibt vollständig lesend. Schreibzugriffe benötigen ausdrücklich `-Update`, `-Add`, `-Remove` oder den Exchange-Reparaturmodus. Das Skript löscht keine Benutzer. Abgänge werden nur bei entsprechender Auswahl deaktiviert und ihre Sitzungen optional widerrufen. Gruppen und Lizenzen eines Abgangs bleiben erhalten.
 
 Der reine Exchange-Modus liest keine Excel-Datei und ändert weder Entra-Benutzer noch Gruppen.
 
@@ -63,7 +63,7 @@ Vor einem Update zeigt das Skript Tenant-ID und Konto an. Setze optional `Expect
 
 Ohne `-File` liest das Skript `Schueler.xlsx` im Repository-Root. `-File` akzeptiert einen relativen oder absoluten Pfad. Relative Pfade werden gegen das aktuelle PowerShell-Arbeitsverzeichnis aufgelöst. Zulässig ist ausschließlich `.xlsx`.
 
-Das Skript verwendet das einzige Arbeitsblatt, das alle fünf Pflichtspalten enthält. Gibt es kein passendes oder mehr als ein passendes Arbeitsblatt, ist die Vorprüfung fehlgeschlagen.
+Die Kopfzeile steht in Zeile 1. Die Reihenfolge der Spalten ist frei. Das Skript verwendet genau ein Arbeitsblatt, das alle fünf Pflichtspalten enthält. Der Name des Arbeitsblatts ist frei. Gibt es kein passendes oder mehr als ein passendes Arbeitsblatt, ist die Vorprüfung fehlgeschlagen.
 
 Pflichtspalten:
 
@@ -84,6 +84,15 @@ Vom Skript verwaltete Zusatzspalten:
 | `UPN` | Tatsächlich verwendeter UPN |
 
 Fehlende Zusatzspalten werden nur bei einer autorisierten Rückschreibung rechts ergänzt. Vollständig leere Zeilen werden ignoriert. Eine teilweise gefüllte Datenzeile führt zum Abbruch.
+
+So darf die Tabelle beispielsweise aussehen:
+
+| Name mit Rufname | Vorname | Nachname | Klassen | Klassenlehrer | Passwort | EntraObjectId | UPN |
+|---|---|---|---|---|---|---|---|
+| Muster, Mia | Mia | Muster | JK1-3g2_1 | Lea Lehrerin | | | |
+| Beispiel, Ömer | Ömer | Beispiel | JK4-6m2_4 | lehrer@monteaufkirchen.com | | | |
+
+Für jede nicht vollständig leere Datenzeile müssen alle fünf Pflichtfelder gefüllt sein. `Klassenlehrer` enthält entweder den exakten Entra-DisplayName oder die exakte Mail-Adresse beziehungsweise den UPN der Lehrkraft. `Passwort`, `EntraObjectId` und `UPN` sind optional. Lasse sie für neue Schüler leer. Ändere vorhandene Werte in diesen drei verwalteten Spalten nicht manuell während eines Laufs.
 
 ### Git- und Dateischutz
 
@@ -193,7 +202,9 @@ Der kuratierte Wortschatz enthält 847 vertraute Wörter und einfache Wortformen
 
 Das Passwortprofil setzt `ForceChangePasswordNextSignIn = false`. Lehnt Entra das Passwort eindeutig wegen der Passwort-Richtlinie ab, werden höchstens fünf neue Passwörter versucht. Einschließlich Erstversuch sind das maximal sechs Versuche. Andere Graph-Fehler werden nicht als Passwortfehler wiederholt.
 
-Passwörter erscheinen nicht in der Ausgabe, also weder in Tabellen noch in Informationsmeldungen oder Aktionsfehlern. Sie werden nur in die ausgewählte Excel-Datei und deren lokale Sicherung geschrieben. Bestehende Schülerpasswörter werden nie erzeugt, ersetzt oder zurückgesetzt.
+Im Excel-basierten Modus erscheinen Passwörter nicht in der Ausgabe, also weder in Tabellen noch in Informationsmeldungen oder Aktionsfehlern. Sie werden nur in die ausgewählte Excel-Datei und deren lokale Sicherung geschrieben. Bestehende Schülerpasswörter werden nie erzeugt, ersetzt oder zurückgesetzt.
+
+Im manuellen `-Add`-Modus gibt es keine Excel-Rückschreibung. Bei einer echten Neuanlage zeigt das Skript das Startpasswort genau einmal im Terminal an. Im Erfolgsfall geschieht dies nach verifizierter Aktivierung. Scheitert ein Schritt nach der Kontoerstellung, wird das Passwort für den sicheren Wiederanlauf ebenfalls einmal angezeigt und der Kontostatus ausdrücklich als unbekannt gemeldet. Das Passwort erscheint nicht im Ergebnisobjekt und nicht in `-OutputFile`. Bei einem bereits vorhandenen Schüler wird kein Passwort erzeugt oder angezeigt. Verwende für eine manuelle Neuanlage kein PowerShell-Transcript und kopiere das Passwort unmittelbar in einen geeigneten geschützten Kanal.
 
 ## Vergleichsausgabe
 
@@ -262,7 +273,27 @@ Sobald mindestens einer der folgenden Schalter angegeben wird, führt das Skript
 
 `-Mail` ist ein Array. Die Aliase sind `-UPN` und `-UserPrincipalName`. Dieser Parametersatz ist nicht mit `-File`, `-Update` oder den vier Graph-Aktionsschaltern kombinierbar. Er ändert nur die unten beschriebene Exchange-Konfiguration.
 
-`-OutputFile <Pfad>` schreibt den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Relative Pfade beziehen sich auf das aktuelle PowerShell-Arbeitsverzeichnis. Fehlende Unterordner werden angelegt und eine vorhandene Datei wird für jeden Lauf ersetzt. Der Parameter funktioniert im Vergleichs-, Update- und Exchange-Only-Modus. Die laufend aktualisierte Fortschrittsanzeige bleibt ausschließlich im Terminal. Verwende bevorzugt den per `.gitignore` ausgeschlossenen Ordner `Berichte`, da der Bericht personenbezogene Schülerdaten enthält.
+### Einzelnen Schüler anlegen oder aktualisieren
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'lehrerin@monteaufkirchen.com'
+```
+
+`-Add` liest und schreibt keine Excel-Datei. Das Skript sucht den Schüler über den eindeutig normalisierten Vor- und Nachnamen innerhalb der direkten Schüler-Rollengruppe. Gibt es noch keinen Treffer, legt es den Schüler mit allen Pflichtattributen und Gruppen an. Gibt es genau einen Treffer, bleiben dessen UPN und Passwort erhalten und das Skript aktualisiert abweichende Attribute, Manager und verwaltete Gruppen. Ein deaktiviertes Bestandskonto wird erst nach erfolgreicher Prüfung dieses Pflichtzustands aktiviert. Mehrdeutige Namen oder ein gleichnamiger Benutzer außerhalb der Schüler-Rollengruppe blockieren den Lauf. Nach einer erfolgreichen Neuanlage oder Aktualisierung wird Exchange Online automatisch geprüft und konfiguriert, einschließlich der konfigurierten Wiederholungen.
+
+`-EntraObjectId <ID>` ist ausschließlich für den vom Skript ausgegebenen Wiederanlauf nach einer teilweise erfolgreichen manuellen Neuanlage vorgesehen. Damit wird exakt das bereits erzeugte Entra-Objekt weiterverarbeitet, auch wenn die Schüler-Rollengruppe beim ersten Versuch noch nicht gesetzt werden konnte. Übernimm die Objekt-ID nur aus dem vorherigen Aktionsergebnis und prüfe sie vor der Bestätigung.
+
+### Einzelnen Schüler deaktivieren
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com'
+```
+
+`-Remove` akzeptiert genau einen UPN und liest keine Excel-Datei. Der gefundene Benutzer muss direktes Mitglied von `SEC-A-ROL-Schule_Schüler` sein. Das Skript deaktiviert ausschließlich dieses Konto und widerruft anschließend dessen Sitzungen. Es löscht den Benutzer nicht und entfernt weder Gruppen noch Lizenzen. Auch wenn die Deaktivierung fehlschlägt, versucht es den Sitzungswiderruf und meldet beide Ergebnisse getrennt.
+
+`-OutputFile <Pfad>` schreibt den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Relative Pfade beziehen sich auf das aktuelle PowerShell-Arbeitsverzeichnis. Fehlende Unterordner werden angelegt und eine vorhandene Datei wird für jeden Lauf ersetzt. Der Parameter funktioniert im Vergleichs-, Update-, Add-, Remove- und Exchange-Only-Modus. Die laufend aktualisierte Fortschrittsanzeige bleibt ausschließlich im Terminal. Verwende bevorzugt den per `.gitignore` ausgeschlossenen Ordner `Berichte`, da der Bericht personenbezogene Schülerdaten enthält.
 
 Bestehende Entra-Benutzer behalten ihren aktuellen UPN auch dann, wenn sich Vorname oder Nachname in Excel ändern. Mail und `mailNickname` werden für den Sollvergleich aus diesem bestehenden UPN abgeleitet. Nur bei Neuzugängen erzeugt das Skript einen neuen kollisionsfreien UPN.
 

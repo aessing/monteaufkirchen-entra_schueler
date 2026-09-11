@@ -232,9 +232,15 @@ function Invoke-StudentDeparture {
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
         [switch] $DisableUsers, [switch] $RevokeSessions,
-        [Parameter(Mandatory)][string] $File, [object[]] $Secrets
+        [string] $File, [object[]] $Secrets,
+        [string] $RecoveryCommand
     )
     $ErrorActionPreference = 'Stop'
+    $recovery = if (-not [string]::IsNullOrWhiteSpace($RecoveryCommand)) {
+        $RecoveryCommand
+    } elseif (-not [string]::IsNullOrWhiteSpace($File)) {
+        Get-StudentRecoveryCommand -File $File
+    } else { '' }
     foreach ($entry in $Entries) {
         foreach ($phase in 'Disable', 'RevokeSessions') {
             if (($phase -eq 'Disable' -and -not $DisableUsers) -or ($phase -eq 'RevokeSessions' -and -not $RevokeSessions)) { continue }
@@ -259,7 +265,7 @@ function Invoke-StudentDeparture {
                 }
                 New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase $phase -Status Succeeded
             } catch {
-                New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase $phase -Status Failed -Message $_.Exception.Message -Secrets $Secrets -RecoveryCommand (Get-StudentRecoveryCommand -File $File)
+                New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase $phase -Status Failed -Message $_.Exception.Message -Secrets $Secrets -RecoveryCommand $recovery
             }
         }
     }

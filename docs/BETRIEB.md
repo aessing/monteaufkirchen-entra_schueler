@@ -127,6 +127,26 @@ Prüfe nach einem Abgang:
 - Graph hat den Sitzungswiderruf bestätigt, wenn Revoke gewählt war
 - Benutzer, Gruppen und Lizenzen wurden nicht gelöscht
 
+## Einzelnen Schüler ohne Excel bearbeiten
+
+Prüfe eine manuelle Neuanlage oder Aktualisierung zuerst mit `-WhatIf`:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin'
+```
+
+Bei einer erfolgreichen Neuanlage erscheint das Passwort nach verifizierter Aktivierung genau einmal im Terminal. Scheitert ein später Schritt nach der Kontoerstellung, erscheint es ebenfalls einmal für den Wiederanlauf. Der Bericht nennt dann einen unbekannten Kontostatus, die Objekt-ID und einen `-EntraObjectId`-Wiederanlaufbefehl. Prüfe die Objekt-ID vor der Ausführung. Starte dafür kein Transcript und sichere das Passwort unmittelbar. Ist der Schüler bereits eindeutig in der direkten Schüler-Rollengruppe vorhanden, aktualisiert das Skript nur seine Abweichungen. UPN und Passwort bleiben unverändert. Ein deaktiviertes Bestandskonto wird nach verifiziertem Pflichtzustand aktiviert.
+
+Zum Deaktivieren eines einzelnen Schülers und Widerrufen seiner Sitzungen:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com'
+```
+
+Prüfe vor dem zweiten Befehl den exakten UPN und die angezeigte Tenant-ID. `-Remove` akzeptiert nur direkte Mitglieder von `SEC-A-ROL-Schule_Schüler`. Konto, Gruppen und Lizenzen werden nicht gelöscht.
+
 ## Exchange-Reparatur
 
 Ein neues Postfach wird sofort und danach bis zu fünfmal im Abstand von 60 Sekunden geprüft. Das Warten geschieht einmal pro Batch-Runde. Nach dem letzten Versuch bleibt der Entra-Zustand erhalten und das Ergebnis meldet `EXO-Konfiguration ausstehend`.

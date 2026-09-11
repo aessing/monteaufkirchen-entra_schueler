@@ -2,7 +2,7 @@
 
 # Entra-Schülersynchronisation
 
-Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra ID und Exchange Online. Der Standardlauf ist rein lesend. Änderungen benötigen ausdrücklich `-Update` oder den getrennten Exchange-Reparaturmodus.
+Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra ID und Exchange Online. Der Standardlauf ist rein lesend. Änderungen benötigen ausdrücklich `-Update`, `-Add`, `-Remove` oder den getrennten Exchange-Reparaturmodus.
 
 > [!IMPORTANT]
 > Die Excel-Datei enthält personenbezogene Daten und nach Neuanlagen auch Initialpasswörter. Arbeitsmappen im Root und in Unterordnern sowie Sicherungen und temporäre Kopien sind per `.gitignore` ausgeschlossen. Nur die mitgelieferte synthetische Fixture ist ausgenommen. Vor der Rückschreibung prüft das Skript jeden konkreten Dateipfad. Committe keine produktiven Schülerlisten, Sicherungen oder Konsolenausgaben mit personenbezogenen Daten.
@@ -17,6 +17,8 @@ Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra I
 - Genau eine Schüler-Rollengruppe und eine aktuelle Klassengruppe pro aktivem Schüler
 - Automatischer Exchange-Abgleich mit sofortiger Prüfung und bis zu fünf Wiederholungen im Abstand von 60 Sekunden
 - Separater Exchange-Reparaturlauf für einzelne oder mehrere UPNs
+- Manuelles Anlegen oder Aktualisieren eines einzelnen Schülers mit `-Add`
+- Sicheres Deaktivieren eines einzelnen Schülers und Widerrufen seiner Sitzungen mit `-Remove`
 
 ## Voraussetzungen
 
@@ -78,6 +80,22 @@ Eine ausstehende Exchange-Konfiguration kannst du später gezielt nachholen:
 
 `-Mail` akzeptiert auch die Aliase `-UPN` und `-UserPrincipalName`.
 
+Einen einzelnen Schüler kannst du ohne Excel-Datei anlegen oder aktualisieren:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin'
+```
+
+Ist der Schüler bereits eindeutig in der Schüler-Rollengruppe vorhanden, aktualisiert das Skript seine abweichenden Daten. Ein deaktiviertes Bestandskonto wird erst nach erfolgreicher Prüfung des Pflichtzustands aktiviert. Nur bei einer echten Neuanlage entsteht ein Passwort. Es wird genau einmal im Terminal angezeigt, nicht in Excel und nicht in `-OutputFile`. Bei einem Teilfehler enthält das Ergebnis die Objekt-ID und einen sicheren Wiederanlaufbefehl.
+
+Einen einzelnen Schüler deaktivierst du per UPN. Dabei werden zusätzlich alle Sitzungen widerrufen. Der Benutzer wird nicht gelöscht und seine Gruppen oder Lizenzen bleiben erhalten:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com' -WhatIf
+.\Sync-SchuelerEntra.ps1 -Remove -UPN 'mmuster@monteaufkirchen.com'
+```
+
 ## Sicherheitsmodell
 
 - Vergleich ist immer der Standard.
@@ -87,7 +105,7 @@ Eine ausstehende Exchange-Konfiguration kannst du später gezielt nachholen:
 - Bestehende Passwörter werden weder neu erzeugt noch geändert.
 - Abgänge werden deaktiviert und optional von Sitzungen getrennt. Sie werden nicht gelöscht und behalten ihre Gruppen und Lizenzen.
 - `legalAgeGroupClassification` wird nur gegen `MinorWithParentalConsent` geprüft. Das schreibgeschützte Graph-Feld wird nicht gesetzt.
-- Die Ausgabe enthält keine Passwörter.
+- Berichte, Ergebnisobjekte und `-OutputFile` enthalten keine Passwörter. Nur `-Add` zeigt das Initialpasswort einer echten Neuanlage einmalig im Terminal an.
 
 ## Dokumentation
 

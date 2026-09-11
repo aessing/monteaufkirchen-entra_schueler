@@ -33,6 +33,9 @@ Describe 'Public orchestration' {
             Mock Invoke-StudentCreateBatch { New-StudentActionResult -UserId 'new' -UserPrincipalName 'new@monteaufkirchen.com' -Phase Create -Status Succeeded }
             Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Update -Status Succeeded }
             Mock Invoke-StudentDeparture { return }
+            Mock Invoke-ManualStudentAdd { New-StudentActionResult -UserId 'new' -UserPrincipalName 'new@monteaufkirchen.com' -Phase Add -Status Succeeded }
+            Mock Invoke-ManualStudentUpdate { New-StudentActionResult -UserId 'existing' -UserPrincipalName 'existing@monteaufkirchen.com' -Phase Add -Status Succeeded }
+            Mock Write-StudentWorkbookUpdate { throw 'Manual operations must not write Excel.' }
             Mock Wait-StudentMailbox { [pscustomobject]@{ Ready = @(); Missing = @(); Failed = @() } }
             Mock Write-Information { return }
             Mock Write-Progress { return }
@@ -149,6 +152,123 @@ Describe 'Public orchestration' {
             Should -Invoke Read-StudentWorkbook -Times 0
             Should -Invoke Connect-SchuelerGraph -Times 0
             Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'test@monteaufkirchen.com' }
+        }
+        It 'adds one manual student without reading or writing Excel and configures Exchange' {
+            $script:comparison = [pscustomobject]@{
+                NewStudents = @((New-TestEntry '' 0)); ChangedStudents = @(); ExistingStudents = @(); Departures = @()
+                Warnings = @(); Errors = @()
+            }
+
+            $result = Invoke-SchuelerSync -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -Confirm:$false
+
+            $result.Mode | Should -Be 'Add'
+            Should -Invoke Read-StudentWorkbook -Times 0 -Exactly
+            Should -Invoke Write-StudentWorkbookUpdate -Times 0 -Exactly
+            Should -Invoke Invoke-ManualStudentAdd -Times 1 -Exactly
+            Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName -eq 'new@monteaufkirchen.com' } -Times 1 -Exactly
+        }
+        It 'updates an existing manual student without generating a new account or touching Excel' {
+            $script:comparison = [pscustomobject]@{
+                NewStudents = @(); ChangedStudents = @((New-TestEntry 'existing' 0)); ExistingStudents = @(); Departures = @()
+                Warnings = @(); Errors = @()
+            }
+
+            $result = Invoke-SchuelerSync -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -Confirm:$false
+
+            $result.Mode | Should -Be 'Add'
+            Should -Invoke Invoke-ManualStudentAdd -Times 0 -Exactly
+            Should -Invoke Invoke-ManualStudentUpdate -Times 1 -Exactly
+            Should -Invoke Write-StudentWorkbookUpdate -Times 0 -Exactly
+            Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName -eq 'existing@monteaufkirchen.com' } -Times 1 -Exactly
+        }
+        It 'keeps a successful manual add and reports a recoverable Exchange failure separately' {
+            $script:comparison = [pscustomobject]@{
+                NewStudents = @((New-TestEntry '' 0)); ChangedStudents = @(); ExistingStudents = @(); Departures = @()
+                Warnings = @(); Errors = @()
+            }
+            Mock Wait-StudentMailbox { throw 'Exchange unavailable' }
+
+            $result = Invoke-SchuelerSync -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin' -Confirm:$false
+
+            $result.Actions | Where-Object { $_.Phase -eq 'Add' -and $_.Status -eq 'Succeeded' } | Should -HaveCount 1
+            $exchangeFailure = @($result.Actions | Where-Object { $_.Phase -eq 'Exchange' -and $_.Status -eq 'Failed' })
+            $exchangeFailure | Should -HaveCount 1
+            $exchangeFailure[0].RecoveryCommand | Should -Match ([regex]::Escape('-ConfigureExchangeOnlineOnly'))
+            $result.Comparison.Errors | Should -HaveCount 0
+        }
+        It 'resumes an exact partially created student by validated Entra object ID' {
+            $resumeId = '11111111-2222-3333-4444-555555555555'
+            $entry = New-TestEntry $resumeId 0
+            $entry.User | Add-Member -NotePropertyName GivenName -NotePropertyValue 'Mia'
+            $entry.User | Add-Member -NotePropertyName Surname -NotePropertyValue 'Muster'
+            $entry.User | Add-Member -NotePropertyName EmployeeType -NotePropertyValue 'Schüler'
+            $entry.User | Add-Member -NotePropertyName CompanyName -NotePropertyValue 'Montessori Schule Aufkirchen'
+            $script:comparison = [pscustomobject]@{
+                NewStudents = @(); ChangedStudents = @($entry); ExistingStudents = @(); Departures = @()
+                Warnings = @(); Errors = @()
+            }
+
+            $result = Invoke-SchuelerSync -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' `
+                -Klassenlehrer 'Lea Lehrerin' -EntraObjectId $resumeId -Confirm:$false
+
+            $result.HasErrors | Should -BeFalse
+            Should -Invoke Compare-StudentDirectory -ParameterFilter { $Students[0].EntraObjectId -eq $resumeId } -Times 1 -Exactly
+            Should -Invoke Invoke-ManualStudentUpdate -Times 1 -Exactly
+            Should -Invoke Invoke-ManualStudentAdd -Times 0 -Exactly
+        }
+        It 'rejects a recovery object ID that is not the supplied configured student' {
+            $resumeId = '11111111-2222-3333-4444-555555555555'
+            $entry = New-TestEntry $resumeId 0
+            $entry.User | Add-Member -NotePropertyName GivenName -NotePropertyValue 'Andere'
+            $entry.User | Add-Member -NotePropertyName Surname -NotePropertyValue 'Person'
+            $entry.User | Add-Member -NotePropertyName EmployeeType -NotePropertyValue 'Mitarbeiter'
+            $entry.User | Add-Member -NotePropertyName CompanyName -NotePropertyValue 'Andere Firma'
+            $script:comparison = [pscustomobject]@{
+                NewStudents = @(); ChangedStudents = @($entry); ExistingStudents = @(); Departures = @()
+                Warnings = @(); Errors = @()
+            }
+
+            $result = Invoke-SchuelerSync -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' `
+                -Klassenlehrer 'Lea Lehrerin' -EntraObjectId $resumeId -Confirm:$false
+
+            $result.HasErrors | Should -BeTrue
+            Should -Invoke Invoke-ManualStudentUpdate -Times 0 -Exactly
+            Should -Invoke Invoke-ManualStudentAdd -Times 0 -Exactly
+        }
+        It 'removes exactly one direct student-role member by UPN' {
+            $members = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            [void]$members.Add('student-id')
+            Mock Get-EntraSnapshot {
+                [pscustomobject]@{
+                    UsersByUpn = @{ 'student@monteaufkirchen.com' = [pscustomobject]@{
+                            Id = 'student-id'; UserPrincipalName = 'student@monteaufkirchen.com'; DisplayName = 'Student Test'; AccountEnabled = $true
+                        } }
+                    StudentRoleMemberIds = $members
+                }
+            }
+
+            $result = Invoke-SchuelerSync -Remove -UPN 'student@monteaufkirchen.com' -Confirm:$false
+
+            $result.Mode | Should -Be 'Remove'
+            Should -Invoke Read-StudentWorkbook -Times 0 -Exactly
+            Should -Invoke Invoke-StudentDeparture -ParameterFilter { $DisableUsers -and $RevokeSessions -and $Entries.Count -eq 1 } -Times 1 -Exactly
+        }
+        It 'refuses to remove a user outside the direct student role group' {
+            $members = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            Mock Get-EntraSnapshot {
+                [pscustomobject]@{
+                    UsersByUpn = @{ 'staff@monteaufkirchen.com' = [pscustomobject]@{
+                            Id = 'staff-id'; UserPrincipalName = 'staff@monteaufkirchen.com'; DisplayName = 'Staff Test'; AccountEnabled = $true
+                        } }
+                    StudentRoleMemberIds = $members
+                }
+            }
+
+            $result = Invoke-SchuelerSync -Remove -UPN 'staff@monteaufkirchen.com' -Confirm:$false
+
+            $result.HasErrors | Should -BeTrue
+            $result.Comparison.Errors[0].RecoveryCommand | Should -BeNullOrEmpty
+            Should -Invoke Invoke-StudentDeparture -Times 0 -Exactly
         }
         It 'WhatIf retains reads and plans without invoking Graph orchestration mutations' {
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -WhatIf

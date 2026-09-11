@@ -69,7 +69,9 @@ function ConvertTo-SafeStudentComparison {
                 Message = Protect-StudentMessage -Message $_.Message -Secrets $Secrets
                 RecoveryCommand = if ($_.Area -eq 'Exchange' -and $_.Field -eq 'Mailbox' -and $upn) {
                     Get-StudentRecoveryCommand -UserPrincipalName $upn -ExchangeOnly
-                } else { Get-StudentRecoveryCommand -File $File }
+                } elseif (-not [string]::IsNullOrWhiteSpace($File)) {
+                    Get-StudentRecoveryCommand -File $File
+                } else { '' }
             }
         })
     }

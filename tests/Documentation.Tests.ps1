@@ -17,7 +17,8 @@ Describe 'Documentation contract' {
     It 'derives every documented public selector from the executable command' {
         foreach ($parameter in @(
                 'File', 'Update', 'CreateNewUsers', 'DisableUsers', 'UpdateUsers',
-                'RevokeSessions', 'ConfigureExchangeOnlineOnly', 'Mail', 'OutputFile', 'WhatIf',
+                'RevokeSessions', 'ConfigureExchangeOnlineOnly', 'Mail', 'OutputFile',
+                'Add', 'Remove', 'Vorname', 'Nachname', 'Klasse', 'Klassenlehrer', 'EntraObjectId', 'WhatIf',
                 'Confirm', 'Verbose'
             )) {
             $command.Parameters.Keys | Should -Contain $parameter
@@ -46,12 +47,24 @@ Describe 'Documentation contract' {
         $readme | Should -Match ([regex]::Escape('-ConfigureExchangeOnlineOnly'))
         $readme | Should -Match ([regex]::Escape('-Mail'))
         $readme | Should -Match ([regex]::Escape('-OutputFile'))
+        $readme | Should -Match ([regex]::Escape('-Add'))
+        $readme | Should -Match ([regex]::Escape('-Remove'))
     }
 
     It 'keeps the recommended report directory out of Git' {
         $reportPath = Join-Path $repoRoot 'Berichte/Schueler-Abgleich.txt'
         $null = & git -C $repoRoot check-ignore --no-index $reportPath
         $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'documents the exact workbook schema and managed columns' {
+        foreach ($header in @('Name mit Rufname', 'Vorname', 'Nachname', 'Klassen', 'Klassenlehrer', 'Passwort', 'EntraObjectId', 'UPN')) {
+            $guide | Should -Match ([regex]::Escape($header))
+        }
+        $guide | Should -Match 'Kopfzeile|Zeile 1'
+        $guide | Should -Match 'genau ein Arbeitsblatt'
+        $guide | Should -Match 'vollständig leer|leere Zeilen'
+        $guide | Should -Match ([regex]::Escape('JK1-3g2_1'))
     }
 
     It 'documents runtime modules, Graph scopes, roles and privacy boundaries' {
