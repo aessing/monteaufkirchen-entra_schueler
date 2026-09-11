@@ -384,6 +384,12 @@ function Test-EntraPasswordPolicyRejection {
 
 function New-DisabledEntraStudent {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    # New-MgUser requires an in-memory plain string. It is not logged and is persisted only to the protected workbook.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingPlainTextForPassword',
+        'Password',
+        Justification = 'New-MgUser requires an in-memory plain string that is not logged and is persisted only to the protected workbook.'
+    )]
     param(
         [Parameter(Mandatory)][object] $Desired,
         [Parameter(Mandatory)][string] $Password
