@@ -15,12 +15,17 @@ BeforeAll {
 
 AfterAll {
     Remove-Variable -Name EntraTestConfig -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name EntraTestGraphContexts -Scope Global -ErrorAction SilentlyContinue
 }
 
 Describe 'Microsoft Graph inventory and manager resolution' {
     BeforeEach {
         Mock Connect-MgGraph -ModuleName SchuelerSync {}
+        $global:EntraTestGraphContexts = [Collections.Generic.Queue[object]]::new()
         Mock Get-MgContext -ModuleName SchuelerSync {
+            if ($global:EntraTestGraphContexts.Count -gt 0) {
+                return $global:EntraTestGraphContexts.Dequeue()
+            }
             [pscustomobject]@{
                 Scopes = @(
                     'User.ReadWrite.All'
@@ -118,6 +123,71 @@ Describe 'Microsoft Graph inventory and manager resolution' {
     }
 
     InModuleScope SchuelerSync {
+        It 'reuses a complete existing Graph context with scope casing differences' {
+            [void]$global:EntraTestGraphContexts.Enqueue([pscustomobject]@{
+                Scopes = @(
+                    'user.readwrite.all'
+                    'USER-MAIL.READWRITE.ALL'
+                    'group.read.all'
+                    'GROUPMEMBER.READWRITE.ALL'
+                    'user.revokesessions.all'
+                )
+            })
+
+            $context = Connect-SchuelerGraph
+
+            $context.Scopes.Count | Should -Be 5
+            Should -Invoke Connect-MgGraph -Times 0 -Exactly
+            Should -Invoke Get-MgContext -Times 1 -Exactly
+        }
+
+        It 'connects with the complete required scope set when the existing context is incomplete' {
+            [void]$global:EntraTestGraphContexts.Enqueue([pscustomobject]@{
+                Scopes = @('User.ReadWrite.All')
+            })
+            [void]$global:EntraTestGraphContexts.Enqueue([pscustomobject]@{
+                Scopes = @(
+                    'User.ReadWrite.All'
+                    'User-Mail.ReadWrite.All'
+                    'Group.Read.All'
+                    'GroupMember.ReadWrite.All'
+                    'User.RevokeSessions.All'
+                )
+            })
+
+            Connect-SchuelerGraph | Should -Not -BeNullOrEmpty
+
+            Should -Invoke Connect-MgGraph -Times 1 -Exactly -ParameterFilter {
+                $requiredScopes = @(
+                    'User.ReadWrite.All'
+                    'User-Mail.ReadWrite.All'
+                    'Group.Read.All'
+                    'GroupMember.ReadWrite.All'
+                    'User.RevokeSessions.All'
+                )
+                $NoWelcome -and $Scopes.Count -eq $requiredScopes.Count -and
+                @($requiredScopes | Where-Object { $Scopes -notcontains $_ }).Count -eq 0
+            }
+            Should -Invoke Get-MgContext -Times 2 -Exactly
+        }
+
+        It 'reports missing scopes when the post-connect context remains incomplete' {
+            [void]$global:EntraTestGraphContexts.Enqueue([pscustomobject]@{
+                Scopes = @('User.ReadWrite.All')
+            })
+            [void]$global:EntraTestGraphContexts.Enqueue([pscustomobject]@{
+                Scopes = @(
+                    'User.ReadWrite.All'
+                    'Group.Read.All'
+                    'User.RevokeSessions.All'
+                )
+            })
+
+            { Connect-SchuelerGraph } |
+                Should -Throw '*User-Mail.ReadWrite.All*GroupMember.ReadWrite.All*'
+            Should -Invoke Connect-MgGraph -Times 1 -Exactly
+        }
+
         It 'requests the complete user property set once' {
             Get-EntraSnapshot -Config $global:EntraTestConfig
 
@@ -128,6 +198,15 @@ Describe 'Microsoft Graph inventory and manager resolution' {
                     'consentProvidedForMinor', 'legalAgeGroupClassification', 'accountEnabled', 'userType'
                 )
                 $All -and @($requiredProperties | Where-Object { $Property -notcontains $_ }).Count -eq 0
+            }
+            Should -Invoke Get-MgGroup -Times 1 -Exactly -ParameterFilter {
+                $requiredProperties = @(
+                    'id', 'displayName', 'groupTypes', 'membershipRule', 'membershipRuleProcessingState'
+                )
+                $All -and @($requiredProperties | Where-Object { $Property -notcontains $_ }).Count -eq 0
+            }
+            Should -Invoke Get-MgGroupMember -Times 1 -Exactly -ParameterFilter {
+                $All -and $GroupId -eq $global:EntraTestConfig.StudentRoleGroup.Id
             }
         }
 
