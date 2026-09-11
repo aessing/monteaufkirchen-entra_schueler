@@ -1,5 +1,87 @@
 BeforeAll {
     $repoRoot = Split-Path $PSScriptRoot -Parent
+    $global:ExchangeTestStubCommands = [Collections.Generic.List[string]]::new()
+
+    if ($null -eq (Get-Command Get-ConnectionInformation -ErrorAction SilentlyContinue)) {
+        function global:Get-ConnectionInformation {
+            [CmdletBinding()]
+            param()
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Get-ConnectionInformation')
+    }
+    if ($null -eq (Get-Command Connect-ExchangeOnline -ErrorAction SilentlyContinue)) {
+        function global:Connect-ExchangeOnline {
+            [CmdletBinding()]
+            param([bool] $ShowBanner)
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Connect-ExchangeOnline')
+    }
+    if ($null -eq (Get-Command Get-Recipient -ErrorAction SilentlyContinue)) {
+        function global:Get-Recipient {
+            [CmdletBinding()]
+            param([object] $ResultSize)
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Get-Recipient')
+    }
+    if ($null -eq (Get-Command Get-Mailbox -ErrorAction SilentlyContinue)) {
+        function global:Get-Mailbox {
+            [CmdletBinding()]
+            param([string] $Identity)
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Get-Mailbox')
+    }
+    if ($null -eq (Get-Command Get-CASMailbox -ErrorAction SilentlyContinue)) {
+        function global:Get-CASMailbox {
+            [CmdletBinding()]
+            param([string] $Identity)
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Get-CASMailbox')
+    }
+    if ($null -eq (Get-Command Set-Mailbox -ErrorAction SilentlyContinue)) {
+        function global:Set-Mailbox {
+            [CmdletBinding(SupportsShouldProcess)]
+            param(
+                [string] $Identity,
+                [object] $AddressBookPolicy,
+                [string] $CustomAttribute1,
+                [bool] $AuditEnabled,
+                [object] $AuditLogAgeLimit,
+                [object] $RetainDeletedItemsFor,
+                [object] $RoleAssignmentPolicy,
+                [object] $SharingPolicy,
+                [object] $RetentionPolicy,
+                [object] $AuditDelegate,
+                [object] $AuditOwner,
+                [object] $AuditAdmin
+            )
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Set-Mailbox')
+    }
+    if ($null -eq (Get-Command Set-CASMailbox -ErrorAction SilentlyContinue)) {
+        function global:Set-CASMailbox {
+            [CmdletBinding(SupportsShouldProcess)]
+            param(
+                [string] $Identity,
+                [bool] $ActiveSyncEnabled,
+                [bool] $ImapEnabled,
+                [bool] $MAPIEnabled,
+                [bool] $OWAEnabled,
+                [bool] $OWAforDevicesEnabled,
+                [object] $OwaMailboxPolicy,
+                [bool] $PopEnabled,
+                [bool] $SmtpClientAuthenticationDisabled
+            )
+            throw 'Test stub must be mocked.'
+        }
+        $global:ExchangeTestStubCommands.Add('Set-CASMailbox')
+    }
+
     Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
 
     $global:ExchangeTestConfig = @{
@@ -15,6 +97,10 @@ BeforeAll {
 }
 
 AfterAll {
+    foreach ($commandName in @($global:ExchangeTestStubCommands)) {
+        Remove-Item -LiteralPath "Function:\global:$commandName" -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Variable -Name ExchangeTestStubCommands -Scope Global -ErrorAction SilentlyContinue
     Remove-Variable -Name ExchangeTestConfig -Scope Global -ErrorAction SilentlyContinue
     Remove-Variable -Name ExchangeTestState -Scope Global -ErrorAction SilentlyContinue
 }
@@ -122,6 +208,27 @@ Describe 'Exchange Online student mailbox adapter' {
                 Should -Invoke Get-ConnectionInformation -Times 2 -Exactly
             }
 
+            It 'does not reuse an Exchange Online Protection compliance session' {
+                [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
+                    Name = 'ExchangeOnline'
+                    State = 'Connected'
+                    IsEopSession = $true
+                    ConnectionUri = 'https://ps.compliance.protection.outlook.com/powershell-liveid/'
+                })
+                [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
+                    Name = 'ExchangeOnline'
+                    State = 'Connected'
+                    IsEopSession = $false
+                    ConnectionUri = 'https://outlook.office365.com/powershell-liveid/'
+                })
+
+                $connection = Connect-SchuelerExchangeOnline
+
+                $connection.IsEopSession | Should -BeFalse
+                Should -Invoke Connect-ExchangeOnline -Times 1 -Exactly
+                Should -Invoke Get-ConnectionInformation -Times 2 -Exactly
+            }
+
             It 'fails when the connection does not become active' {
                 { Connect-SchuelerExchangeOnline } | Should -Throw '*aktive Exchange-Online-Verbindung*'
                 Should -Invoke Connect-ExchangeOnline -Times 1 -Exactly
@@ -158,6 +265,20 @@ Describe 'Exchange Online student mailbox adapter' {
                 Should -Invoke Get-Recipient -Times 1 -Exactly -ParameterFilter {
                     $ResultSize -eq 'Unlimited' -and $ErrorAction -eq 'Stop'
                 }
+            }
+
+            It 'accepts an initially empty reserved-address set for the first recipient address' {
+                $reserved = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                $owners = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+
+                Add-ExchangeRecipientAddress `
+                    -ReservedAddresses $reserved `
+                    -AddressOwners $owners `
+                    -Address 'first@monteaufkirchen.com' `
+                    -OwnerId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+
+                $reserved.Count | Should -Be 1
+                $owners['first@monteaufkirchen.com'] | Should -Be @('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
             }
         }
 
@@ -439,6 +560,32 @@ Describe 'Exchange Online student mailbox adapter' {
                 $result.Error | Should -Match 'CustomAttribute1'
                 $result.RemainingDifferences.Field | Should -Contain 'CustomAttribute1'
                 Should -Invoke Set-Mailbox -Times 1 -Exactly
+            }
+
+            It 'fails when the mailbox disappears during post-write verification' {
+                $initialMailbox = $global:ExchangeTestState.CompliantMailbox | Select-Object *
+                $initialMailbox.CustomAttribute1 = 'Wrong'
+                [void]$global:ExchangeTestState.Mailboxes.Enqueue($initialMailbox)
+                Mock Get-Mailbox -ModuleName SchuelerSync {
+                    if ($global:ExchangeTestState.Mailboxes.Count -gt 0) {
+                        return $global:ExchangeTestState.Mailboxes.Dequeue()
+                    }
+                    throw [System.Management.Automation.ItemNotFoundException]::new(
+                        "The operation couldn't be performed because object 'mia.muster@monteaufkirchen.com' couldn't be found."
+                    )
+                }
+
+                $result = Set-StudentMailboxConfiguration `
+                    -UserPrincipalName 'mia.muster@monteaufkirchen.com' `
+                    -Config $global:ExchangeTestConfig `
+                    -Confirm:$false
+
+                $result.Status | Should -Be 'Failed'
+                $result.Error | Should -Match 'Verifikation.*Postfach'
+                Should -Invoke Set-Mailbox -Times 1 -Exactly
+                Should -Invoke Set-CASMailbox -Times 0 -Exactly
+                Should -Invoke Get-Mailbox -Times 2 -Exactly
+                Should -Invoke Get-CASMailbox -Times 1 -Exactly
             }
 
             It 'plans drift under WhatIf without writing or rereading' {

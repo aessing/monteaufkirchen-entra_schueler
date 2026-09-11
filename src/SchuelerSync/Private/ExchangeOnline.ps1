@@ -10,6 +10,17 @@ function Test-ExchangeOnlineConnectionActive {
         $state = [string](Get-ComparisonPropertyValue -InputObject $Connection -Name ConnectionState)
     }
 
+    $isEopValue = Get-ComparisonPropertyValue -InputObject $Connection -Name IsEopSession
+    $isEopSession = $false
+    if ($isEopValue -is [bool]) {
+        $isEopSession = [bool]$isEopValue
+    } elseif (-not [string]::IsNullOrWhiteSpace([string]$isEopValue)) {
+        [void][bool]::TryParse([string]$isEopValue, [ref]$isEopSession)
+    }
+    $isComplianceIdentity = $name -match '(?i)SecurityCompliance|Compliance|Protection' -or
+        $connectionUri -match '(?i)compliance\.protection\.outlook\.com|ps\.protection\.outlook\.com'
+    if ($isEopSession -or $isComplianceIdentity) { return $false }
+
     $isExchangeOnline = $name -match '(?i)ExchangeOnline' -or
         $moduleName -match '(?i)ExchangeOnline' -or
         $connectionUri -match '(?i)outlook\.office365\.com|exchange\.microsoft\.com'
@@ -35,7 +46,7 @@ function Connect-SchuelerExchangeOnline {
 
 function Add-ExchangeRecipientAddress {
     param(
-        [Parameter(Mandatory)][Collections.Generic.HashSet[string]] $ReservedAddresses,
+        [Parameter(Mandatory)][AllowEmptyCollection()][Collections.Generic.HashSet[string]] $ReservedAddresses,
         [Parameter(Mandatory)][System.Collections.IDictionary] $AddressOwners,
         [AllowNull()][object] $Address,
         [AllowNull()][object] $OwnerId,
@@ -399,6 +410,19 @@ function Set-StudentMailboxConfiguration {
     } catch {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Failed -Changed:$true `
             -Differences $differences -RemainingDifferences $differences -ErrorMessage $_.Exception.Message
+    }
+    $verifiedReady = [bool](Get-ComparisonPropertyValue -InputObject $verified -Name Exists) -and
+        [string]::Equals(
+            [string](Get-ComparisonPropertyValue -InputObject $verified -Name Status),
+            'Ready',
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        $null -ne (Get-ComparisonPropertyValue -InputObject $verified -Name Mailbox) -and
+        $null -ne (Get-ComparisonPropertyValue -InputObject $verified -Name CasMailbox)
+    if (-not $verifiedReady) {
+        return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Failed -Changed:$true `
+            -Differences $differences -RemainingDifferences $differences `
+            -ErrorMessage 'Exchange-Verifikation fehlgeschlagen: Das Postfach ist nach der Schreiboperation nicht bereit.'
     }
     $remaining = @($verified.Differences)
     if ($remaining.Count -gt 0) {
