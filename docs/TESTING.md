@@ -2,6 +2,8 @@
 
 Die Tests verwenden ausschließlich erfundene Konten. Führe keine Live-Mutation mit echten Schülerdaten aus.
 
+Der aktuelle lokale Prüfstand und die auszufüllende Abnahme-Checkliste stehen in [ABNAHME.md](ABNAHME.md).
+
 > [!CAUTION]
 > Abgänge sind alle nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Testklasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Abgangsaktion muss die Excel-Datei die vollständige konfigurierte Schülerpopulation enthalten. Eine Testklasse in einer gemeinsam genutzten produktiven Rollengruppe ist nicht isoliert und kann reale Schüler als Abgänge markieren. Live-Tests mit `-Update`, `-DisableUsers` oder `-RevokeSessions` sind deshalb nur in einem vollständig isolierten Mandanten oder mit einer konfigurierten Schüler-Rollengruppe erlaubt, deren Mitglieder ausschließlich synthetische Konten sind.
 
