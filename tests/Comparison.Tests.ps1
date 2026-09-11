@@ -496,7 +496,7 @@ Describe 'Stable student identity and directory comparison' {
                 $result.Warnings.Desired | Should -Contain 'mamueller@monteaufkirchen.com'
                 $fallback = @($result.Warnings | Where-Object { $_.Field -eq 'UserPrincipalName' })
                 $fallback.Count | Should -Be 1
-                $fallback[0].Current | Should -BeOfType ([object[]])
+                (, $fallback[0].Current) | Should -BeOfType ([object[]])
                 $fallback[0].Current.Count | Should -Be 1
             }
 

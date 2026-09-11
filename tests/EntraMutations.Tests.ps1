@@ -63,12 +63,12 @@ Describe 'Verified Entra student mutations' {
             UpdateBodies = [Collections.Generic.List[object]]::new()
         }
 
-        Mock New-MgUser -ModuleName SchuelerSync {
+        Mock New-MgUser -ModuleName SchuelerSync -RemoveParameterType BodyParameter {
             $global:EntraMutationState.Events.Add('create-disabled')
             $global:EntraMutationState.CreateBodies.Add($BodyParameter)
             if ($global:EntraMutationState.CreateWriteErrorsRemaining -gt 0) {
                 $global:EntraMutationState.CreateWriteErrorsRemaining--
-                Write-Error $global:EntraMutationState.CreateWriteErrorMessage
+                Write-Error $global:EntraMutationState.CreateWriteErrorMessage -ErrorAction Stop
             }
             if ($global:EntraMutationState.CreateFailuresRemaining -gt 0) {
                 $global:EntraMutationState.CreateFailuresRemaining--

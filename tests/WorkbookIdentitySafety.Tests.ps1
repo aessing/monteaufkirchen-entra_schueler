@@ -58,7 +58,7 @@ Describe 'Version-bound workbook identity writes' {
             Set-Content -LiteralPath $artifact -Value 'synthetic test placeholder'
             & git -C $script:testDirectory add --force -- '.Studenten.known.tmp.xlsx'
             $LASTEXITCODE | Should -Be 0
-            Remove-Item -LiteralPath $artifact
+            Remove-Item -LiteralPath $artifact -Force
             { Assert-WorkbookArtifactGitSafety -Path $artifact } | Should -Throw '*versioniert*'
             Test-Path -LiteralPath $artifact | Should -BeFalse
         }
