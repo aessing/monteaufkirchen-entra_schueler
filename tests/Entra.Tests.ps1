@@ -193,7 +193,7 @@ Describe 'Microsoft Graph inventory and manager resolution' {
 
             Should -Invoke Get-MgUser -Times 1 -Exactly -ParameterFilter {
                 $requiredProperties = @(
-                    'id', 'displayName', 'givenName', 'surname', 'userPrincipalName', 'mail', 'proxyAddresses',
+                    'id', 'displayName', 'givenName', 'surname', 'userPrincipalName', 'mail', 'mailNickname', 'proxyAddresses',
                     'department', 'officeLocation', 'companyName', 'employeeType', 'usageLocation', 'ageGroup',
                     'consentProvidedForMinor', 'legalAgeGroupClassification', 'accountEnabled', 'userType'
                 )

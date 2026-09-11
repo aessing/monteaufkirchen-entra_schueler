@@ -113,7 +113,7 @@ function Get-EntraSnapshot {
     param([Parameter(Mandatory)][System.Collections.IDictionary] $Config)
 
     $userProperties = @(
-        'id', 'displayName', 'givenName', 'surname', 'userPrincipalName', 'mail', 'proxyAddresses',
+        'id', 'displayName', 'givenName', 'surname', 'userPrincipalName', 'mail', 'mailNickname', 'proxyAddresses',
         'department', 'officeLocation', 'companyName', 'employeeType', 'usageLocation', 'ageGroup',
         'consentProvidedForMinor', 'legalAgeGroupClassification', 'accountEnabled', 'userType'
     )

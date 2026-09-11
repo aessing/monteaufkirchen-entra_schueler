@@ -546,9 +546,6 @@ function Compare-StudentDirectory {
                 'Department', 'OfficeLocation', 'CompanyName', 'EmployeeType', 'UsageLocation',
                 'AgeGroup', 'ConsentProvidedForMinor'
             )) {
-            if ($field -eq 'MailNickname' -and $null -eq $user.PSObject.Properties[$field]) {
-                continue
-            }
             $difference = New-StateDifference -Area Entra -Field $field -Current (Get-ComparisonPropertyValue -InputObject $user -Name $field) -Desired (Get-ComparisonPropertyValue -InputObject $desired -Name $field)
             if ($null -ne $difference) { $differences.Add($difference) }
         }

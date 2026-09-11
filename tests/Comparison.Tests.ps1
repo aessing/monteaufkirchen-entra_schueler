@@ -503,6 +503,26 @@ Describe 'Stable student identity and directory comparison' {
                 $result.Warnings.Field | Should -Contain 'Mail'
             }
 
+            It 'treats a missing mail nickname as a field-level Set difference' {
+                $required = @(Get-RequiredTestGroups)
+                $user = New-TestUser -Id student-id
+                $user.PSObject.Properties.Remove('MailNickname')
+                $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($user, $teacher) -RoleMemberIds @('student-id') -Groups $required -DirectGroups @{
+                    'student-id' = @($required)
+                }
+
+                $result = Compare-StudentDirectory -Students @(
+                    New-TestStudent -EntraObjectId student-id
+                ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
+                $difference = $result.ChangedStudents[0].Differences | Where-Object Field -eq MailNickname
+
+                $difference.Area | Should -Be 'Entra'
+                $difference.Current | Should -BeNullOrEmpty
+                $difference.Desired | Should -Be 'mmueller'
+                $difference.Action | Should -Be 'Set'
+            }
+
             It 'keeps new, departure, changed, and existing categories mutually exclusive' {
                 $groups = @(Get-RequiredTestGroups)
                 $existing = New-TestUser -Id existing-id -GivenName Emil -Surname Eins -UserPrincipalName eeins@monteaufkirchen.com
