@@ -45,6 +45,18 @@ function Resolve-StudentWorkbookPath {
     return [IO.Path]::GetFullPath($Path)
 }
 
+function Open-StudentWorkbookPackage {
+    param([Parameter(Mandatory)][string] $Path)
+
+    $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
+    if ([Management.Automation.WildcardPattern]::ContainsWildcardCharacters($resolvedPath)) {
+        # ImportExcel's opener uses Test-Path -Path. Its EPPlus FileInfo overload preserves literal names.
+        Import-Module ImportExcel -ErrorAction Stop
+        return [OfficeOpenXml.ExcelPackage]::new([IO.FileInfo]::new($resolvedPath))
+    }
+    return Open-ExcelPackage -Path $resolvedPath -ErrorAction Stop
+}
+
 function Read-StudentWorkbook {
     param([Parameter(Mandatory)][string] $Path)
 
@@ -52,7 +64,7 @@ function Read-StudentWorkbook {
     $sourceHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256 -ErrorAction Stop).Hash
     $package = $null
     try {
-        $package = Open-ExcelPackage -Path $resolvedPath
+        $package = Open-StudentWorkbookPackage -Path $resolvedPath
         $candidates = @()
         foreach ($worksheet in $package.Workbook.Worksheets) {
             $headers = Get-WorksheetHeaderMap -Worksheet $worksheet
@@ -301,7 +313,7 @@ function Write-StudentWorkbookUpdates {
         # Credentials are attached only to bytes from the original preflight, never a newer row ordering.
         Assert-StudentWorkbookVersion -Path $temporaryPath -ExpectedSourceHash $ExpectedSourceHash
 
-        $package = Open-ExcelPackage -Path $temporaryPath
+        $package = Open-StudentWorkbookPackage -Path $temporaryPath
         $worksheet = $package.Workbook.Worksheets[$context.WorksheetName]
         $headers = Get-WorksheetHeaderMap -Worksheet $worksheet
         $rightmostColumn = if ($null -eq $worksheet.Dimension) { 0 } else { $worksheet.Dimension.End.Column }
@@ -326,7 +338,7 @@ function Write-StudentWorkbookUpdates {
 
         $verificationPackage = $null
         try {
-            $verificationPackage = Open-ExcelPackage -Path $temporaryPath
+            $verificationPackage = Open-StudentWorkbookPackage -Path $temporaryPath
             $verificationWorksheet = $verificationPackage.Workbook.Worksheets[$context.WorksheetName]
             $verificationHeaders = Get-WorksheetHeaderMap -Worksheet $verificationWorksheet
             foreach ($managedHeader in $script:ManagedStudentHeaders) {

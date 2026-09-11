@@ -537,7 +537,7 @@ function Compare-StudentDirectory {
         Add-ComparisonAddressOwner -AddressOwners $addressOwners -ReservedAddresses $reservedAddresses -Address $selectedUpn -Owner $reservationOwner
         $firstCandidate = @(Get-UpnCandidates -GivenName $student.GivenName -Surname $student.Surname -Domain $Config.Domain)[0]
         if (-not [string]::Equals($selectedUpn, $firstCandidate, [StringComparison]::OrdinalIgnoreCase)) {
-            $collisions = if ($null -eq $selection) { @() } else { @($selection.Collisions) }
+            $collisions = @(if ($null -ne $selection) { $selection.Collisions })
             $warnings.Add((New-ComparisonIssue -Severity Warning -Area Entra -Field UserPrincipalName -Current $collisions -Desired $selectedUpn -Message "UPN-Fallback auf '$selectedUpn' nach $($collisions.Count) aktueller Kollision(en)." -Student $student -User $user))
         }
 

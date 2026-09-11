@@ -135,28 +135,28 @@ Describe 'Verified Entra student mutations' {
                 $created = New-DisabledEntraStudent -Desired $global:EntraMutationDesired -Password $password -Confirm:$false
 
                 $created.Id | Should -Be 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-                Should -Invoke New-MgUser -Times 1 -Exactly -ParameterFilter {
-                    $BodyParameter.Count -eq 15 -and
-                    $BodyParameter.AccountEnabled -eq $false -and
-                    $BodyParameter.DisplayName -eq 'Mia Beispiel' -and
-                    $BodyParameter.GivenName -eq 'Mia' -and
-                    $BodyParameter.Surname -eq 'Beispiel' -and
-                    $BodyParameter.UserPrincipalName -eq 'mbeispiel@schule.example' -and
-                    $BodyParameter.MailNickname -eq 'mbeispiel' -and
-                    $BodyParameter.Mail -eq 'mbeispiel@schule.example' -and
-                    $BodyParameter.Department -eq 'G1' -and
-                    $BodyParameter.OfficeLocation -eq 'Grundschule' -and
-                    $BodyParameter.CompanyName -eq 'Beispielschule' -and
-                    $BodyParameter.EmployeeType -eq 'Schueler' -and
-                    $BodyParameter.UsageLocation -eq 'DE' -and
-                    $BodyParameter.AgeGroup -eq 'Minor' -and
-                    $BodyParameter.ConsentProvidedForMinor -eq 'Granted' -and
-                    $BodyParameter.PasswordProfile.Count -eq 2 -and
-                    $BodyParameter.PasswordProfile.Password -eq $password -and
-                    $BodyParameter.PasswordProfile.ForceChangePasswordNextSignIn -eq $false -and
-                    -not $BodyParameter.ContainsKey('LegalAgeGroupClassification') -and
-                    $ErrorAction -eq 'Stop'
-                }
+                $body = $global:EntraMutationState.CreateBodies[0]
+                $body.Count | Should -Be 15
+                $body.AccountEnabled | Should -BeFalse
+                $body.DisplayName | Should -Be 'Mia Beispiel'
+                $body.GivenName | Should -Be 'Mia'
+                $body.Surname | Should -Be 'Beispiel'
+                $body.UserPrincipalName | Should -Be 'mbeispiel@schule.example'
+                $body.MailNickname | Should -Be 'mbeispiel'
+                $body.Mail | Should -Be 'mbeispiel@schule.example'
+                $body.Department | Should -Be 'G1'
+                $body.OfficeLocation | Should -Be 'Grundschule'
+                $body.CompanyName | Should -Be 'Beispielschule'
+                $body.EmployeeType | Should -Be 'Schueler'
+                $body.UsageLocation | Should -Be 'DE'
+                $body.AgeGroup | Should -Be 'Minor'
+                $body.ConsentProvidedForMinor | Should -Be 'Granted'
+                $body.PasswordProfile.Count | Should -Be 2
+                $body.PasswordProfile.Password | Should -Be $password
+                $body.PasswordProfile.ForceChangePasswordNextSignIn | Should -BeFalse
+                $body.ContainsKey('LegalAgeGroupClassification') | Should -BeFalse
+                Should -Invoke New-MgUser -Times 1 -Exactly
+                Should -Invoke New-MgUser -Times 1 -Exactly -ParameterFilter { $ErrorAction -eq 'Stop' }
             }
 
             It 'accepts an initially empty password collection on the first create attempt' {

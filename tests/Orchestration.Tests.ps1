@@ -102,6 +102,10 @@ Describe 'Public orchestration' {
             Mock Assert-WorkbookSafeForPasswordWrite { throw 'Workbook is read-only' }
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -Confirm:$false
             $result.HasErrors | Should -BeTrue
+            $difference = $result.Comparison.ChangedStudents[0].Differences[0]
+            $difference.Field | Should -Be 'UserPrincipalName'
+            $difference.Current | Should -BeNullOrEmpty
+            $difference.Desired | Should -BeNullOrEmpty
             Should -Invoke Invoke-StudentCreateBatch -Times 0
             Should -Invoke Invoke-StudentUpdates -Times 0
             Should -Invoke Invoke-StudentDepartures -Times 0

@@ -494,6 +494,10 @@ Describe 'Stable student identity and directory comparison' {
                 $result.NewStudents[1].DesiredState.UserPrincipalName | Should -Be 'mamueller@monteaufkirchen.com'
                 $result.Warnings.Field | Should -Contain 'UserPrincipalName'
                 $result.Warnings.Desired | Should -Contain 'mamueller@monteaufkirchen.com'
+                $fallback = @($result.Warnings | Where-Object { $_.Field -eq 'UserPrincipalName' })
+                $fallback.Count | Should -Be 1
+                $fallback[0].Current | Should -BeOfType ([object[]])
+                $fallback[0].Current.Count | Should -Be 1
             }
 
             It 'marks attribute, manager, and safe group deviations as field-level changes' {

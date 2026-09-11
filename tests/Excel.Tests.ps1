@@ -23,6 +23,17 @@ Describe 'Student workbook adapter' {
             $context.Students[0].Surname | Should -Be 'Muster'
         }
 
+        It 'reads a literal bracket filename without treating it as a wildcard pattern' {
+            $literalPath = Join-Path $TestDrive 'Students[2026].xlsx'
+            Copy-Item -LiteralPath $script:ExcelTestFixture -Destination $literalPath
+
+            $context = Read-StudentWorkbook -Path $literalPath
+
+            $context.Path | Should -Be $literalPath
+            $context.Students.Count | Should -Be 2
+            $context.Students[0].GivenName | Should -Be 'Mia'
+        }
+
         It 'rejects a workbook path that is not an xlsx leaf' {
             { Resolve-StudentWorkbookPath -Path (Join-Path $TestDrive 'alt.xls') } |
                 Should -Throw '*.xlsx*'

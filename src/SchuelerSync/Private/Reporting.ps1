@@ -44,7 +44,13 @@ function ConvertTo-SafeStudentComparison {
                 ClassName = Get-ComparisonPropertyValue $_.Student ClassName
                 AccountEnabled = Get-ComparisonPropertyValue $_.User AccountEnabled
                 Differences = @($_.Differences | ForEach-Object {
-                    [pscustomobject]@{ Area = $_.Area; Field = $_.Field; Current = $_.Current; Desired = $_.Desired; Action = $_.Action }
+                    [pscustomobject]@{
+                        Area = Get-ComparisonPropertyValue $_ Area
+                        Field = Get-ComparisonPropertyValue $_ Field
+                        Current = Get-ComparisonPropertyValue $_ Current
+                        Desired = Get-ComparisonPropertyValue $_ Desired
+                        Action = Get-ComparisonPropertyValue $_ Action
+                    }
                 })
             }
         })
@@ -74,7 +80,14 @@ function Write-StudentComparisonReport {
         'Änderungen' = @($Comparison.ChangedStudents | ForEach-Object {
             $entry = $_
             foreach ($difference in $entry.Differences) {
-                [pscustomobject]@{ NameMitRufname = $entry.NameMitRufname; Area = $difference.Area; Field = $difference.Field; Current = $difference.Current; Desired = $difference.Desired; Action = $difference.Action }
+                [pscustomobject]@{
+                    NameMitRufname = $entry.NameMitRufname
+                    Area = Get-ComparisonPropertyValue $difference Area
+                    Field = Get-ComparisonPropertyValue $difference Field
+                    Current = Get-ComparisonPropertyValue $difference Current
+                    Desired = Get-ComparisonPropertyValue $difference Desired
+                    Action = Get-ComparisonPropertyValue $difference Action
+                }
             }
         })
         'Bestehende' = @($Comparison.ExistingStudents | Select-Object -Property @('NameMitRufname', 'UserId', 'DisplayName', 'UserPrincipalName', 'ClassName'))
