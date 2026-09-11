@@ -1,0 +1,208 @@
+BeforeAll {
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+
+    $global:EntraTestConfig = @{
+        Domain = 'monteaufkirchen.com'
+        StudentRoleGroup = @{
+            Id = '11111111-1111-1111-1111-111111111111'
+            Name = 'SEC-A-ROL-Schule_Schüler'
+        }
+        LicenseGroupName = 'SEC-A-LIC-O365A1Student'
+        ClassGroupPrefix = 'SEC-A-CLS-'
+    }
+}
+
+AfterAll {
+    Remove-Variable -Name EntraTestConfig -Scope Global -ErrorAction SilentlyContinue
+}
+
+Describe 'Microsoft Graph inventory and manager resolution' {
+    BeforeEach {
+        Mock Connect-MgGraph -ModuleName SchuelerSync {}
+        Mock Get-MgContext -ModuleName SchuelerSync {
+            [pscustomobject]@{
+                Scopes = @(
+                    'User.ReadWrite.All'
+                    'User-Mail.ReadWrite.All'
+                    'Group.Read.All'
+                    'GroupMember.ReadWrite.All'
+                    'User.RevokeSessions.All'
+                )
+            }
+        }
+        Mock Get-MgUser -ModuleName SchuelerSync {
+            @(
+                [pscustomobject]@{
+                    Id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    DisplayName = 'Max Muster'
+                    GivenName = 'Max'
+                    Surname = 'Muster'
+                    UserPrincipalName = 'MMuster@monteaufkirchen.com'
+                    Mail = 'Max.Muster@monteaufkirchen.com'
+                    ProxyAddresses = @('SMTP:MMuster@monteaufkirchen.com', 'smtp:max.muster@schule.example')
+                    AccountEnabled = $true
+                }
+                [pscustomobject]@{
+                    Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+                    DisplayName = 'Lea Lehrerin'
+                    GivenName = 'Lea'
+                    Surname = 'Lehrerin'
+                    UserPrincipalName = 'lea.lehrerin@monteaufkirchen.com'
+                    Mail = 'lea.lehrerin@schule.example'
+                    ProxyAddresses = @()
+                    AccountEnabled = $true
+                }
+            )
+        }
+        Mock Get-MgGroup -ModuleName SchuelerSync {
+            @(
+                [pscustomobject]@{
+                    Id = '11111111-1111-1111-1111-111111111111'
+                    DisplayName = 'SEC-A-ROL-Schule_Schüler'
+                    GroupTypes = @()
+                    MembershipRule = $null
+                    MembershipRuleProcessingState = $null
+                }
+                [pscustomobject]@{
+                    Id = '22222222-2222-2222-2222-222222222222'
+                    DisplayName = 'SEC-A-LIC-O365A1Student'
+                    GroupTypes = @('DynamicMembership')
+                    MembershipRule = '(user.department -eq "G1")'
+                    MembershipRuleProcessingState = 'On'
+                }
+                [pscustomobject]@{
+                    Id = '33333333-3333-3333-3333-333333333333'
+                    DisplayName = 'SEC-A-CLS-G1'
+                    GroupTypes = @()
+                    MembershipRule = $null
+                    MembershipRuleProcessingState = $null
+                }
+            )
+        }
+        Mock Get-MgGroupMember -ModuleName SchuelerSync {
+            @([pscustomobject]@{ Id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' })
+        }
+        Mock Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync {
+            @(
+                [pscustomobject]@{
+                    Id = '33333333-3333-3333-3333-333333333333'
+                    DisplayName = 'SEC-A-CLS-G1'
+                    GroupTypes = @()
+                    MembershipRule = $null
+                    MembershipRuleProcessingState = $null
+                }
+            )
+        }
+        Mock Get-MgUserTransitiveMemberOfAsGroup -ModuleName SchuelerSync {
+            @(
+                [pscustomobject]@{
+                    Id = '33333333-3333-3333-3333-333333333333'
+                    DisplayName = 'SEC-A-CLS-G1'
+                    GroupTypes = @()
+                    MembershipRule = $null
+                    MembershipRuleProcessingState = $null
+                }
+                [pscustomobject]@{
+                    Id = '22222222-2222-2222-2222-222222222222'
+                    DisplayName = 'SEC-A-LIC-O365A1Student'
+                    GroupTypes = @('DynamicMembership')
+                    MembershipRule = '(user.department -eq "G1")'
+                    MembershipRuleProcessingState = 'On'
+                }
+            )
+        }
+        Mock Get-MgUserManager -ModuleName SchuelerSync {
+            [pscustomobject]@{ Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' }
+        }
+    }
+
+    InModuleScope SchuelerSync {
+        It 'requests the complete user property set once' {
+            Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            Should -Invoke Get-MgUser -Times 1 -Exactly -ParameterFilter {
+                $requiredProperties = @(
+                    'id', 'displayName', 'givenName', 'surname', 'userPrincipalName', 'mail', 'proxyAddresses',
+                    'department', 'officeLocation', 'companyName', 'employeeType', 'usageLocation', 'ageGroup',
+                    'consentProvidedForMinor', 'legalAgeGroupClassification', 'accountEnabled', 'userType'
+                )
+                $All -and @($requiredProperties | Where-Object { $Property -notcontains $_ }).Count -eq 0
+            }
+        }
+
+        It 'reserves UPN, mail and SMTP proxy values case-insensitively' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            $snapshot.ReservedAddresses.Contains('mmuster@monteaufkirchen.com') | Should -BeTrue
+            $snapshot.ReservedAddresses.Contains('MAX.MUSTER@SCHULE.EXAMPLE') | Should -BeTrue
+            $snapshot.AddressOwners['mmuster@monteaufkirchen.com'] | Should -Be @('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+            $snapshot.UsersByUpn['MMUSTER@MONTEAUFKIRCHEN.COM'].Id | Should -Be 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        }
+
+        It 'keeps dynamic metadata and marks inherited transitive memberships non-removable' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+            $direct = @(Get-UserDirectGroups -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+            $transitive = @(Get-UserTransitiveGroups -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+            $inherited = $transitive | Where-Object Id -eq '22222222-2222-2222-2222-222222222222'
+
+            $direct.Count | Should -Be 1
+            $inherited.IsDynamic | Should -BeTrue
+            $inherited.IsInherited | Should -BeTrue
+            $inherited.IsRemovable | Should -BeFalse
+            Get-UserTransitiveGroups -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            Should -Invoke Get-MgUserTransitiveMemberOfAsGroup -Times 1 -Exactly
+        }
+
+        It 'caches the manager identifier per user' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            Get-UserManagerId -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' |
+                Should -Be 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            Get-UserManagerId -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' |
+                Should -Be 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            Should -Invoke Get-MgUserManager -Times 1 -Exactly
+        }
+
+        It 'resolves exactly one teacher by UPN' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            (Resolve-StudentManager -Snapshot $snapshot -Teacher ' LEA.LEHRERIN@MONTEAUFKIRCHEN.COM ').Id |
+                Should -Be 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        }
+
+        It 'resolves exactly one teacher by mail' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            (Resolve-StudentManager -Snapshot $snapshot -Teacher 'lea.lehrerin@schule.example').Id |
+                Should -Be 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        }
+
+        It 'resolves exactly one teacher by exact case-insensitive display name' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            (Resolve-StudentManager -Snapshot $snapshot -Teacher 'lea lehrerin').Id |
+                Should -Be 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        }
+
+        It 'rejects a missing teacher' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+
+            { Resolve-StudentManager -Snapshot $snapshot -Teacher 'nicht vorhanden' } |
+                Should -Throw '*Kein eindeutiger Manager*'
+        }
+
+        It 'rejects ambiguous teacher display names' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+            $snapshot.UsersById['cccccccc-cccc-cccc-cccc-cccccccccccc'] = [pscustomobject]@{
+                Id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+                DisplayName = 'Lea Lehrerin'
+                UserPrincipalName = 'zweite.lea@monteaufkirchen.com'
+                Mail = 'zweite.lea@schule.example'
+            }
+
+            { Resolve-StudentManager -Snapshot $snapshot -Teacher 'Lea Lehrerin' } |
+                Should -Throw '*Kein eindeutiger Manager*'
+        }
+    }
+}
