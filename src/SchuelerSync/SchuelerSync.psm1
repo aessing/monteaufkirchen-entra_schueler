@@ -80,8 +80,12 @@ function Invoke-SchuelerSync {
                     }
                 }
             }
-            if ($selection.CreateNewUsers -and @($comparison.NewStudents).Count -gt 0 -and -not $WhatIfPreference) {
-                Assert-WorkbookSafeForPasswordWrite -Path $File
+            if ($Update -and -not $WhatIfPreference) {
+                $hasRenames = $selection.UpdateUsers -and @($comparison.ChangedStudents | Where-Object { Test-StudentUpnRename -Entry $_ }).Count -gt 0
+                if (($selection.CreateNewUsers -and @($comparison.NewStudents).Count -gt 0) -or $hasRenames) {
+                    Assert-WorkbookSafeForPasswordWrite -Path $File
+                }
+                Assert-StudentWorkbookVersion -Path $File -ExpectedSourceHash $workbook.SourceHash
             }
         } catch {
             $comparison.Errors += New-ComparisonIssue -Severity Error -Area Preflight -Field Inventory -Message $_.Exception.Message
@@ -117,20 +121,29 @@ function Invoke-SchuelerSync {
                 }
             } else {
                 if ($selection.CreateNewUsers) {
-                    foreach ($action in @(Invoke-StudentCreateBatch -Entries @($comparison.NewStudents) -Snapshot $snapshot -Config $config -File $File -UsedPasswords $secrets @common)) { $actions.Add($action) }
+                    foreach ($action in @(Invoke-StudentCreateBatch -Entries @($comparison.NewStudents) -Snapshot $snapshot -Config $config -File $File -WorkbookState $workbook -UsedPasswords $secrets @common)) { $actions.Add($action) }
                 }
                 if ($selection.UpdateUsers) {
-                    foreach ($action in @(Invoke-StudentUpdates -Entries @($comparison.ChangedStudents) -Snapshot $snapshot -Config $config -File $File -Secrets @($secrets) @common)) { $actions.Add($action) }
+                    foreach ($action in @(Invoke-StudentUpdates -Entries @($comparison.ChangedStudents) -Snapshot $snapshot -Config $config -File $File -WorkbookState $workbook -Secrets @($secrets) @common)) { $actions.Add($action) }
                 }
                 if ($selection.DisableUsers -or $selection.RevokeSessions) {
                     foreach ($action in @(Invoke-StudentDepartures -Entries @($comparison.Departures) -DisableUsers:$selection.DisableUsers -RevokeSessions:$selection.RevokeSessions -File $File -Secrets @($secrets) @common)) { $actions.Add($action) }
                 }
                 $targetsById = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
-                if ($selection.ConfigureAllActiveExchange) {
-                    foreach ($entry in @($comparison.ChangedStudents) + @($comparison.ExistingStudents)) { $targetsById[[string]$entry.User.Id] = [string]$entry.User.UserPrincipalName }
-                }
                 foreach ($action in @($actions | Where-Object { $_.Status -eq 'Succeeded' -and $_.Phase -in @('Create', 'Update') })) {
                     $targetsById[$action.UserId] = $action.UserPrincipalName
+                }
+                if ($selection.ConfigureAllActiveExchange) {
+                    foreach ($entry in @($comparison.ChangedStudents) + @($comparison.ExistingStudents)) {
+                        $userId = [string]$entry.User.Id
+                        try {
+                            $currentIdentity = Get-EntraStudentCurrentIdentity -UserId $userId
+                            $targetsById[$userId] = [string]$currentIdentity.UserPrincipalName
+                        } catch {
+                            $targetsById.Remove($userId)
+                            $actions.Add((New-StudentActionResult -UserId $userId -Phase ExchangeIdentity -Status Failed -Message $_.Exception.Message -Secrets @($secrets) -RecoveryCommand (Get-StudentRecoveryCommand -File $File)))
+                        }
+                    }
                 }
                 if ($targetsById.Count -gt 0) {
                     try {

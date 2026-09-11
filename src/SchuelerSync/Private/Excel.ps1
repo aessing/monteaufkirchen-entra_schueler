@@ -49,6 +49,7 @@ function Read-StudentWorkbook {
     param([Parameter(Mandatory)][string] $Path)
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
+    $sourceHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256 -ErrorAction Stop).Hash
     $package = $null
     try {
         $package = Open-ExcelPackage -Path $resolvedPath
@@ -114,8 +115,10 @@ function Read-StudentWorkbook {
             }
         }
 
+        Assert-StudentWorkbookVersion -Path $resolvedPath -ExpectedSourceHash $sourceHash
         return [pscustomobject]@{
             Path = $resolvedPath
+            SourceHash = $sourceHash
             WorksheetName = $worksheet.Name
             Headers = [string[]] @($headers.Keys)
             Students = [pscustomobject[]] $students
@@ -124,6 +127,17 @@ function Read-StudentWorkbook {
         if ($null -ne $package) {
             $package.Dispose()
         }
+    }
+}
+
+function Assert-StudentWorkbookVersion {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $ExpectedSourceHash
+    )
+    $currentHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash
+    if ($currentHash -cne $ExpectedSourceHash) {
+        throw 'Die Schülerdatei wurde seit der Vorprüfung verändert. Abbruch ohne Rückschreibung. Vergleich erneut starten.'
     }
 }
 
@@ -154,11 +168,11 @@ function Assert-WorkbookSafeForPasswordWrite {
         $lockHandle = [IO.File]::Open(
             $resolvedPath,
             [IO.FileMode]::Open,
-            [IO.FileAccess]::Read,
+            [IO.FileAccess]::ReadWrite,
             [IO.FileShare]::None
         )
     } catch {
-        throw "Die Schülerdatei ist gesperrt und kann nicht sicher geschrieben werden: '$resolvedPath'."
+        throw "Die Schülerdatei ist gesperrt oder nicht schreibbar: '$resolvedPath'."
     } finally {
         if ($null -ne $lockHandle) {
             $lockHandle.Dispose()
@@ -207,11 +221,14 @@ function Write-StudentWorkbookUpdates {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][object[]] $Updates,
+        [string] $ExpectedSourceHash,
         [switch] $SkipGitSafetyCheck
     )
 
     if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and atomically persist student workbook updates')) { return }
     $context = Read-StudentWorkbook -Path $Path
+    if ([string]::IsNullOrWhiteSpace($ExpectedSourceHash)) { $ExpectedSourceHash = $context.SourceHash }
+    Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
     $updatesByRow = @{}
     foreach ($update in $Updates) {
         $rowProperty = $update.PSObject.Properties['RowNumber']
@@ -251,6 +268,8 @@ function Write-StudentWorkbookUpdates {
     try {
         Copy-Item -LiteralPath $context.Path -Destination $backupPath -ErrorAction Stop
         Copy-Item -LiteralPath $context.Path -Destination $temporaryPath -ErrorAction Stop
+        # Credentials are attached only to bytes from the original preflight, never a newer row ordering.
+        Assert-StudentWorkbookVersion -Path $temporaryPath -ExpectedSourceHash $ExpectedSourceHash
 
         $package = Open-ExcelPackage -Path $temporaryPath
         $worksheet = $package.Workbook.Worksheets[$context.WorksheetName]
@@ -304,10 +323,13 @@ function Write-StudentWorkbookUpdates {
             }
         }
 
+        $savedHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256 -ErrorAction Stop).Hash
+        Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
         [IO.File]::Move($temporaryPath, $context.Path, $true)
         return [pscustomobject]@{
             Path = $context.Path
             BackupPath = $backupPath
+            SourceHash = $savedHash
         }
     } catch {
         if (Test-Path -LiteralPath $temporaryPath) {
