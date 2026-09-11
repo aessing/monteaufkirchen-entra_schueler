@@ -53,6 +53,34 @@ Describe 'Student identity normalization' {
             $result.Upn | Should -Be 'mmueller@monteaufkirchen.com'
         }
 
+        It 'treats used addresses as case-insensitive with a case-sensitive set' {
+            $used = [Collections.Generic.HashSet[string]]::new()
+            [void] $used.Add('MMueller@Monteaufkirchen.com')
+            $result = Select-AvailableUpn -GivenName Maria -Surname Müller -Domain monteaufkirchen.com -UsedAddresses $used -AddressOwners @{}
+            $result.Upn | Should -Be 'mamueller@monteaufkirchen.com'
+            $result.Collisions | Should -Contain 'mmueller@monteaufkirchen.com'
+        }
+
+        It 'blocks UPN, mail, proxy and Exchange recipient address sources' -ForEach @(
+            @{ Source = 'UPN'; Value = @('other-upn') }
+            @{ Source = 'mail'; Value = [pscustomobject]@{ GraphObjectId = 'other-mail' } }
+            @{ Source = 'proxy address'; Value = [pscustomobject]@{ OwnerIds = @('other-proxy') } }
+            @{ Source = 'Exchange recipient'; Value = [pscustomobject]@{ ExchangeObjectId = 'other-exchange' } }
+        ) {
+            $used = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $owners = @{ 'MMUELLER@MONTEAUFKIRCHEN.COM' = $Value }
+            $result = Select-AvailableUpn -GivenName Maria -Surname Müller -Domain monteaufkirchen.com -UsedAddresses $used -AddressOwners $owners
+            $result.Upn | Should -Be 'mamueller@monteaufkirchen.com'
+            $result.Collisions | Should -Contain 'mmueller@monteaufkirchen.com'
+        }
+
+        It 'rejects reuse when any known owner differs from the current object' {
+            $used = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $owners = @{ 'MmUeLlEr@Monteaufkirchen.com' = @('same-id', 'other-id') }
+            $result = Select-AvailableUpn -GivenName Maria -Surname Müller -Domain monteaufkirchen.com -UsedAddresses $used -AddressOwners $owners -CurrentObjectId same-id
+            $result.Upn | Should -Be 'mamueller@monteaufkirchen.com'
+        }
+
         It 'falls back to a suffixed full name after all collisions' {
             $used = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
             $owners = @{}

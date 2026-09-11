@@ -58,6 +58,19 @@ function Get-AddressOwnerIds {
     return @($ids | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function Test-UsedAddress {
+    param(
+        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]] $UsedAddresses,
+        [Parameter(Mandatory)][string] $Candidate
+    )
+    foreach ($address in $UsedAddresses) {
+        if ([string]::Equals([string]$address, $Candidate, [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Select-AvailableUpn {
     param(
         [Parameter(Mandatory)][string] $GivenName,
@@ -71,7 +84,7 @@ function Select-AvailableUpn {
     $collisions = [Collections.Generic.List[string]]::new()
     $isAvailable = {
         param($candidate)
-        if ($UsedAddresses.Contains($candidate)) { return $false }
+        if (Test-UsedAddress -UsedAddresses $UsedAddresses -Candidate $candidate) { return $false }
         $ownerEntry = $null
         foreach ($key in $AddressOwners.Keys) {
             if ([string]::Equals([string]$key, $candidate, [StringComparison]::OrdinalIgnoreCase)) {
