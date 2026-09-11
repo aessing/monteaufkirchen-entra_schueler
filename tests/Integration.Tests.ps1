@@ -33,7 +33,7 @@ BeforeAll {
         }
         $global:IntegrationStubCommands.Add('Remove-MgGroupMemberByRef')
     }
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 
     $global:IntegrationGroupIds = @{
         StudentRole = 'cebc1326-1174-4126-ba84-7a8960850e0a'

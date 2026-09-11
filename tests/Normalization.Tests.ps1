@@ -1,10 +1,30 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
 
 Describe 'Student identity normalization' {
     InModuleScope SchuelerSync {
+        It 'selects and reserves the first UPN with no occupied addresses or owners' {
+            $used = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            Test-UsedAddress -UsedAddresses $used -Candidate 'mmueller@monteaufkirchen.com' | Should -BeFalse
+            $result = Select-AvailableUpn -GivenName Maria -Surname Müller -Domain monteaufkirchen.com -UsedAddresses $used -AddressOwners @{}
+            $result.Upn | Should -Be 'mmueller@monteaufkirchen.com'
+            $result.CollisionCount | Should -Be 0
+            $used.Count | Should -Be 1
+            $used.Contains($result.Upn) | Should -BeTrue
+        }
+
+        It 'adds the first comparison address to empty accumulators without a null owner' {
+            $reserved = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $owners = @{}
+            Add-ComparisonAddressOwner -AddressOwners $owners -ReservedAddresses $reserved -Address 'FIRST@school.example' -Owner 'student-1'
+            $reserved.Count | Should -Be 1
+            $owners.Count | Should -Be 1
+            @($owners['first@school.example']).Count | Should -Be 1
+            $owners['first@school.example'][0] | Should -Be 'student-1'
+        }
+
         It 'transliterates German characters' {
             ConvertTo-UpnToken 'Änne Weiß' | Should -Be 'aenneweiss'
             ConvertTo-UpnToken 'JÖRG-MÜLLER' | Should -Be 'joergmueller'

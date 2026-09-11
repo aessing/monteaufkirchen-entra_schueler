@@ -1,7 +1,9 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
+}
 
+BeforeAll {
     $global:EntraTestConfig = @{
         Domain = 'monteaufkirchen.com'
         StudentRoleGroup = @{
@@ -20,7 +22,7 @@ AfterAll {
 
 Describe 'Microsoft Graph inventory and manager resolution' {
     BeforeEach {
-        Mock Connect-MgGraph -ModuleName SchuelerSync {}
+        Mock Connect-MgGraph -ModuleName SchuelerSync { return }
         $global:EntraTestGraphContexts = [Collections.Generic.Queue[object]]::new()
         Mock Get-MgContext -ModuleName SchuelerSync {
             if ($global:EntraTestGraphContexts.Count -gt 0) {
@@ -123,6 +125,83 @@ Describe 'Microsoft Graph inventory and manager resolution' {
     }
 
     InModuleScope SchuelerSync {
+        It 'builds exact null-free group and address indexes from the real snapshot adapter' {
+            $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
+            $snapshot.GroupsById.Count | Should -Be 3
+            $snapshot.GroupsByDisplayName.Count | Should -Be 3
+            $snapshot.GroupMatchesByDisplayName.Count | Should -Be 3
+            foreach ($name in @('SEC-A-ROL-Schule_Schüler', 'SEC-A-LIC-O365A1Student', 'SEC-A-CLS-G1')) {
+                $matches = @($snapshot.GroupMatchesByDisplayName[$name])
+                $matches.Count | Should -Be 1
+                $matches[0] | Should -Not -BeNullOrEmpty
+                $snapshot.GroupsByDisplayName[$name].Id | Should -Be $matches[0].Id
+            }
+            $snapshot.ReservedAddresses.Count | Should -Be 5
+            $snapshot.AddressOwners.Count | Should -Be 5
+            foreach ($address in $snapshot.AddressOwners.Keys) {
+                @($snapshot.AddressOwners[$address]).Count | Should -Be 1
+                $snapshot.AddressOwners[$address][0] | Should -Not -BeNullOrEmpty
+            }
+            { Resolve-EntraSnapshotGroup -Snapshot $snapshot -DisplayName 'missing' } | Should -Throw '*found 0*'
+        }
+
+        It 'adds the first Entra address to empty accumulators and deduplicates its owner' {
+            $reserved = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $owners = @{}
+            Add-EntraReservedAddress -ReservedAddresses $reserved -AddressOwners $owners -Address 'FIRST@school.example' -OwnerId 'student-1'
+            Add-EntraReservedAddress -ReservedAddresses $reserved -AddressOwners $owners -Address 'first@school.example' -OwnerId 'STUDENT-1'
+            $reserved.Count | Should -Be 1
+            @($owners['first@school.example']).Count | Should -Be 1
+            $owners['first@school.example'][0] | Should -Be 'student-1'
+        }
+
+        It 'caches a missing manager for Graph exception shape <Shape>' -ForEach @(
+            @{ Shape = 'StatusCode' }, @{ Shape = 'ResponseStatusCode' }, @{ Shape = 'Response' }
+        ) {
+            $script:missingManagerShape = $Shape
+            Mock Get-MgUserManager {
+                $exception = [Exception]::new('The requested manager reference does not exist.')
+                if ($script:missingManagerShape -eq 'Response') {
+                    $exception | Add-Member NoteProperty Response ([pscustomobject]@{ StatusCode = [Net.HttpStatusCode]::NotFound })
+                } else {
+                    $exception | Add-Member NoteProperty $script:missingManagerShape 404
+                }
+                $record = [Management.Automation.ErrorRecord]::new($exception, 'Request_ResourceNotFound', [Management.Automation.ErrorCategory]::ObjectNotFound, $UserId)
+                $record.ErrorDetails = [Management.Automation.ErrorDetails]::new('{"error":{"code":"Request_ResourceNotFound","message":"No manager reference exists."}}')
+                throw $record
+            }
+            $snapshot = [pscustomobject]@{ ManagerByUserId = @{} }
+            Get-UserManagerId -Snapshot $snapshot -UserId 'student-1' | Should -BeNullOrEmpty
+            Get-UserManagerId -Snapshot $snapshot -UserId 'student-1' | Should -BeNullOrEmpty
+            $snapshot.ManagerByUserId.ContainsKey('student-1') | Should -BeTrue
+            Should -Invoke Get-MgUserManager -Times 1 -Exactly -ParameterFilter { $ErrorAction -eq 'Stop' }
+        }
+
+        It 'does not hide or cache a manager authorization or transport failure: <Shape>' -ForEach @(
+            @{ Shape = 'StatusCode' }, @{ Shape = 'ResponseStatusCode' }, @{ Shape = 'Response' }, @{ Shape = 'Transport' }
+        ) {
+            $script:managerFailureShape = $Shape
+            Mock Get-MgUserManager {
+                $exception = [Exception]::new('Manager lookup failed, preserve this error.')
+                if ($script:managerFailureShape -eq 'Response') {
+                    $exception | Add-Member NoteProperty Response ([pscustomobject]@{ StatusCode = [Net.HttpStatusCode]::Forbidden })
+                } elseif ($script:managerFailureShape -ne 'Transport') {
+                    $exception | Add-Member NoteProperty $script:managerFailureShape 403
+                }
+                throw $exception
+            }
+            $snapshot = [pscustomobject]@{ ManagerByUserId = @{} }
+            { Get-UserManagerId -Snapshot $snapshot -UserId 'student-1' } | Should -Throw '*preserve this error*'
+            $snapshot.ManagerByUserId.ContainsKey('student-1') | Should -BeFalse
+        }
+
+        It 'does not interpret an empty successful response as a documented missing manager' {
+            Mock Get-MgUserManager { $null }
+            $snapshot = [pscustomobject]@{ ManagerByUserId = @{} }
+            { Get-UserManagerId -Snapshot $snapshot -UserId 'student-1' } | Should -Throw '*Manager*'
+            $snapshot.ManagerByUserId.ContainsKey('student-1') | Should -BeFalse
+        }
+
         It 'reuses a complete existing Graph context with scope casing differences' {
             [void]$global:EntraTestGraphContexts.Enqueue([pscustomobject]@{
                 Scopes = @(

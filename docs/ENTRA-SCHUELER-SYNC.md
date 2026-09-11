@@ -87,9 +87,9 @@ Fehlende Zusatzspalten werden nur bei einer autorisierten Rückschreibung rechts
 
 ### Git- und Dateischutz
 
-Die Root-`.gitignore` enthält `/*.xlsx`. Dadurch bleiben Root-Arbeitsmappen und Sicherungen unversioniert. Synthetische Testfixtures unter `tests/fixtures/` sind ausdrücklich versionierbar.
+Die Root-`.gitignore` enthält `/*.xlsx` und zusätzlich `*.[xX][lL][sS][xX]` für Root und Unterordner, unabhängig von der Großschreibung der Dateiendung. Nur `tests/fixtures/Schueler-Testdaten.xlsx` ist als synthetische Fixture ausgenommen. Sicherungen und temporäre XLSX-Dateien bleiben durch zusätzliche Muster ausgeschlossen.
 
-Vor einer Rückschreibung prüft das Skript die Schreibbarkeit und eine exklusive Dateisperre. Liegt die Datei in einem Git-Worktree, muss sie ignoriert und unverfolgt sein. Das gilt auch für eine mit `-File` gewählte Datei in einem Unterordner des Repositories. Dateien außerhalb eines Git-Repositories benötigen diese Git-Prüfung nicht, müssen aber sicher gespeichert werden.
+Vor einer Rückschreibung prüft das Skript die Schreibbarkeit und eine exklusive Dateisperre. Innerhalb eines Git-Worktrees müssen die Quelldatei, der konkret gewählte Sicherungspfad und der temporäre Zielpfad jeweils ignoriert und unverfolgt sein. Alle drei Prüfungen erfolgen vor der ersten vertraulichen Kopie. Eine Ignore-Regel nur für die Quelle reicht nicht aus, auch in einem fremden Repository mit eigener `.gitignore`. Das gilt ebenso für eine mit `-File` gewählte Datei in einem Unterordner. Dateien außerhalb eines Git-Repositories benötigen diese Git-Prüfung nicht, müssen aber sicher gespeichert werden.
 
 Vor dem Schreiben wird der SHA-256-Stand erneut geprüft. Danach entsteht zunächst eine temporäre Kopie im gleichen Ordner. Sie wird geändert, gespeichert und wieder geöffnet. Erst nach erfolgreicher Inhaltsprüfung wird die vorherige Quelldatei ohne Überschreiben nach `<Name>.backup-YYYYMMDD-HHmmss.xlsx` verschoben und die vorbereitete Datei eingesetzt. Bei einer Race Condition oder einem Restore-Fehler bleiben wiederherstellbare Varianten erhalten. Die Fehlermeldung nennt ihre vollständigen Pfade.
 
@@ -188,6 +188,8 @@ Fehlende Zielgruppen werden zuerst hinzugefügt und nachgelesen. Erst nach diese
 ## Initialpasswörter
 
 Ein Initialpasswort entsteht ausschließlich für einen Neuzugang. Es besteht aus zwei kindgerechten CamelCase-Wörtern mit zusammen genau zehn ASCII-Buchstaben und zwei kryptografisch zufälligen Ziffern von `10` bis `99`. Damit ist es exakt 12 Zeichen lang und enthält Großbuchstaben, Kleinbuchstaben und Ziffern. Umlaute und Sonderzeichen kommen nicht vor. Passwörter wiederholen sich innerhalb eines Laufs nicht.
+
+Der kuratierte Wortschatz enthält 847 vertraute Wörter und einfache Wortformen. Daraus entstehen 220.505 verschiedene Zweiwort-Präfixe mit zehn Buchstaben. Zusammen mit 90 Zahlenwerten ergibt das vor der ersten Reservierung genau 19.845.450 mögliche Passwörter, entsprechend rund 24,24 Bit Auswahlentropie. Beide Zufallsentscheidungen verwenden `RandomNumberGenerator.GetInt32`, jedes Präfix ist gleich wahrscheinlich. Der Regressionstest berechnet den erreichbaren Raum aus den tatsächlich verwendeten Präfixen und verlangt mindestens 24 Bit. Das merkbare Format ist keine Folge aus zwölf unabhängig zufälligen Zeichen und bietet nicht deren Entropie.
 
 Das Passwortprofil setzt `ForceChangePasswordNextSignIn = false`. Lehnt Entra das Passwort eindeutig wegen der Passwort-Richtlinie ab, werden höchstens fünf neue Passwörter versucht. Einschließlich Erstversuch sind das maximal sechs Versuche. Andere Graph-Fehler werden nicht als Passwortfehler wiederholt.
 
@@ -337,7 +339,7 @@ Bleibt ein Postfach ausstehend, enthält das Ergebnis einen Wiederanlaufbefehl:
 
 - Verwende nur erfundene Personen in Repository-Tests.
 - Speichere produktive Arbeitsmappen nur in einem geschützten lokalen Ordner.
-- Versioniere keine Root-XLSX-Datei. Die Regel `/*.xlsx` schützt nur den Repository-Root.
+- Versioniere keine produktive XLSX-Datei, auch nicht aus Unterordnern. Nur die benannte synthetische Fixture ist von den XLSX-Ignore-Regeln ausgenommen.
 - Sichere Arbeitsmappen und Backups nach denselben Regeln wie Passwörter.
 - Aktiviere für diesen Lauf kein Transcript, wenn dessen Zugriffsschutz nicht geprüft ist.
 - Das Skript redigiert bekannte Passwortwerte aus öffentlichen Ergebnissen. Behandle Fehlermeldungen trotzdem als personenbezogene Betriebsdaten.

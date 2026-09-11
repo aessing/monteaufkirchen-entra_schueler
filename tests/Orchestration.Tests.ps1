@@ -1,5 +1,5 @@
-BeforeAll {
-    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'src/SchuelerSync/SchuelerSync.psd1') -Force
+BeforeDiscovery {
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
 
 Describe 'Public orchestration' {

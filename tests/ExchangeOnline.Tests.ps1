@@ -1,5 +1,9 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
+}
+
+BeforeAll {
     $global:ExchangeTestStubCommands = [Collections.Generic.List[string]]::new()
 
     if ($null -eq (Get-Command Get-ConnectionInformation -ErrorAction SilentlyContinue)) {
@@ -82,8 +86,6 @@ BeforeAll {
         $global:ExchangeTestStubCommands.Add('Set-CASMailbox')
     }
 
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
-
     $global:ExchangeTestConfig = @{
         AddressBookPolicy = 'MON-EXO-ABP-Schule_Schüler'
         CustomAttribute1 = 'Montessori Schule Aufkirchen - Schüler'
@@ -122,7 +124,7 @@ Describe 'Exchange Online student mailbox adapter' {
             }
             return @()
         }
-        Mock Connect-ExchangeOnline -ModuleName SchuelerSync {}
+        Mock Connect-ExchangeOnline -ModuleName SchuelerSync { return }
         Mock Get-Recipient -ModuleName SchuelerSync { @() }
         Mock Get-Mailbox -ModuleName SchuelerSync {
             if ($global:ExchangeTestState.Mailboxes.Count -gt 0) {

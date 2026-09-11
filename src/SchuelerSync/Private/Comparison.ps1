@@ -209,8 +209,8 @@ function New-StateDifference {
 
 function Add-ComparisonAddressOwner {
     param(
-        [Parameter(Mandatory)][System.Collections.IDictionary] $AddressOwners,
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]] $ReservedAddresses,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary] $AddressOwners,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]] $ReservedAddresses,
         [Parameter(Mandatory)][string] $Address,
         [AllowNull()][object] $Owner
     )
@@ -218,7 +218,8 @@ function Add-ComparisonAddressOwner {
     $normalized = $Address.Trim().ToLowerInvariant()
     if ([string]::IsNullOrWhiteSpace($normalized)) { return }
     [void] $ReservedAddresses.Add($normalized)
-    $owners = if ($AddressOwners.Contains($normalized)) { @($AddressOwners[$normalized]) } else { @() }
+    $owners = @()
+    if ($AddressOwners.Contains($normalized)) { $owners = @($AddressOwners[$normalized]) }
     $ownerIds = @(Get-AddressOwnerIds $Owner)
     foreach ($ownerRecord in @($Owner)) {
         if ($null -eq $ownerRecord) { continue }
@@ -240,7 +241,7 @@ function Add-ComparisonAddressOwner {
 
 function Test-AddressOwnedOnlyBy {
     param(
-        [Parameter(Mandatory)][System.Collections.IDictionary] $AddressOwners,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary] $AddressOwners,
         [Parameter(Mandatory)][string] $Address,
         [Parameter(Mandatory)][string] $OwnerId
     )

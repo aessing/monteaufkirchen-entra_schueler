@@ -73,3 +73,9 @@ $RECYCLE.BIN/
 # ---------------------- Schüler-Importdaten ---------------------- #
 # Contains personal data and generated initial passwords.
 /*.xlsx
+# Custom workbooks can also live in subdirectories or use uppercase extensions.
+*.[xX][lL][sS][xX]
+!tests/fixtures/Schueler-Testdaten.xlsx
+# Never allow generated confidential artifacts to inherit a fixture exception.
+*.backup-*.[xX][lL][sS][xX]
+.*.tmp.[xX][lL][sS][xX]

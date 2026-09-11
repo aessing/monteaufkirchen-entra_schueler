@@ -179,27 +179,37 @@ function Assert-WorkbookSafeForPasswordWrite {
         }
     }
 
-    if ($SkipGitSafetyCheck) {
-        return
-    }
+    if ($SkipGitSafetyCheck) { return }
+    Assert-WorkbookArtifactGitSafety -Path $resolvedPath
+}
 
+function Assert-WorkbookArtifactGitSafety {
+    param([Parameter(Mandatory)][string] $Path)
+
+    # Generated paths do not exist yet. Check each concrete destination rather
+    # than assuming the source file's ignore rule also covers its sibling files.
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
     $gitRoot = Get-WorkbookGitRoot -Path $resolvedPath
     if ($null -eq $gitRoot) {
         return
     }
 
     $relativePath = [IO.Path]::GetRelativePath($gitRoot, $resolvedPath)
-    if ($relativePath.StartsWith('..') -or [IO.Path]::IsPathRooted($relativePath)) {
+    if ($relativePath -eq '..' -or $relativePath.StartsWith('../') -or
+        $relativePath.StartsWith('..\') -or [IO.Path]::IsPathRooted($relativePath)) {
         return
     }
 
+    $null = & git --literal-pathspecs -C $gitRoot ls-files --error-unmatch -- $relativePath 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        throw "Die vertrauliche Excel-Datei innerhalb des Git-Worktrees darf nicht versioniert sein: '$relativePath'."
+    }
+    if ($LASTEXITCODE -ne 1) {
+        throw "Git konnte den Versionsstatus der vertraulichen Excel-Datei nicht prüfen: '$relativePath'."
+    }
     & git -C $gitRoot check-ignore -q -- $relativePath
     if ($LASTEXITCODE -ne 0) {
-        throw "Die Schülerdatei innerhalb des Git-Worktrees muss ignoriert sein: '$relativePath'."
-    }
-    & git -C $gitRoot ls-files --error-unmatch -- $relativePath 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        throw "Die Schülerdatei innerhalb des Git-Worktrees darf nicht versioniert sein: '$relativePath'."
+        throw "Die vertrauliche Excel-Datei innerhalb des Git-Worktrees muss ignoriert sein: '$relativePath'."
     }
 }
 
@@ -277,6 +287,12 @@ function Write-StudentWorkbookUpdates {
         $backupPath = Join-Path $directory ('{0}.backup-{1}{2}' -f $baseName, $backupTimestamp.ToString('yyyyMMdd-HHmmss'), $extension)
     }
     $temporaryPath = Join-Path $directory ('.{0}.{1}.tmp{2}' -f $baseName, [guid]::NewGuid().Guid, $extension)
+    if (-not $SkipGitSafetyCheck) {
+        # Validate the entire file set before even the first confidential copy.
+        foreach ($artifactPath in @($context.Path, $backupPath, $temporaryPath)) {
+            Assert-WorkbookArtifactGitSafety -Path $artifactPath
+        }
+    }
     $package = $null
     $sourceMoved = $false
     $installed = $false
@@ -339,6 +355,10 @@ function Write-StudentWorkbookUpdates {
 
         $savedHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256 -ErrorAction Stop).Hash
         Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
+        if (-not $SkipGitSafetyCheck) {
+            Assert-WorkbookArtifactGitSafety -Path $backupPath
+            Assert-WorkbookArtifactGitSafety -Path $context.Path
+        }
         # Move the actual source out of the way before checking it. A late edit is now in
         # this exact backup, and a recreated original path can never be overwritten.
         Move-StudentWorkbookFile -Source $context.Path -Destination $backupPath -Confirm:$false

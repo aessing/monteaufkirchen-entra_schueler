@@ -1,6 +1,6 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
 
 Describe 'Stable student identity and directory comparison' {

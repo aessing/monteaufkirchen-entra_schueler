@@ -1,15 +1,17 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $manifest = Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1'
-    $fixture = Join-Path $PSScriptRoot 'fixtures/Schueler-Testdaten.xlsx'
-    Import-Module $manifest -Force
+    Import-Module $manifest -ErrorAction Stop
 }
 
 Describe 'Student workbook adapter' {
-    InModuleScope SchuelerSync -Parameters @{ Fixture = $fixture } {
+    InModuleScope SchuelerSync {
+        BeforeAll {
+            $script:ExcelTestFixture = Join-Path $script:SchuelerSyncRepositoryRoot 'tests/fixtures/Schueler-Testdaten.xlsx'
+        }
         It 'reads the required sheet and maps the student rows' {
             $copy = Join-Path $TestDrive 'Eigener-Dateiname.xlsx'
-            Copy-Item $fixture $copy
+            Copy-Item $script:ExcelTestFixture $copy
 
             $context = Read-StudentWorkbook -Path $copy
 
@@ -28,7 +30,7 @@ Describe 'Student workbook adapter' {
 
         It 'rejects a partially filled mandatory student row before mutation' {
             $copy = Join-Path $TestDrive 'Teilweise.xlsx'
-            Copy-Item $fixture $copy
+            Copy-Item $script:ExcelTestFixture $copy
             $package = Open-ExcelPackage -Path $copy
             try {
                 $package.Workbook.Worksheets['Tabelle1'].Cells[4, 1].Value = 'Unvollständig, Uma'
@@ -43,7 +45,7 @@ Describe 'Student workbook adapter' {
 
         It 'writes verified identity data and retains a backup' {
             $copy = Join-Path $TestDrive 'Eigener-Dateiname.xlsx'
-            Copy-Item $fixture $copy
+            Copy-Item $script:ExcelTestFixture $copy
             $objectId = [guid]::NewGuid().Guid
 
             $result = Write-StudentWorkbookUpdates -Path $copy -Updates @(
@@ -65,7 +67,7 @@ Describe 'Student workbook adapter' {
 
         It 'does not replace an existing password with an empty update' {
             $copy = Join-Path $TestDrive 'Bestehendes-Passwort.xlsx'
-            Copy-Item $fixture $copy
+            Copy-Item $script:ExcelTestFixture $copy
             $initialObjectId = [guid]::NewGuid().Guid
             Write-StudentWorkbookUpdates -Path $copy -Updates @(
                 [pscustomobject]@{

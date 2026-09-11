@@ -1,18 +1,75 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    $fixture = Join-Path $PSScriptRoot 'fixtures/Schueler-Testdaten.xlsx'
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
 
 Describe 'Version-bound workbook identity writes' {
-    InModuleScope SchuelerSync -Parameters @{ Fixture = $fixture } {
+    InModuleScope SchuelerSync {
         BeforeEach {
             $script:testDirectory = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -Path $script:testDirectory -ItemType Directory
-            $script:workbookFixture = $Fixture
+            $script:workbookFixture = Join-Path $script:SchuelerSyncRepositoryRoot 'tests/fixtures/Schueler-Testdaten.xlsx'
             $script:copy = Join-Path $script:testDirectory 'Studenten.xlsx'
-            Copy-Item $Fixture $script:copy -Force
+            Copy-Item $script:workbookFixture $script:copy -Force
         }
+        It 'refuses an unignored <Unprotected> artifact before the first confidential copy' -ForEach @(
+            @{ Unprotected = 'backup'; Patterns = @('/Studenten.xlsx', '/.*.tmp.xlsx') }
+            @{ Unprotected = 'temporary'; Patterns = @('/Studenten.xlsx', '/*.backup-*.xlsx') }
+            @{ Unprotected = 'both'; Patterns = @('/Studenten.xlsx') }
+        ) {
+            & git -C $script:testDirectory init --quiet
+            $LASTEXITCODE | Should -Be 0
+            Set-Content -LiteralPath (Join-Path $script:testDirectory '.gitignore') -Value $Patterns
+            $original = Read-StudentWorkbook -Path $script:copy
+            Mock Copy-Item { throw 'Confidential copy must not begin.' }
+            {
+                Write-StudentWorkbookUpdates -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                ) -Confirm:$false
+            } | Should -Throw '*ignoriert*'
+            Should -Invoke Copy-Item -Times 0 -Exactly
+            (Get-FileHash -LiteralPath $script:copy -Algorithm SHA256).Hash | Should -Be $original.SourceHash
+            @(Get-ChildItem -LiteralPath $script:testDirectory -Filter '*.xlsx' -Force).Count | Should -Be 1
+        }
+
+        It 'protects source backup and temporary workbook inside a custom repository subdirectory' {
+            & git -C $script:testDirectory init --quiet
+            $LASTEXITCODE | Should -Be 0
+            Set-Content -LiteralPath (Join-Path $script:testDirectory '.gitignore') -Value '*.[xX][lL][sS][xX]'
+            $nested = Join-Path $script:testDirectory 'import [2026]'
+            $null = New-Item -Path $nested -ItemType Directory
+            $source = Join-Path $nested 'Eigene Liste.XLSX'
+            Copy-Item -LiteralPath $script:workbookFixture -Destination $source
+            $original = Read-StudentWorkbook -Path $source
+            $result = Write-StudentWorkbookUpdates -Path $source -ExpectedSourceHash $original.SourceHash -Updates @(
+                [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+            ) -Confirm:$false
+            (Read-StudentWorkbook -Path $source).Students[0].Password | Should -Be 'TigerWiese56'
+            Test-Path -LiteralPath $result.BackupPath | Should -BeTrue
+            @(& git -C $script:testDirectory ls-files --others --exclude-standard '*.XLSX' '*.xlsx').Count | Should -Be 0
+            $LASTEXITCODE | Should -Be 0
+        }
+
+        It 'rejects a generated path already tracked in Git even when its file was removed' {
+            & git -C $script:testDirectory init --quiet
+            $LASTEXITCODE | Should -Be 0
+            Set-Content -LiteralPath (Join-Path $script:testDirectory '.gitignore') -Value '*.xlsx'
+            $artifact = Join-Path $script:testDirectory '.Studenten.known.tmp.xlsx'
+            Set-Content -LiteralPath $artifact -Value 'synthetic test placeholder'
+            & git -C $script:testDirectory add --force -- '.Studenten.known.tmp.xlsx'
+            $LASTEXITCODE | Should -Be 0
+            Remove-Item -LiteralPath $artifact
+            { Assert-WorkbookArtifactGitSafety -Path $artifact } | Should -Throw '*versioniert*'
+            Test-Path -LiteralPath $artifact | Should -BeFalse
+        }
+
+        It 'does not mistake a dot-prefixed artifact name for a path outside Git' {
+            & git -C $script:testDirectory init --quiet
+            $LASTEXITCODE | Should -Be 0
+            $artifact = Join-Path $script:testDirectory '..Studenten.known.tmp.xlsx'
+            { Assert-WorkbookArtifactGitSafety -Path $artifact } | Should -Throw '*ignoriert*'
+        }
+
         It 'rejects swapped rows before writing credentials to either student' {
             $original = Read-StudentWorkbook -Path $script:copy
             $package = Open-ExcelPackage -Path $script:copy

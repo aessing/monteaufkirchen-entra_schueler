@@ -32,7 +32,7 @@ git check-ignore -- .\Schueler.xlsx
 git ls-files --error-unmatch -- .\Schueler.xlsx
 ```
 
-`git check-ignore` muss bei einer Datei innerhalb des Repositories erfolgreich sein. `git ls-files` darf die Datei nicht als versioniert ausgeben. Die Regel `/*.xlsx` schützt Root-Dateien. Eine XLSX in einem Unterordner braucht eine eigene passende Ignore-Regel.
+`git check-ignore` muss bei einer Datei innerhalb des Repositories erfolgreich sein. `git ls-files` darf die Datei nicht als versioniert ausgeben. Die mitgelieferten Regeln schützen XLSX-Dateien im Root und in Unterordnern, einschließlich Sicherungen und temporärer Kopien. In einem fremden Repository muss dessen `.gitignore` ebenfalls Quelle und beide Artefaktmuster abdecken. Das Skript prüft alle konkret gewählten Pfade vor der ersten Kopie und bricht andernfalls ab.
 
 ## 3. Vergleich ausführen
 

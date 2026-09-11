@@ -41,6 +41,7 @@ Dokumentiere Windows-Version, PowerShell-Version und die höchste gefundene Vers
 Im Repository-Root:
 
 ```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Test-PesterDiscovery.ps1
 Invoke-Pester .\tests -Output Detailed
 
 $analyzerFindings = @(
@@ -66,6 +67,8 @@ if ($parseErrors) { throw 'PowerShell-Parserfehler gefunden.' }
 
 Erwartung: Pester erfolgreich, Analyzer ohne ungeklärte Fehler, `$parseErrors` leer.
 
+Die separate Discovery-Prüfung startet ohne vorab importiertes Anwendungsmodul. Tests mit `InModuleScope` importieren das Modul ausdrücklich in `BeforeDiscovery`. Fixturepfade, Zustände und Mocks entstehen erst in der Run-Phase in `BeforeAll` beziehungsweise `BeforeEach`. Discovery-Blöcke verwenden keine dort erst entstehenden Werte. Testdateien ersetzen das Modul nicht mit `Import-Module -Force`, da das bereits gebundene Scriptblöcke ungültig machen könnte. Der Discovery-Test prüft diese Struktur und startet zusätzlich selbst eine frische PowerShell-Sitzung.
+
 ## 3. Git- und Datenschutzprüfung
 
 ```powershell
@@ -78,9 +81,12 @@ git grep -n -I -E 'Passwort|PasswordProfile' -- ':!docs/**' ':!tests/**'
 Erwartung:
 
 - `Schueler.xlsx` wird ignoriert
+- eigene Root- und Unterordner-Arbeitsmappen sowie konkrete Sicherungs- und temporäre Pfade werden ignoriert
 - unter Git liegt nur die synthetische Fixture `tests/fixtures/Schueler-Testdaten.xlsx`
 - keine produktiven Namen, UPNs oder Passwörter sind versioniert
 - Quellcode-Treffer für Passwortlogik enthalten keine echten Geheimnisse
+
+Die Git-Regressionen verwenden temporäre Test-Repositories. Sie prüfen auch den Fehlerfall, dass nur die Quelle ignoriert ist. Dann darf weder eine vertrauliche Kopie noch eine Sicherung entstehen. Der Passworttest prüft das Format, die Einmaligkeit im Lauf und mindestens 24 Bit tatsächlich erreichbaren Auswahlraum.
 
 ## 4. Synthetische Testdaten
 

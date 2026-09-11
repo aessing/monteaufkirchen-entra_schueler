@@ -1,6 +1,6 @@
 # Abnahmestand und VM-Protokoll
 
-Stand der lokalen Prüfung: 11. September 2026, Implementierungsstand `0259d9b` auf `codex/entra-schueler-sync-impl`.
+Stand der lokalen Prüfung: 11. September 2026 auf `codex/entra-schueler-sync-impl`, einschließlich der Korrekturen aus der abschließenden Codeprüfung.
 
 Die Implementierung liegt zur abschließenden Codeprüfung und zur Abnahme in der Windows-Parallels-VM vor. Eine produktive Freigabe ist damit noch nicht erteilt. Lokal wurden **keine Pester-Tests erfolgreich ausgeführt und keine Live-Mandantentests durchgeführt**.
 
@@ -10,18 +10,20 @@ Die Implementierung liegt zur abschließenden Codeprüfung und zur Abnahme in de
 |---|---|
 | `git status --short` | Arbeitsbaum vor diesem Protokoll sauber |
 | `git diff --check` und `git diff 5303d37..HEAD --check` | Keine Whitespace-Fehler |
-| `git check-ignore -v Schueler.xlsx` | Root-Regel `/*.xlsx` greift |
+| `git check-ignore -v Schueler.xlsx` und synthetische Zielpfade | XLSX-Regeln greifen im Root und in Unterordnern, auch für Sicherungen, temporäre Kopien und Großschreibung der Endung |
 | `git ls-files '*.xlsx'` | Ausschließlich `tests/fixtures/Schueler-Testdaten.xlsx` verfolgt |
 | Quellcode-Suche nach Passwortzuweisungen, privaten Schlüsseln und Tokens | Kein literales Geheimnis gefunden. Die Formatvorlage im Generator ist kein Passwort |
 | Quellcode-Suche und Sichtprüfung der Passwort-Ausgabepfade | Kein direkter Passwortwert in den Ausgabeaufrufen. Das ersetzt keinen Laufzeittest aller PowerShell-Ausgabekanäle |
 | Modulmanifest und Konfiguration, statisch gelesen | Export `Invoke-SchuelerSync`, Version `0.1.0`, PowerShell-Mindestversion `7.0`, Domain, Schüler-Rollen-ID, Passwortlänge `12`, EXO-Wiederholungen `5` und Wartezeit `60` konsistent |
-| Lokale Markdown-Dateiziele | 17 Verweise auf vorhandene Dateien geprüft. Sieben bestehende relative GitHub-Issue-/Security-Verweise sind Hosting-Links und wurden nicht als lokale Dateien bewertet |
+| Lokale Markdown-Dateiziele | 20 Verweise auf vorhandene Dateien geprüft. Sieben bestehende relative GitHub-Issue-/Security-Verweise sind Hosting-Links und wurden nicht als lokale Dateien bewertet |
 | `file docs/assets/entra-schueler-sync-hero.png` | PNG, 2048 × 768 Pixel |
 | `unzip -t tests/fixtures/Schueler-Testdaten.xlsx` | Alle ZIP-Einträge fehlerfrei |
 | Fixture-XML gelesen | Fünf Pflichtspalten, zwei erfundene Schülerzeilen, keine Passwort-, UPN- oder Objekt-ID-Werte |
-| Testinventar | 13 Testdateien, 161 statische `It`-Deklarationen. Dies ist keine Anzahl ausgeführter oder bestandener Tests |
+| Testinventar | 14 Testdateien, 177 statische `It`-Deklarationen und ein separater Discovery-Prüfer. Dies ist keine Anzahl ausgeführter oder bestandener Tests |
+| Passwort-Auswahlraum, unabhängig aus dem Wortkatalog berechnet | 847 eindeutige Wörter, 220.505 eindeutige Zehnbuchstaben-Präfixe, 19.845.450 mögliche Ausgaben, rund 24,24 Bit |
+| Discovery-Struktur, statisch geprüft | Alle zehn Testdateien mit `InModuleScope` importieren in `BeforeDiscovery`. Fixturepfade entstehen innerhalb der Run-Phase, kein Test ersetzt das Modul mit `-Force` |
 
-Zusätzlich wurden alle 25 verfolgten `.ps1`-, `.psm1`- und `.psd1`-Dateien mit `tree-sitter-powershell 0.26.4` untersucht. 24 Dateien enthalten keine gemeldeten Parserknoten. Bei `tests/Entra.Tests.ps1:23` beanstandet dieser Ersatzparser den leeren Mock-Scriptblock. Eine ausschließlich im Arbeitsspeicher ausgeführte Probe mit `{ return }` statt `{}` beseitigt die Meldung. Die Datei wurde nicht dafür geändert. Erst der native PowerShell-Parser in der VM kann diese offene Parserprüfung abschließen.
+Zusätzlich wurden alle 27 `.ps1`-, `.psm1`- und `.psd1`-Dateien mit `tree-sitter-powershell 0.26.4` untersucht. Der Ersatzparser meldet keine Fehler- oder Missing-Knoten. Leere Mock-Scriptblöcke verwenden nun explizit `{ return }`, damit sie auch mit diesem Parser lesbar sind. Die native PowerShell-Parserprüfung sowie die neue Fresh-Session-Discovery-Prüfung bleiben Aufgabe der VM.
 
 Diese drei lokalen Befehle wurden separat versucht:
 

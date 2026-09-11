@@ -1,7 +1,9 @@
-BeforeAll {
+BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
+}
 
+BeforeAll {
     $global:EntraMutationDesired = [pscustomobject]@{
         DisplayName = 'Mia Beispiel'
         GivenName = 'Mia'

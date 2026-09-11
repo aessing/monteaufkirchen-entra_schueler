@@ -132,7 +132,7 @@ function Invoke-StudentCreateBatch {
     }
     if ($pending.Count -eq 0) { return }
     try {
-        if (-not $PSCmdlet.ShouldProcess($File, 'Persist new student credentials and identities atomically')) {
+        if (-not $PSCmdlet.ShouldProcess($File, 'Persist new student credentials and identities with a recoverable workbook commit')) {
             throw 'Excel-Rückschreibung wurde nicht bestätigt. Neue Konten bleiben deaktiviert.'
         }
         $written = Write-StudentWorkbookUpdates -Path $File -Updates @($pending) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false

@@ -6,7 +6,7 @@ BeforeAll {
 
 Describe 'SchuelerSync module contract' {
     It 'imports and exports only Invoke-SchuelerSync' {
-        Import-Module $manifest -Force
+        Import-Module $manifest -ErrorAction Stop
         (Get-Command Invoke-SchuelerSync -Module SchuelerSync).Name |
             Should -Be 'Invoke-SchuelerSync'
         @(Get-Command -Module SchuelerSync).Name |

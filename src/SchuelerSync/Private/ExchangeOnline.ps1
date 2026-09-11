@@ -47,7 +47,7 @@ function Connect-SchuelerExchangeOnline {
 function Add-ExchangeRecipientAddress {
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][Collections.Generic.HashSet[string]] $ReservedAddresses,
-        [Parameter(Mandatory)][System.Collections.IDictionary] $AddressOwners,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary] $AddressOwners,
         [AllowNull()][object] $Address,
         [AllowNull()][object] $OwnerId,
         [switch] $HasSmtpPrefix
@@ -181,7 +181,7 @@ function Get-RequiredExchangeAuditActions {
 function Get-MissingExchangeValues {
     param(
         [AllowNull()][object[]] $Current,
-        [Parameter(Mandatory)][object[]] $Required
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Required
     )
 
     $currentSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -274,7 +274,7 @@ function Compare-StudentMailboxState {
 function Get-ExchangeMailboxWriteParameters {
     param(
         [Parameter(Mandatory)][object] $Mailbox,
-        [Parameter(Mandatory)][object[]] $Differences,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Differences,
         [Parameter(Mandatory)][System.Collections.IDictionary] $Config
     )
 
@@ -306,7 +306,7 @@ function Get-ExchangeMailboxWriteParameters {
 
 function Get-ExchangeCasWriteParameters {
     param(
-        [Parameter(Mandatory)][object[]] $Differences,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Differences,
         [Parameter(Mandatory)][System.Collections.IDictionary] $Config
     )
 

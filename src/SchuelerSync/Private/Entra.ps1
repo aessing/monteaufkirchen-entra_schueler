@@ -71,8 +71,8 @@ function Set-EntraGroupMetadata {
 
 function Add-EntraReservedAddress {
     param(
-        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]] $ReservedAddresses,
-        [Parameter(Mandatory)][System.Collections.IDictionary] $AddressOwners,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]] $ReservedAddresses,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary] $AddressOwners,
         [Parameter(Mandatory)][string] $Address,
         [Parameter(Mandatory)][string] $OwnerId,
         [switch] $IsProxyAddress
@@ -87,7 +87,8 @@ function Add-EntraReservedAddress {
 
     $normalized = $value.ToLowerInvariant()
     [void] $ReservedAddresses.Add($normalized)
-    $owners = @($AddressOwners[$normalized])
+    $owners = @()
+    if ($AddressOwners.Contains($normalized)) { $owners = @($AddressOwners[$normalized]) }
     if (@($owners | Where-Object {
                 [string]::Equals([string]$_, $OwnerId, [StringComparison]::OrdinalIgnoreCase)
             }).Count -eq 0) {
@@ -101,7 +102,10 @@ function Resolve-EntraSnapshotGroup {
         [Parameter(Mandatory)][string] $DisplayName
     )
 
-    $groups = @($Snapshot.GroupMatchesByDisplayName[$DisplayName])
+    $groups = @()
+    if ($Snapshot.GroupMatchesByDisplayName.Contains($DisplayName)) {
+        $groups = @($Snapshot.GroupMatchesByDisplayName[$DisplayName])
+    }
     if ($groups.Count -ne 1) {
         throw "Expected exactly one Entra group named '$DisplayName', found $($groups.Count)."
     }
@@ -171,6 +175,9 @@ function Get-EntraSnapshot {
         $groupsById[$groupId] = $group
         $displayName = ([string]$group.DisplayName).Trim()
         if (-not [string]::IsNullOrWhiteSpace($displayName)) {
+            if (-not $groupMatchesByDisplayName.ContainsKey($displayName)) {
+                $groupMatchesByDisplayName[$displayName] = @()
+            }
             $groupMatchesByDisplayName[$displayName] = @($groupMatchesByDisplayName[$displayName]) + $group
         }
     }
@@ -277,6 +284,38 @@ function Get-UserTransitiveGroups {
     return @($Snapshot.TransitiveGroupsByUserId[$UserId])
 }
 
+function Test-EntraManagerNotFoundError {
+    param([Parameter(Mandatory)][System.Management.Automation.ErrorRecord] $ErrorRecord)
+
+    # Graph documents HTTP 404 for an unassigned manager. SDK generations expose
+    # that status in different properties, so do not infer it from translated text.
+    $exception = $ErrorRecord.Exception
+    $notFound = $false
+    while ($null -ne $exception) {
+        $responseProperty = $exception.PSObject.Properties['Response']
+        $response = if ($null -eq $responseProperty) { $null } else { $responseProperty.Value }
+        foreach ($source in @($exception, $response)) {
+            if ($null -eq $source) { continue }
+            foreach ($name in @('StatusCode', 'ResponseStatusCode', 'HttpStatusCode')) {
+                $property = $source.PSObject.Properties[$name]
+                if ($null -eq $property -or $null -eq $property.Value) { continue }
+                $status = 0
+                if ($property.Value -is [Net.HttpStatusCode]) {
+                    $status = [int]$property.Value
+                } elseif (-not [int]::TryParse([string]$property.Value, [ref]$status)) {
+                    continue
+                }
+                if ($status -ge 100 -and $status -le 599) {
+                    if ($status -ne 404) { return $false }
+                    $notFound = $true
+                }
+            }
+        }
+        $exception = $exception.InnerException
+    }
+    return $notFound
+}
+
 function Get-UserManagerId {
     [CmdletBinding()]
     param(
@@ -285,8 +324,17 @@ function Get-UserManagerId {
     )
 
     if (-not $Snapshot.ManagerByUserId.ContainsKey($UserId)) {
-        $manager = Get-MgUserManager -UserId $UserId
-        $Snapshot.ManagerByUserId[$UserId] = if ($null -eq $manager) { $null } else { [string]$manager.Id }
+        try {
+            $manager = Get-MgUserManager -UserId $UserId -ErrorAction Stop
+        } catch {
+            if (-not (Test-EntraManagerNotFoundError -ErrorRecord $_)) { throw }
+            $Snapshot.ManagerByUserId[$UserId] = $null
+            return $null
+        }
+        if ($null -eq $manager -or [string]::IsNullOrWhiteSpace([string]$manager.Id)) {
+            throw "Die Manager-Abfrage für '$UserId' lieferte keine verifizierbare Objekt-ID."
+        }
+        $Snapshot.ManagerByUserId[$UserId] = [string]$manager.Id
     }
     return $Snapshot.ManagerByUserId[$UserId]
 }

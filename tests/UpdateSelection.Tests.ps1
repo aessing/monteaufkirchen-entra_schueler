@@ -1,6 +1,10 @@
+BeforeDiscovery {
+    $repoRoot = Split-Path $PSScriptRoot -Parent
+    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
+}
+
 BeforeAll {
     $repoRoot = Split-Path $PSScriptRoot -Parent
-    Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
 }
 
 Describe 'Update selection' {

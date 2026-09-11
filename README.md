@@ -5,7 +5,7 @@
 Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra ID und Exchange Online. Der Standardlauf ist rein lesend. Änderungen benötigen ausdrücklich `-Update` oder den getrennten Exchange-Reparaturmodus.
 
 > [!IMPORTANT]
-> Die Excel-Datei enthält personenbezogene Daten und nach Neuanlagen auch Initialpasswörter. Root-Arbeitsmappen mit der Endung `.xlsx` sind per `.gitignore` ausgeschlossen. Committe keine produktiven Schülerlisten, Sicherungen oder Konsolenausgaben mit personenbezogenen Daten.
+> Die Excel-Datei enthält personenbezogene Daten und nach Neuanlagen auch Initialpasswörter. Arbeitsmappen im Root und in Unterordnern sowie Sicherungen und temporäre Kopien sind per `.gitignore` ausgeschlossen. Nur die mitgelieferte synthetische Fixture ist ausgenommen. Vor der Rückschreibung prüft das Skript jeden konkreten Dateipfad. Committe keine produktiven Schülerlisten, Sicherungen oder Konsolenausgaben mit personenbezogenen Daten.
 
 ## Das erledigt das Tool
 
