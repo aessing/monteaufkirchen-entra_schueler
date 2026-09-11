@@ -322,3 +322,453 @@ function Resolve-StudentManager {
     }
     return $matches[0]
 }
+
+function Get-EntraMutationPropertyValue {
+    param(
+        [AllowNull()][object] $InputObject,
+        [Parameter(Mandatory)][string] $Name
+    )
+
+    if ($null -eq $InputObject) { return $null }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
+function Test-EntraMutationValueEqual {
+    param(
+        [Parameter(Mandatory)][string] $Field,
+        [AllowNull()][object] $Current,
+        [AllowNull()][object] $Desired
+    )
+
+    if ($null -eq $Current -and $null -eq $Desired) { return $true }
+    if ($null -eq $Current -or $null -eq $Desired) { return $false }
+    if ($Field -in @('UserPrincipalName', 'Mail', 'MailNickname')) {
+        return [string]::Equals(
+            ([string]$Current).Trim(),
+            ([string]$Desired).Trim(),
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    }
+    if ($Current -is [string] -or $Desired -is [string]) {
+        return [string]::Equals(
+            ([string]$Current).Trim(),
+            ([string]$Desired).Trim(),
+            [StringComparison]::Ordinal
+        )
+    }
+    return [object]::Equals($Current, $Desired)
+}
+
+function Test-EntraPasswordPolicyRejection {
+    param([Parameter(Mandatory)][System.Management.Automation.ErrorRecord] $ErrorRecord)
+
+    $messageParts = [Collections.Generic.List[string]]::new()
+    if ($null -ne $ErrorRecord.Exception) {
+        $messageParts.Add([string]$ErrorRecord.Exception.Message)
+        foreach ($name in @('StatusCode', 'ResponseStatusCode')) {
+            $property = $ErrorRecord.Exception.PSObject.Properties[$name]
+            if ($null -ne $property) { $messageParts.Add([string]$property.Value) }
+        }
+    }
+    if ($null -ne $ErrorRecord.ErrorDetails) {
+        $messageParts.Add([string]$ErrorRecord.ErrorDetails.Message)
+    }
+    $message = $messageParts -join ' '
+    $isBadRequest = $message -match '(?i)(Request_BadRequest|BadRequest|status\s*code\s*400|\b400\b)'
+    $identifiesPassword = $message -match '(?i)(PasswordProfile\.Password|password)'
+    $identifiesPolicy = $message -match '(?i)(policy|policies|complexity|requirements?|does not comply)'
+    return $isBadRequest -and $identifiesPassword -and $identifiesPolicy
+}
+
+function New-DisabledEntraStudent {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][object] $Desired,
+        [Parameter(Mandatory)][string] $Password
+    )
+
+    $userPrincipalName = [string](Get-EntraMutationPropertyValue -InputObject $Desired -Name UserPrincipalName)
+    if ([string]::IsNullOrWhiteSpace($userPrincipalName) -or -not $userPrincipalName.Contains('@')) {
+        throw 'The desired user principal name must contain a local part and domain.'
+    }
+    $body = @{
+        AccountEnabled = $false
+        DisplayName = (Get-EntraMutationPropertyValue -InputObject $Desired -Name DisplayName)
+        GivenName = (Get-EntraMutationPropertyValue -InputObject $Desired -Name GivenName)
+        Surname = (Get-EntraMutationPropertyValue -InputObject $Desired -Name Surname)
+        UserPrincipalName = $userPrincipalName
+        MailNickname = ($userPrincipalName -split '@')[0]
+        Mail = (Get-EntraMutationPropertyValue -InputObject $Desired -Name Mail)
+        Department = (Get-EntraMutationPropertyValue -InputObject $Desired -Name Department)
+        OfficeLocation = (Get-EntraMutationPropertyValue -InputObject $Desired -Name OfficeLocation)
+        CompanyName = (Get-EntraMutationPropertyValue -InputObject $Desired -Name CompanyName)
+        EmployeeType = (Get-EntraMutationPropertyValue -InputObject $Desired -Name EmployeeType)
+        UsageLocation = (Get-EntraMutationPropertyValue -InputObject $Desired -Name UsageLocation)
+        AgeGroup = (Get-EntraMutationPropertyValue -InputObject $Desired -Name AgeGroup)
+        ConsentProvidedForMinor = (Get-EntraMutationPropertyValue -InputObject $Desired -Name ConsentProvidedForMinor)
+        PasswordProfile = @{
+            Password = $Password
+            ForceChangePasswordNextSignIn = $false
+        }
+    }
+
+    if ($PSCmdlet.ShouldProcess($userPrincipalName, 'Create disabled Entra student')) {
+        return New-MgUser -BodyParameter $body
+    }
+}
+
+function New-StudentWithPasswordRetry {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][object] $Desired,
+        [Parameter(Mandatory)][string] $InitialPassword,
+        [Parameter(Mandatory)][System.Collections.Generic.HashSet[string]] $UsedPasswords
+    )
+
+    $nestedShouldProcessParameters = @{}
+    foreach ($commonParameter in @('WhatIf', 'Confirm')) {
+        if ($PSBoundParameters.ContainsKey($commonParameter)) {
+            $nestedShouldProcessParameters[$commonParameter] = $PSBoundParameters[$commonParameter]
+        }
+    }
+    $password = $InitialPassword
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        try {
+            $user = New-DisabledEntraStudent -Desired $Desired -Password $password @nestedShouldProcessParameters
+            if ($null -eq $user) { return }
+            [void]$UsedPasswords.Add($password)
+            return [pscustomobject]@{
+                User = $user
+                Password = $password
+                Attempts = $attempt
+            }
+        } catch {
+            if ($attempt -ge 6 -or -not (Test-EntraPasswordPolicyRejection -ErrorRecord $_)) {
+                throw
+            }
+            [void]$UsedPasswords.Add($password)
+            $password = New-StudentPassword -UsedPasswords $UsedPasswords
+        }
+    }
+}
+
+function Set-EntraStudentAttributes {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][string] $UserId,
+        [Parameter(Mandatory)][object] $Desired,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Differences
+    )
+
+    $writableFields = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($field in @(
+            'DisplayName', 'GivenName', 'Surname', 'UserPrincipalName', 'Mail', 'MailNickname',
+            'Department', 'OfficeLocation', 'CompanyName', 'EmployeeType', 'UsageLocation',
+            'AgeGroup', 'ConsentProvidedForMinor'
+        )) {
+        $writableFields[$field] = $field
+    }
+
+    $body = @{}
+    foreach ($difference in @($Differences)) {
+        $area = [string](Get-EntraMutationPropertyValue -InputObject $difference -Name Area)
+        $action = [string](Get-EntraMutationPropertyValue -InputObject $difference -Name Action)
+        $field = [string](Get-EntraMutationPropertyValue -InputObject $difference -Name Field)
+        if (-not [string]::Equals($area, 'Entra', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if (-not [string]::Equals($action, 'Set', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ([string]::Equals($field, 'LegalAgeGroupClassification', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if (-not $writableFields.ContainsKey($field)) { continue }
+
+        $canonicalField = [string]$writableFields[$field]
+        $body[$canonicalField] = Get-EntraMutationPropertyValue -InputObject $Desired -Name $canonicalField
+    }
+
+    if ($body.Count -eq 0) {
+        return [pscustomobject]@{
+            UserId = $UserId
+            Changed = $false
+            Verified = $true
+            Fields = @()
+            User = $null
+        }
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($UserId, "Update Entra student attributes: $($body.Keys -join ', ')")) {
+        return [pscustomobject]@{
+            UserId = $UserId
+            Changed = $false
+            Verified = $false
+            Fields = [string[]]@($body.Keys)
+            User = $null
+        }
+    }
+    Update-MgUser -UserId $UserId -BodyParameter $body
+
+    $properties = [string[]]@($body.Keys)
+    $user = Get-MgUser -UserId $UserId -Property $properties
+    foreach ($field in $properties) {
+        $actual = Get-EntraMutationPropertyValue -InputObject $user -Name $field
+        if (-not (Test-EntraMutationValueEqual -Field $field -Current $actual -Desired $body[$field])) {
+            throw "Entra attribute '$field' could not be verified for user '$UserId'."
+        }
+    }
+    return [pscustomobject]@{
+        UserId = $UserId
+        Changed = $true
+        Verified = $true
+        Fields = $properties
+        User = $user
+    }
+}
+
+function Set-EntraStudentManager {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][string] $UserId,
+        [AllowNull()][string] $CurrentManagerId,
+        [Parameter(Mandatory)][string] $DesiredManagerId
+    )
+
+    $changed = -not [string]::Equals($CurrentManagerId, $DesiredManagerId, [StringComparison]::OrdinalIgnoreCase)
+    if ($changed) {
+        $body = @{
+            '@odata.id' = "https://graph.microsoft.com/v1.0/users/$DesiredManagerId"
+        }
+        if (-not $PSCmdlet.ShouldProcess($UserId, "Set Entra manager to '$DesiredManagerId'")) {
+            return [pscustomobject]@{
+                UserId = $UserId
+                ManagerId = $CurrentManagerId
+                Changed = $false
+                Verified = $false
+            }
+        }
+        Set-MgUserManagerByRef -UserId $UserId -BodyParameter $body
+    }
+
+    $manager = Get-MgUserManager -UserId $UserId
+    $actualManagerId = [string](Get-EntraMutationPropertyValue -InputObject $manager -Name Id)
+    if (-not [string]::Equals($actualManagerId, $DesiredManagerId, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Entra manager '$DesiredManagerId' could not be verified for user '$UserId'."
+    }
+    return [pscustomobject]@{
+        UserId = $UserId
+        ManagerId = $actualManagerId
+        Changed = $changed
+        Verified = $true
+    }
+}
+
+function Get-FreshEntraUserDirectGroups {
+    param([Parameter(Mandatory)][string] $UserId)
+
+    return @(
+        Get-MgUserMemberOfAsGroup -UserId $UserId -All |
+            ForEach-Object {
+                $inheritedProperty = $_.PSObject.Properties['IsInherited']
+                $isInherited = $null -ne $inheritedProperty -and [bool]$inheritedProperty.Value
+                Set-EntraGroupMetadata -Group $_ -IsInherited $isInherited
+            }
+    )
+}
+
+function Sync-EntraStudentGroups {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][string] $UserId,
+        [Parameter(Mandatory)][object] $RoleGroup,
+        [Parameter(Mandatory)][object] $LicenseGroup,
+        [Parameter(Mandatory)][object] $ClassGroup,
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $CurrentDirectGroups,
+        [string] $RoleGroupPrefix = 'SEC-A-ROL-',
+        [string] $ClassGroupPrefix = 'SEC-A-CLS-'
+    )
+
+    $requiredGroups = @($RoleGroup, $LicenseGroup, $ClassGroup)
+    $requiredIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($group in $requiredGroups) {
+        $groupId = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)).Trim()
+        $displayName = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name DisplayName)).Trim()
+        if ([string]::IsNullOrWhiteSpace($groupId) -or [string]::IsNullOrWhiteSpace($displayName)) {
+            throw 'Every mandatory Entra group must define both Id and DisplayName.'
+        }
+        if (Get-EntraGroupIsDynamic -Group $group) {
+            throw "Mandatory target group '$displayName' is dynamic and cannot be assigned directly."
+        }
+        [void]$requiredIds.Add($groupId)
+    }
+    if ($requiredIds.Count -ne 3) {
+        throw 'Role, license and class target groups must have three distinct IDs.'
+    }
+
+    $currentIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($group in @($CurrentDirectGroups)) {
+        $groupId = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($groupId)) { [void]$currentIds.Add($groupId) }
+    }
+
+    $memberReference = @{
+        '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$UserId"
+    }
+    $addedGroupIds = [Collections.Generic.List[string]]::new()
+    $writeSkipped = $false
+    foreach ($group in $requiredGroups) {
+        $groupId = [string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)
+        if ($currentIds.Contains($groupId)) { continue }
+        $displayName = [string](Get-EntraMutationPropertyValue -InputObject $group -Name DisplayName)
+        if ($PSCmdlet.ShouldProcess($displayName, "Add Entra student '$UserId' to group")) {
+            New-MgGroupMemberByRef -GroupId $groupId -BodyParameter $memberReference
+            $addedGroupIds.Add($groupId)
+        } else {
+            $writeSkipped = $true
+        }
+    }
+    if ($writeSkipped) {
+        return [pscustomobject]@{
+            UserId = $UserId
+            AddedGroupIds = [string[]]@($addedGroupIds)
+            RemovedGroupIds = @()
+            DirectGroups = [object[]]@($CurrentDirectGroups)
+            Verified = $false
+        }
+    }
+
+    $afterAdds = @(Get-FreshEntraUserDirectGroups -UserId $UserId)
+    $afterAddIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($group in $afterAdds) {
+        $groupId = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($groupId)) { [void]$afterAddIds.Add($groupId) }
+    }
+    $missingTargetIds = @($requiredIds | Where-Object { -not $afterAddIds.Contains($_) })
+    if ($missingTargetIds.Count -gt 0) {
+        throw "Entra mandatory target groups could not be verified for user '$UserId': $($missingTargetIds -join ', ')."
+    }
+
+    $removedGroupIds = [Collections.Generic.List[string]]::new()
+    $removalSkipped = $false
+    foreach ($group in $afterAdds) {
+        $groupId = [string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)
+        if ($requiredIds.Contains($groupId)) { continue }
+        $displayName = [string](Get-EntraMutationPropertyValue -InputObject $group -Name DisplayName)
+        $isManaged = $displayName.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+            $displayName.StartsWith($ClassGroupPrefix, [StringComparison]::OrdinalIgnoreCase)
+        $isInherited = [bool](Get-EntraMutationPropertyValue -InputObject $group -Name IsInherited)
+        $isDynamic = Get-EntraGroupIsDynamic -Group $group
+        if (-not $isManaged -or $isInherited -or $isDynamic) { continue }
+
+        if ($PSCmdlet.ShouldProcess($displayName, "Remove Entra student '$UserId' from competing managed group")) {
+            Remove-MgGroupMemberByRef -GroupId $groupId -DirectoryObjectId $UserId
+            $removedGroupIds.Add($groupId)
+        } else {
+            $removalSkipped = $true
+        }
+    }
+    if ($removalSkipped) {
+        return [pscustomobject]@{
+            UserId = $UserId
+            AddedGroupIds = [string[]]@($addedGroupIds)
+            RemovedGroupIds = [string[]]@($removedGroupIds)
+            DirectGroups = [object[]]@($afterAdds)
+            Verified = $false
+        }
+    }
+
+    $finalGroups = @(Get-FreshEntraUserDirectGroups -UserId $UserId)
+    $finalIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($group in $finalGroups) {
+        $groupId = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($groupId)) { [void]$finalIds.Add($groupId) }
+    }
+    $missingFinalTargetIds = @($requiredIds | Where-Object { -not $finalIds.Contains($_) })
+    if ($missingFinalTargetIds.Count -gt 0) {
+        throw "Final Entra mandatory groups could not be verified for user '$UserId': $($missingFinalTargetIds -join ', ')."
+    }
+
+    $unexpectedManagedGroups = @($finalGroups | Where-Object {
+            $displayName = [string](Get-EntraMutationPropertyValue -InputObject $_ -Name DisplayName)
+            $groupId = [string](Get-EntraMutationPropertyValue -InputObject $_ -Name Id)
+            ($displayName.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                $displayName.StartsWith($ClassGroupPrefix, [StringComparison]::OrdinalIgnoreCase)) -and
+                -not $requiredIds.Contains($groupId)
+        })
+    if ($unexpectedManagedGroups.Count -gt 0) {
+        $unexpectedNames = @($unexpectedManagedGroups | ForEach-Object { $_.DisplayName })
+        throw "Entra exact managed group state could not be verified for user '$UserId': $($unexpectedNames -join ', ')."
+    }
+
+    return [pscustomobject]@{
+        UserId = $UserId
+        AddedGroupIds = [string[]]@($addedGroupIds)
+        RemovedGroupIds = [string[]]@($removedGroupIds)
+        DirectGroups = [object[]]@($finalGroups)
+        Verified = $true
+    }
+}
+
+function Enable-EntraStudent {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][string] $UserId,
+        [switch] $WorkbookVerified,
+        [switch] $GroupsVerified,
+        [switch] $ManagerVerified,
+        [switch] $AttributesVerified
+    )
+
+    if (-not ($WorkbookVerified -and $GroupsVerified -and $ManagerVerified -and $AttributesVerified)) {
+        throw "Cannot enable Entra student '$UserId' without all verified prerequisites."
+    }
+    if (-not $PSCmdlet.ShouldProcess($UserId, 'Enable Entra student')) {
+        return [pscustomobject]@{ UserId = $UserId; AccountEnabled = $false; Changed = $false; Verified = $false }
+    }
+    Update-MgUser -UserId $UserId -AccountEnabled:$true
+
+    $user = Get-MgUser -UserId $UserId -Property @('id', 'accountEnabled')
+    if (-not [bool](Get-EntraMutationPropertyValue -InputObject $user -Name AccountEnabled)) {
+        throw "Enabled state could not be verified for Entra user '$UserId'."
+    }
+    return [pscustomobject]@{
+        UserId = $UserId
+        AccountEnabled = $true
+        Changed = $true
+        Verified = $true
+        User = $user
+    }
+}
+
+function Disable-EntraStudent {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param([Parameter(Mandatory)][string] $UserId)
+
+    if (-not $PSCmdlet.ShouldProcess($UserId, 'Disable Entra student')) {
+        return [pscustomobject]@{ UserId = $UserId; AccountEnabled = $null; Changed = $false; Verified = $false }
+    }
+    Update-MgUser -UserId $UserId -AccountEnabled:$false
+
+    $user = Get-MgUser -UserId $UserId -Property @('id', 'accountEnabled')
+    $accountEnabled = Get-EntraMutationPropertyValue -InputObject $user -Name AccountEnabled
+    if ($null -eq $accountEnabled -or [bool]$accountEnabled) {
+        throw "Disabled state could not be verified for Entra user '$UserId'."
+    }
+    return [pscustomobject]@{
+        UserId = $UserId
+        AccountEnabled = $false
+        Changed = $true
+        Verified = $true
+        User = $user
+    }
+}
+
+function Revoke-EntraStudentSessions {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][string] $UserId,
+        [switch] $Selected
+    )
+
+    if (-not $Selected) { return }
+    if ($PSCmdlet.ShouldProcess($UserId, 'Revoke Entra student sign-in sessions')) {
+        return Revoke-MgUserSignInSession -UserId $UserId
+    }
+}
