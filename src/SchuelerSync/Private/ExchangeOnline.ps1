@@ -1,4 +1,4 @@
-function Test-ExchangeOnlineConnectionActive {
+﻿function Test-ExchangeOnlineConnectionActive {
     param([AllowNull()][object] $Connection)
 
     if ($null -eq $Connection) { return $false }
@@ -72,7 +72,7 @@ function Add-ExchangeRecipientAddress {
     }
 }
 
-function Get-ExchangeRecipientAddresses {
+function Get-ExchangeRecipientAddress {
     [CmdletBinding()]
     param()
 
@@ -150,7 +150,7 @@ function Get-StudentMailboxState {
     }
 }
 
-function Get-RequiredExchangeAuditActions {
+function Get-RequiredExchangeAuditAction {
     param([Parameter(Mandatory)][object] $Mailbox)
 
     $auditAdmin = @(
@@ -178,7 +178,7 @@ function Get-RequiredExchangeAuditActions {
     }
 }
 
-function Get-MissingExchangeValues {
+function Get-MissingExchangeValue {
     param(
         [AllowNull()][object[]] $Current,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Required
@@ -200,7 +200,7 @@ function ConvertTo-ExchangePolicyName {
     return [string]$Value
 }
 
-function Get-ExchangeDurationDays {
+function Get-ExchangeDurationDay {
     param([AllowNull()][object] $Value)
 
     if ($null -eq $Value) { return $null }
@@ -224,8 +224,8 @@ function Compare-StudentMailboxState {
         [pscustomobject]@{ Field = 'AddressBookPolicy'; Current = ConvertTo-ExchangePolicyName (Get-ComparisonPropertyValue -InputObject $Mailbox -Name AddressBookPolicy); Desired = [string]$Config.AddressBookPolicy }
         [pscustomobject]@{ Field = 'CustomAttribute1'; Current = Get-ComparisonPropertyValue -InputObject $Mailbox -Name CustomAttribute1; Desired = [string]$Config.CustomAttribute1 }
         [pscustomobject]@{ Field = 'AuditEnabled'; Current = Get-ComparisonPropertyValue -InputObject $Mailbox -Name AuditEnabled; Desired = $true }
-        [pscustomobject]@{ Field = 'AuditLogAgeLimit'; Current = Get-ExchangeDurationDays (Get-ComparisonPropertyValue -InputObject $Mailbox -Name AuditLogAgeLimit); Desired = [double]$Config.AuditLogAgeLimitDays }
-        [pscustomobject]@{ Field = 'RetainDeletedItemsFor'; Current = Get-ExchangeDurationDays (Get-ComparisonPropertyValue -InputObject $Mailbox -Name RetainDeletedItemsFor); Desired = [double]$Config.RetainDeletedItemsForDays }
+        [pscustomobject]@{ Field = 'AuditLogAgeLimit'; Current = Get-ExchangeDurationDay (Get-ComparisonPropertyValue -InputObject $Mailbox -Name AuditLogAgeLimit); Desired = [double]$Config.AuditLogAgeLimitDays }
+        [pscustomobject]@{ Field = 'RetainDeletedItemsFor'; Current = Get-ExchangeDurationDay (Get-ComparisonPropertyValue -InputObject $Mailbox -Name RetainDeletedItemsFor); Desired = [double]$Config.RetainDeletedItemsForDays }
         [pscustomobject]@{ Field = 'RoleAssignmentPolicy'; Current = ConvertTo-ExchangePolicyName (Get-ComparisonPropertyValue -InputObject $Mailbox -Name RoleAssignmentPolicy); Desired = [string]$Config.RoleAssignmentPolicy }
         [pscustomobject]@{ Field = 'SharingPolicy'; Current = ConvertTo-ExchangePolicyName (Get-ComparisonPropertyValue -InputObject $Mailbox -Name SharingPolicy); Desired = [string]$Config.SharingPolicy }
         [pscustomobject]@{ Field = 'RetentionPolicy'; Current = ConvertTo-ExchangePolicyName (Get-ComparisonPropertyValue -InputObject $Mailbox -Name RetentionPolicy); Desired = [string]$Config.RetentionPolicy }
@@ -235,11 +235,11 @@ function Compare-StudentMailboxState {
         if ($null -ne $difference) { $differences.Add($difference) }
     }
 
-    $requiredAudit = Get-RequiredExchangeAuditActions -Mailbox $Mailbox
+    $requiredAudit = Get-RequiredExchangeAuditAction -Mailbox $Mailbox
     foreach ($field in @('AuditDelegate', 'AuditOwner', 'AuditAdmin')) {
         $current = @((Get-ComparisonPropertyValue -InputObject $Mailbox -Name $field))
         $required = @((Get-ComparisonPropertyValue -InputObject $requiredAudit -Name $field))
-        $missing = @(Get-MissingExchangeValues -Current $current -Required $required)
+        $missing = @(Get-MissingExchangeValue -Current $current -Required $required)
         if ($missing.Count -gt 0) {
             $differences.Add([pscustomobject]@{
                     Area = 'Exchange'
@@ -271,7 +271,7 @@ function Compare-StudentMailboxState {
     return [object[]]@($differences)
 }
 
-function Get-ExchangeMailboxWriteParameters {
+function Get-ExchangeMailboxWriteParameter {
     param(
         [Parameter(Mandatory)][object] $Mailbox,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Differences,
@@ -293,10 +293,10 @@ function Get-ExchangeMailboxWriteParameters {
         $parameters[[string]$difference.Field] = $desiredValues[[string]$difference.Field]
     }
 
-    $requiredAudit = Get-RequiredExchangeAuditActions -Mailbox $Mailbox
+    $requiredAudit = Get-RequiredExchangeAuditAction -Mailbox $Mailbox
     foreach ($field in @('AuditDelegate', 'AuditOwner', 'AuditAdmin')) {
         if (@($Differences | Where-Object Field -eq $field).Count -eq 0) { continue }
-        $missing = @(Get-MissingExchangeValues `
+        $missing = @(Get-MissingExchangeValue `
                 -Current @((Get-ComparisonPropertyValue -InputObject $Mailbox -Name $field)) `
                 -Required @((Get-ComparisonPropertyValue -InputObject $requiredAudit -Name $field)))
         if ($missing.Count -gt 0) { $parameters[$field] = @{ Add = [object[]]@($missing) } }
@@ -304,7 +304,7 @@ function Get-ExchangeMailboxWriteParameters {
     return $parameters
 }
 
-function Get-ExchangeCasWriteParameters {
+function Get-ExchangeCasWriteParameter {
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Differences,
         [Parameter(Mandatory)][System.Collections.IDictionary] $Config
@@ -328,6 +328,11 @@ function Get-ExchangeCasWriteParameters {
 }
 
 function New-ExchangeConfigurationResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory Exchange result record without changing external state.'
+    )]
     param(
         [Parameter(Mandatory)][string] $UserPrincipalName,
         [Parameter(Mandatory)][string] $Status,
@@ -377,8 +382,8 @@ function Set-StudentMailboxConfiguration {
             -Differences @() -RemainingDifferences @() -ErrorMessage $null
     }
 
-    $mailboxParameters = Get-ExchangeMailboxWriteParameters -Mailbox $state.Mailbox -Differences $differences -Config $Config
-    $casParameters = Get-ExchangeCasWriteParameters -Differences $differences -Config $Config
+    $mailboxParameters = Get-ExchangeMailboxWriteParameter -Mailbox $state.Mailbox -Differences $differences -Config $Config
+    $casParameters = Get-ExchangeCasWriteParameter -Differences $differences -Config $Config
     if ($WhatIfPreference) {
         if ($mailboxParameters.Count -gt 0) { [void]$PSCmdlet.ShouldProcess($upn, 'Exchange mailbox settings') }
         if ($casParameters.Count -gt 0) { [void]$PSCmdlet.ShouldProcess($upn, 'Exchange CAS mailbox settings') }
@@ -435,7 +440,7 @@ function Set-StudentMailboxConfiguration {
         -Differences $differences -RemainingDifferences @() -ErrorMessage $null
 }
 
-function Wait-StudentMailboxes {
+function Wait-StudentMailbox {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string[]] $UserPrincipalName,

@@ -27,22 +27,22 @@ Describe 'Public orchestration' {
             Mock Get-EntraSnapshot { [pscustomobject]@{} }
             Mock Get-EntraStudentCurrentIdentity { [pscustomobject]@{ Id = $UserId; UserPrincipalName = "$UserId@monteaufkirchen.com" } }
             Mock Connect-SchuelerExchangeOnline { return }
-            Mock Get-ExchangeRecipientAddresses { [pscustomobject]@{ AddressOwners = @{} } }
+            Mock Get-ExchangeRecipientAddress { [pscustomobject]@{ AddressOwners = @{} } }
             Mock Compare-StudentDirectory { $script:comparison }
             Mock Get-StudentMailboxState { [pscustomobject]@{ Exists = $false; Status = 'MailboxNotReady'; Differences = @() } }
             Mock Invoke-StudentCreateBatch { New-StudentActionResult -UserId 'new' -UserPrincipalName 'new@monteaufkirchen.com' -Phase Create -Status Succeeded }
-            Mock Invoke-StudentUpdates { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Update -Status Succeeded }
-            Mock Invoke-StudentDepartures { return }
-            Mock Wait-StudentMailboxes { [pscustomobject]@{ Ready = @(); Missing = @(); Failed = @() } }
+            Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Update -Status Succeeded }
+            Mock Invoke-StudentDeparture { return }
+            Mock Wait-StudentMailbox { [pscustomobject]@{ Ready = @(); Missing = @(); Failed = @() } }
             Mock Write-Information { return }
         }
         It 'compares each matched mailbox once without any mutation or wait' {
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx'
             Should -Invoke Get-StudentMailboxState -Times 2 -Exactly
             Should -Invoke Invoke-StudentCreateBatch -Times 0
-            Should -Invoke Invoke-StudentUpdates -Times 0
-            Should -Invoke Invoke-StudentDepartures -Times 0
-            Should -Invoke Wait-StudentMailboxes -Times 0
+            Should -Invoke Invoke-StudentUpdate -Times 0
+            Should -Invoke Invoke-StudentDeparture -Times 0
+            Should -Invoke Wait-StudentMailbox -Times 0
             $result.Comparison.NewStudents.Count | Should -Be 1
             $result.Comparison.Departures.Count | Should -Be 1
             ($result | ConvertTo-Json -Depth 30) | Should -Not -Match 'NeverReport12|"Password"'
@@ -61,41 +61,41 @@ Describe 'Public orchestration' {
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -Confirm:$false
             $result.HasErrors | Should -BeTrue
             Should -Invoke Invoke-StudentCreateBatch -Times 0
-            Should -Invoke Invoke-StudentUpdates -Times 0
-            Should -Invoke Invoke-StudentDepartures -Times 0
-            Should -Invoke Wait-StudentMailboxes -Times 0
+            Should -Invoke Invoke-StudentUpdate -Times 0
+            Should -Invoke Invoke-StudentDeparture -Times 0
+            Should -Invoke Wait-StudentMailbox -Times 0
         }
         It 'runs all Graph actions and Exchange for every active workbook student on plain Update' {
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -Confirm:$false | Out-Null
             Should -Invoke Invoke-StudentCreateBatch -Times 1
-            Should -Invoke Invoke-StudentUpdates -Times 1
-            Should -Invoke Invoke-StudentDepartures -ParameterFilter { $DisableUsers -and $RevokeSessions }
-            Should -Invoke Wait-StudentMailboxes -ParameterFilter {
+            Should -Invoke Invoke-StudentUpdate -Times 1
+            Should -Invoke Invoke-StudentDeparture -ParameterFilter { $DisableUsers -and $RevokeSessions }
+            Should -Invoke Wait-StudentMailbox -ParameterFilter {
                 $UserPrincipalName.Count -eq 3 -and $UserPrincipalName -contains 'new@monteaufkirchen.com' -and $UserPrincipalName -contains 'existing@monteaufkirchen.com'
             }
         }
         It 'limits selective Exchange to successfully created accounts' {
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -CreateNewUsers -Confirm:$false | Out-Null
-            Should -Invoke Wait-StudentMailboxes -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'new@monteaufkirchen.com' }
-            Should -Invoke Invoke-StudentUpdates -Times 0
+            Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'new@monteaufkirchen.com' }
+            Should -Invoke Invoke-StudentUpdate -Times 0
         }
         It 'limits selective Exchange to successfully updated accounts' {
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -UpdateUsers -Confirm:$false | Out-Null
-            Should -Invoke Wait-StudentMailboxes -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'changed@monteaufkirchen.com' }
+            Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'changed@monteaufkirchen.com' }
             Should -Invoke Invoke-StudentCreateBatch -Times 0
         }
         It 'uses the reread UPN for full Exchange after a partial rename failure' {
-            Mock Invoke-StudentUpdates { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Manager -Status Failed }
+            Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Manager -Status Failed }
             Mock Get-EntraStudentCurrentIdentity { [pscustomobject]@{ Id = $UserId; UserPrincipalName = 'renamed@monteaufkirchen.com' } } -ParameterFilter { $UserId -eq 'changed' }
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -Confirm:$false | Out-Null
-            Should -Invoke Wait-StudentMailboxes -ParameterFilter {
+            Should -Invoke Wait-StudentMailbox -ParameterFilter {
                 $UserPrincipalName -contains 'renamed@monteaufkirchen.com' -and $UserPrincipalName -notcontains 'changed@monteaufkirchen.com'
             }
         }
         It 'does not configure partially failed renames in selective UpdateUsers mode' {
-            Mock Invoke-StudentUpdates { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'renamed@monteaufkirchen.com' -Phase Manager -Status Failed }
+            Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'renamed@monteaufkirchen.com' -Phase Manager -Status Failed }
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -UpdateUsers -Confirm:$false | Out-Null
-            Should -Invoke Wait-StudentMailboxes -Times 0
+            Should -Invoke Wait-StudentMailbox -Times 0
         }
         It 'checks rename workbook writeability before any Graph or Exchange write' {
             $script:comparison.ChangedStudents[0].Differences = @([pscustomobject]@{ Area = 'Entra'; Field = 'UserPrincipalName'; Action = 'Set' })
@@ -107,33 +107,33 @@ Describe 'Public orchestration' {
             $difference.Current | Should -BeNullOrEmpty
             $difference.Desired | Should -BeNullOrEmpty
             Should -Invoke Invoke-StudentCreateBatch -Times 0
-            Should -Invoke Invoke-StudentUpdates -Times 0
-            Should -Invoke Invoke-StudentDepartures -Times 0
-            Should -Invoke Wait-StudentMailboxes -Times 0
+            Should -Invoke Invoke-StudentUpdate -Times 0
+            Should -Invoke Invoke-StudentDeparture -Times 0
+            Should -Invoke Wait-StudentMailbox -Times 0
         }
         It 'rejects a workbook version change before any selected mutation' {
             Mock Assert-StudentWorkbookVersion { throw 'Workbook changed since preflight' }
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -DisableUsers -Confirm:$false
             $result.HasErrors | Should -BeTrue
-            Should -Invoke Invoke-StudentDepartures -Times 0
+            Should -Invoke Invoke-StudentDeparture -Times 0
         }
         It 'does not configure active Exchange for departures-only actions' {
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -DisableUsers -RevokeSessions -Confirm:$false | Out-Null
-            Should -Invoke Wait-StudentMailboxes -Times 0
+            Should -Invoke Wait-StudentMailbox -Times 0
         }
         It 'Exchange-only bypasses Graph and Excel and normalizes identities' {
             Invoke-SchuelerSync -ConfigureExchangeOnlineOnly -Mail ' TEST@monteaufkirchen.com ', 'test@monteaufkirchen.com' -Confirm:$false | Out-Null
             Should -Invoke Read-StudentWorkbook -Times 0
             Should -Invoke Connect-SchuelerGraph -Times 0
-            Should -Invoke Wait-StudentMailboxes -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'test@monteaufkirchen.com' }
+            Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'test@monteaufkirchen.com' }
         }
         It 'WhatIf retains reads and plans without invoking Graph orchestration mutations' {
             $result = Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -WhatIf
             Should -Invoke Get-StudentMailboxState -Times 3 -Exactly
             Should -Invoke Invoke-StudentCreateBatch -Times 0
-            Should -Invoke Invoke-StudentUpdates -Times 0
-            Should -Invoke Invoke-StudentDepartures -Times 0
-            Should -Invoke Wait-StudentMailboxes -Times 0
+            Should -Invoke Invoke-StudentUpdate -Times 0
+            Should -Invoke Invoke-StudentDeparture -Times 0
+            Should -Invoke Wait-StudentMailbox -Times 0
             $result.Actions.Status | Should -Contain 'WhatIf'
         }
     }
@@ -152,10 +152,10 @@ Describe 'Fail-safe new account batching' {
             Mock Assert-StudentWorkbookVersion { return }
             Mock New-StudentPassword { 'TigerWiese56' }
             Mock New-StudentWithPasswordRetry { $script:events.Add('create-disabled'); [pscustomobject]@{ User = [pscustomobject]@{ Id = 'new'; UserPrincipalName = 'new@monteaufkirchen.com' }; Password = $InitialPassword } }
-            Mock Assert-NewEntraStudentAttributes { $script:events.Add('attributes'); $true }
+            Mock Assert-NewEntraStudentAttribute { $script:events.Add('attributes'); $true }
             Mock Set-EntraStudentManager { $script:events.Add('manager'); [pscustomobject]@{ Verified = $true } }
-            Mock Sync-EntraStudentGroups { $script:events.Add('groups'); [pscustomobject]@{ Verified = $true } }
-            Mock Write-StudentWorkbookUpdates {
+            Mock Sync-EntraStudentGroup { $script:events.Add('groups'); [pscustomobject]@{ Verified = $true } }
+            Mock Write-StudentWorkbookUpdate {
                 $script:events.Add('excel-write')
                 $script:stored = @($Updates | ForEach-Object { [pscustomobject]@{ RowNumber = $_.RowNumber; EntraObjectId = $_.EntraObjectId; StoredUpn = $_.UPN; Password = $_.Password } })
                 [pscustomobject]@{ SourceHash = 'saved-version' }
@@ -171,7 +171,7 @@ Describe 'Fail-safe new account batching' {
             ($result | ConvertTo-Json -Depth 15) | Should -Not -Match 'TigerWiese56|"Password"'
         }
         It 'leaves every new account disabled when batch persistence fails' {
-            Mock Write-StudentWorkbookUpdates { throw 'Workbook locked' }
+            Mock Write-StudentWorkbookUpdate { throw 'Workbook locked' }
             $result = @(Invoke-StudentCreateBatch -Entries @($script:entry) -Snapshot $script:snapshot -Config $script:config -File 'synthetic.xlsx' -WorkbookState $script:workbookState -Confirm:$false)
             Should -Invoke Enable-EntraStudent -Times 0
             $result[0].Status | Should -Be Failed
@@ -186,13 +186,13 @@ Describe 'Fail-safe new account batching' {
         It 'does not generate passwords or touch Excel for WhatIf' {
             Invoke-StudentCreateBatch -Entries @($script:entry) -Snapshot $script:snapshot -Config $script:config -File 'synthetic.xlsx' -WorkbookState $script:workbookState -WhatIf | Out-Null
             Should -Invoke New-StudentPassword -Times 0
-            Should -Invoke Write-StudentWorkbookUpdates -Times 0
+            Should -Invoke Write-StudentWorkbookUpdate -Times 0
             Should -Invoke Enable-EntraStudent -Times 0
         }
         It 'writes all prepared accounts in one batch before enabling either account' {
             $second = [pscustomobject]@{ Student = [pscustomobject]@{ RowNumber = 3 }; DesiredState = $script:desired }
             $result = @(Invoke-StudentCreateBatch -Entries @($script:entry, $second) -Snapshot $script:snapshot -Config $script:config -File 'synthetic.xlsx' -WorkbookState $script:workbookState -Confirm:$false)
-            Should -Invoke Write-StudentWorkbookUpdates -Times 1 -Exactly -ParameterFilter { $Updates.Count -eq 2 }
+            Should -Invoke Write-StudentWorkbookUpdate -Times 1 -Exactly -ParameterFilter { $Updates.Count -eq 2 }
             ($script:events -join ',') | Should -Be 'create-disabled,attributes,manager,groups,create-disabled,attributes,manager,groups,excel-write,excel-read,enable,enable'
             $result.Count | Should -Be 2
         }
@@ -215,37 +215,37 @@ Describe 'Existing students and departures' {
                 DesiredState = [pscustomobject]@{ UserPrincipalName = 'existing@monteaufkirchen.com' }
                 Differences = @([pscustomobject]@{ Area = 'Entra'; Field = 'Department'; Action = 'Set' })
             }
-            Mock Set-EntraStudentAttributes { [pscustomobject]@{ Verified = $true } }
+            Mock Set-EntraStudentAttribute { [pscustomobject]@{ Verified = $true } }
             Mock Assert-StudentWorkbookVersion { return }
             Mock Set-EntraStudentManager { throw 'Unexpected manager write' }
-            Mock Sync-EntraStudentGroups { throw 'Unexpected group write' }
+            Mock Sync-EntraStudentGroup { throw 'Unexpected group write' }
             Mock New-StudentPassword { throw 'Unexpected password generation' }
-            Mock Write-StudentWorkbookUpdates { throw 'Unexpected workbook mutation' }
+            Mock Write-StudentWorkbookUpdate { throw 'Unexpected workbook mutation' }
             Mock Disable-EntraStudent { throw 'Disable failed' }
-            Mock Revoke-EntraStudentSessions { $true }
+            Mock Revoke-EntraStudentSession { $true }
         }
         It 'changes only listed existing fields without generating or storing credentials' {
-            $result = @(Invoke-StudentUpdates -Entries @($script:entry) -Snapshot ([pscustomobject]@{}) -Config @{} -File 'synthetic.xlsx' -WorkbookState ([pscustomobject]@{ SourceHash = 'original' }) -Confirm:$false)
+            $result = @(Invoke-StudentUpdate -Entries @($script:entry) -Snapshot ([pscustomobject]@{}) -Config @{} -File 'synthetic.xlsx' -WorkbookState ([pscustomobject]@{ SourceHash = 'original' }) -Confirm:$false)
             $result[0].Status | Should -Be Succeeded
-            Should -Invoke Set-EntraStudentAttributes -ParameterFilter { $Differences.Count -eq 1 -and $Differences[0].Field -eq 'Department' }
+            Should -Invoke Set-EntraStudentAttribute -ParameterFilter { $Differences.Count -eq 1 -and $Differences[0].Field -eq 'Department' }
             Should -Invoke Set-EntraStudentManager -Times 0
-            Should -Invoke Sync-EntraStudentGroups -Times 0
+            Should -Invoke Sync-EntraStudentGroup -Times 0
             Should -Invoke New-StudentPassword -Times 0
-            Should -Invoke Write-StudentWorkbookUpdates -Times 0
+            Should -Invoke Write-StudentWorkbookUpdate -Times 0
         }
         It 'still revokes after a failed disable and records each outcome separately' {
-            $result = @(Invoke-StudentDepartures -Entries @($script:entry) -DisableUsers -RevokeSessions -File 'synthetic.xlsx' -Confirm:$false)
+            $result = @(Invoke-StudentDeparture -Entries @($script:entry) -DisableUsers -RevokeSessions -File 'synthetic.xlsx' -Confirm:$false)
             ($result | Where-Object Phase -eq Disable).Status | Should -Be Failed
             ($result | Where-Object Phase -eq RevokeSessions).Status | Should -Be Succeeded
         }
         It 'does not report an unconfirmed session revoke as successful' {
-            Mock Revoke-EntraStudentSessions { $false }
-            $result = @(Invoke-StudentDepartures -Entries @($script:entry) -RevokeSessions -File 'synthetic.xlsx' -Confirm:$false)
+            Mock Revoke-EntraStudentSession { $false }
+            $result = @(Invoke-StudentDeparture -Entries @($script:entry) -RevokeSessions -File 'synthetic.xlsx' -Confirm:$false)
             $result[0].Status | Should -Be Failed
         }
         It 'avoids re-disabling accounts already disabled' {
             $script:entry.User.AccountEnabled = $false
-            $result = @(Invoke-StudentDepartures -Entries @($script:entry) -DisableUsers -File 'synthetic.xlsx' -Confirm:$false)
+            $result = @(Invoke-StudentDeparture -Entries @($script:entry) -DisableUsers -File 'synthetic.xlsx' -Confirm:$false)
             $result[0].Status | Should -Be Compliant
             Should -Invoke Disable-EntraStudent -Times 0
         }
@@ -274,7 +274,7 @@ Describe 'Direct workbook mutation boundary' {
         It 'honors WhatIf before reading or copying a workbook' {
             Mock Read-StudentWorkbook { throw 'Unexpected workbook read' }
             Mock Copy-Item { throw 'Unexpected backup' }
-            Write-StudentWorkbookUpdates -Path 'does-not-exist.xlsx' -Updates @([pscustomobject]@{ RowNumber = 2 }) -WhatIf
+            Write-StudentWorkbookUpdate -Path 'does-not-exist.xlsx' -Updates @([pscustomobject]@{ RowNumber = 2 }) -WhatIf
             Should -Invoke Read-StudentWorkbook -Times 0
             Should -Invoke Copy-Item -Times 0
         }

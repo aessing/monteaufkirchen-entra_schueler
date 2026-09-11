@@ -1,4 +1,4 @@
-function ConvertTo-UpnToken {
+﻿function ConvertTo-UpnToken {
     param([Parameter(Mandatory)][string] $Value)
     $mapped = $Value.Trim().ToLowerInvariant().
         Replace('ä', 'ae').Replace('ö', 'oe').Replace('ü', 'ue').Replace('ß', 'ss')
@@ -15,14 +15,14 @@ function ConvertTo-UpnToken {
 
 function Get-OfficeLocation {
     param([Parameter(Mandatory)][string] $ClassName)
-    $matches = [regex]::Matches($ClassName, '(?i)(?<office>g[1-4]|m[1-3]|o[1-2]|a[1-2])(?=_|$)')
-    if ($matches.Count -ne 1) {
+    $officeMatches = [regex]::Matches($ClassName, '(?i)(?<office>g[1-4]|m[1-3]|o[1-2]|a[1-2])(?=_|$)')
+    if ($officeMatches.Count -ne 1) {
         throw "Klasse '$ClassName' enthält keine eindeutige erlaubte Office Location."
     }
-    return $matches[0].Groups['office'].Value.ToUpperInvariant()
+    return $officeMatches[0].Groups['office'].Value.ToUpperInvariant()
 }
 
-function Get-UpnCandidates {
+function Get-UpnCandidate {
     param(
         [Parameter(Mandatory)][string] $GivenName,
         [Parameter(Mandatory)][string] $Surname,
@@ -38,21 +38,21 @@ function Get-UpnCandidates {
     }
 }
 
-function Get-AddressOwnerIds {
+function Get-AddressOwnerId {
     param([AllowNull()][object] $Value)
     if ($null -eq $Value) { return @() }
     if ($Value -is [string] -or $Value -is [Guid]) { return @([string]$Value) }
     if ($Value -is [System.Collections.IDictionary]) {
-        return @($Value.Values | ForEach-Object { Get-AddressOwnerIds $_ })
+        return @($Value.Values | ForEach-Object { Get-AddressOwnerId $_ })
     }
     if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [hashtable]) {
-        return @($Value | ForEach-Object { Get-AddressOwnerIds $_ })
+        return @($Value | ForEach-Object { Get-AddressOwnerId $_ })
     }
     $ids = @()
     foreach ($name in 'CurrentObjectId', 'GraphObjectId', 'ExchangeObjectId', 'ObjectId', 'OwnerId', 'OwnerIds', 'Ids') {
         $property = $Value.PSObject.Properties[$name]
         if ($null -ne $property -and $null -ne $property.Value) {
-            $ids += @(Get-AddressOwnerIds $property.Value)
+            $ids += @(Get-AddressOwnerId $property.Value)
         }
     }
     return @($ids | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -72,6 +72,16 @@ function Test-UsedAddress {
 }
 
 function Select-AvailableUpn {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSReviewUnusedParameter',
+        'AddressOwners',
+        Justification = 'The parameter is consumed by the local availability closure.'
+    )]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSReviewUnusedParameter',
+        'CurrentObjectId',
+        Justification = 'The parameter is consumed by the local availability closure.'
+    )]
     param(
         [Parameter(Mandatory)][string] $GivenName,
         [Parameter(Mandatory)][string] $Surname,
@@ -80,7 +90,7 @@ function Select-AvailableUpn {
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary] $AddressOwners,
         [AllowNull()][string] $CurrentObjectId
     )
-    $candidates = @(Get-UpnCandidates $GivenName $Surname $Domain)
+    $candidates = @(Get-UpnCandidate $GivenName $Surname $Domain)
     $collisions = [Collections.Generic.List[string]]::new()
     $isAvailable = {
         param($candidate)
@@ -93,7 +103,7 @@ function Select-AvailableUpn {
             }
         }
         if ($null -eq $ownerEntry) { return $true }
-        $owners = @(Get-AddressOwnerIds $ownerEntry)
+        $owners = @(Get-AddressOwnerId $ownerEntry)
         if ([string]::IsNullOrWhiteSpace($CurrentObjectId) -or $owners.Count -eq 0) { return $false }
         foreach ($owner in $owners) {
             if (-not [string]::Equals($owner, $CurrentObjectId, [StringComparison]::OrdinalIgnoreCase)) { return $false }
@@ -195,7 +205,7 @@ $script:StudentPasswordWords = @(
     'Zeit', 'Zelt', 'Zelte', 'Zettel', 'Zeug', 'Ziege', 'Ziel', 'Zimmer', 'Zimt', 'Zopf', 'Zug', 'Zweck', 'Zweig'
 )
 
-function Get-StudentPasswordPrefixes {
+function Get-StudentPasswordPrefix {
     if ($null -eq (Get-Variable -Name StudentPasswordPrefixes -Scope Script -ErrorAction SilentlyContinue)) {
         $prefixes = [Collections.Generic.List[string]]::new()
         foreach ($left in $script:StudentPasswordWords) {
@@ -210,11 +220,16 @@ function Get-StudentPasswordPrefixes {
 }
 
 function New-StudentPassword {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory random password without changing external state.'
+    )]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]] $UsedPasswords,
         [scriptblock] $RandomIndexScriptBlock
     )
-    $prefixes = Get-StudentPasswordPrefixes
+    $prefixes = Get-StudentPasswordPrefix
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
         if ($null -eq $RandomIndexScriptBlock) {
             $prefixIndex = [Security.Cryptography.RandomNumberGenerator]::GetInt32(0, $prefixes.Count)

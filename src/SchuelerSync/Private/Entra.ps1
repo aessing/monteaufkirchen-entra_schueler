@@ -1,4 +1,11 @@
-function New-CaseInsensitiveHashtable {
+﻿function New-CaseInsensitiveHashtable {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory hashtable without changing external state.'
+    )]
+    param()
+
     return [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
 }
 
@@ -56,7 +63,7 @@ function Get-EntraGroupIsDynamic {
     return $hasDynamicType -or -not [string]::IsNullOrWhiteSpace([string]$Group.MembershipRule)
 }
 
-function Set-EntraGroupMetadata {
+function ConvertTo-EntraGroupRecord {
     param(
         [Parameter(Mandatory)][object] $Group,
         [bool] $IsInherited = $false
@@ -171,7 +178,7 @@ function Get-EntraSnapshot {
         if ($groupsById.ContainsKey($groupId)) {
             throw "Microsoft Graph returned duplicate group id '$groupId'."
         }
-        $group = Set-EntraGroupMetadata -Group $group
+        $group = ConvertTo-EntraGroupRecord -Group $group
         $groupsById[$groupId] = $group
         $displayName = ([string]$group.DisplayName).Trim()
         if (-not [string]::IsNullOrWhiteSpace($displayName)) {
@@ -184,9 +191,9 @@ function Get-EntraSnapshot {
 
     $groupsByDisplayName = New-CaseInsensitiveHashtable
     foreach ($displayName in $groupMatchesByDisplayName.Keys) {
-        $matches = @($groupMatchesByDisplayName[$displayName])
-        if ($matches.Count -eq 1) {
-            $groupsByDisplayName[$displayName] = $matches[0]
+        $displayNameMatches = @($groupMatchesByDisplayName[$displayName])
+        if ($displayNameMatches.Count -eq 1) {
+            $groupsByDisplayName[$displayName] = $displayNameMatches[0]
         }
     }
 
@@ -244,7 +251,7 @@ function Get-EntraSnapshot {
     }
 }
 
-function Get-UserDirectGroups {
+function Get-UserDirectGroup {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object] $Snapshot,
@@ -254,14 +261,14 @@ function Get-UserDirectGroups {
     if (-not $Snapshot.DirectGroupsByUserId.ContainsKey($UserId)) {
         $groups = @(
             Get-MgUserMemberOfAsGroup -UserId $UserId -All |
-                ForEach-Object { Set-EntraGroupMetadata -Group $_ }
+                ForEach-Object { ConvertTo-EntraGroupRecord -Group $_ }
         )
         $Snapshot.DirectGroupsByUserId[$UserId] = $groups
     }
     return @($Snapshot.DirectGroupsByUserId[$UserId])
 }
 
-function Get-UserTransitiveGroups {
+function Get-UserTransitiveGroup {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object] $Snapshot,
@@ -270,13 +277,13 @@ function Get-UserTransitiveGroups {
 
     if (-not $Snapshot.TransitiveGroupsByUserId.ContainsKey($UserId)) {
         $directGroupIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        foreach ($group in @(Get-UserDirectGroups -Snapshot $Snapshot -UserId $UserId)) {
+        foreach ($group in @(Get-UserDirectGroup -Snapshot $Snapshot -UserId $UserId)) {
             [void] $directGroupIds.Add([string]$group.Id)
         }
         $groups = @(
             Get-MgUserTransitiveMemberOfAsGroup -UserId $UserId -All |
                 ForEach-Object {
-                    Set-EntraGroupMetadata -Group $_ -IsInherited (-not $directGroupIds.Contains([string]$_.Id))
+                    ConvertTo-EntraGroupRecord -Group $_ -IsInherited (-not $directGroupIds.Contains([string]$_.Id))
                 }
         )
         $Snapshot.TransitiveGroupsByUserId[$UserId] = $groups
@@ -354,21 +361,21 @@ function Resolve-StudentManager {
 
     $users = @($Snapshot.UsersById.Values)
     if ($value.Contains('@')) {
-        $matches = @($users | Where-Object {
+        $teacherMatches = @($users | Where-Object {
                 [string]::Equals(([string]$_.UserPrincipalName).Trim(), $value, [StringComparison]::OrdinalIgnoreCase) -or
                 [string]::Equals(([string]$_.Mail).Trim(), $value, [StringComparison]::OrdinalIgnoreCase)
             })
     } else {
-        $matches = @($users | Where-Object {
+        $teacherMatches = @($users | Where-Object {
                 [string]::Equals(([string]$_.DisplayName).Trim(), $value, [StringComparison]::OrdinalIgnoreCase)
             })
     }
 
-    if ($matches.Count -ne 1) {
+    if ($teacherMatches.Count -ne 1) {
         $studentSuffix = if ([string]::IsNullOrWhiteSpace($Student)) { '' } else { " for student '$Student'" }
-        throw "Kein eindeutiger Manager$studentSuffix für '$value' gefunden ($($matches.Count) Treffer)."
+        throw "Kein eindeutiger Manager$studentSuffix für '$value' gefunden ($($teacherMatches.Count) Treffer)."
     }
-    return $matches[0]
+    return $teacherMatches[0]
 }
 
 function Get-EntraMutationPropertyValue {
@@ -475,6 +482,11 @@ function New-DisabledEntraStudent {
 
 function New-StudentWithPasswordRetry {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingPlainTextForPassword',
+        'InitialPassword',
+        Justification = 'Graph creation requires an in-memory plain string for bounded retries; it is never logged and is persisted only to the protected workbook.'
+    )]
     param(
         [Parameter(Mandatory)][object] $Desired,
         [Parameter(Mandatory)][string] $InitialPassword,
@@ -508,7 +520,7 @@ function New-StudentWithPasswordRetry {
     }
 }
 
-function Set-EntraStudentAttributes {
+function Set-EntraStudentAttribute {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][string] $UserId,
@@ -614,7 +626,7 @@ function Set-EntraStudentManager {
     }
 }
 
-function Get-FreshEntraUserDirectGroups {
+function Get-FreshEntraUserDirectGroup {
     param([Parameter(Mandatory)][string] $UserId)
 
     return @(
@@ -622,12 +634,12 @@ function Get-FreshEntraUserDirectGroups {
             ForEach-Object {
                 $inheritedProperty = $_.PSObject.Properties['IsInherited']
                 $isInherited = $null -ne $inheritedProperty -and [bool]$inheritedProperty.Value
-                Set-EntraGroupMetadata -Group $_ -IsInherited $isInherited
+                ConvertTo-EntraGroupRecord -Group $_ -IsInherited $isInherited
             }
     )
 }
 
-function Sync-EntraStudentGroups {
+function Sync-EntraStudentGroup {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][string] $UserId,
@@ -688,7 +700,7 @@ function Sync-EntraStudentGroups {
         }
     }
 
-    $afterAdds = @(Get-FreshEntraUserDirectGroups -UserId $UserId)
+    $afterAdds = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
     $afterAddIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($group in $afterAdds) {
         $groupId = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)).Trim()
@@ -728,7 +740,7 @@ function Sync-EntraStudentGroups {
         }
     }
 
-    $finalGroups = @(Get-FreshEntraUserDirectGroups -UserId $UserId)
+    $finalGroups = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
     $finalIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($group in $finalGroups) {
         $groupId = ([string](Get-EntraMutationPropertyValue -InputObject $group -Name Id)).Trim()
@@ -814,7 +826,7 @@ function Disable-EntraStudent {
     }
 }
 
-function Revoke-EntraStudentSessions {
+function Revoke-EntraStudentSession {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][string] $UserId,

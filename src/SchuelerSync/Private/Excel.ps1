@@ -1,4 +1,4 @@
-$script:MandatoryStudentHeaders = @(
+﻿$script:MandatoryStudentHeaders = @(
     'Name mit Rufname',
     'Vorname',
     'Nachname',
@@ -251,7 +251,7 @@ function Move-StudentWorkbookFile {
     [IO.File]::Move($Source, $Destination)
 }
 
-function Write-StudentWorkbookUpdates {
+function Write-StudentWorkbookUpdate {
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string] $Path,

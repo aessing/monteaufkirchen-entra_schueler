@@ -1,4 +1,4 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
 $script:SchuelerSyncRepositoryRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 Get-ChildItem -Path (Join-Path $PSScriptRoot 'Private') -Filter '*.ps1' -ErrorAction SilentlyContinue |
@@ -38,9 +38,9 @@ function Invoke-SchuelerSync {
         }
         try {
             $null = Connect-SchuelerExchangeOnline
-            $batch = Wait-StudentMailboxes -UserPrincipalName @($targets) -Config $config.Exchange -Configure `
+            $batch = Wait-StudentMailbox -UserPrincipalName @($targets) -Config $config.Exchange -Configure `
                 -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
-            foreach ($action in @(ConvertTo-ExchangeActionResults -Batch $batch -WhatIfMode:$WhatIfPreference)) { $actions.Add($action) }
+            foreach ($action in @(ConvertTo-ExchangeActionResult -Batch $batch -WhatIfMode:$WhatIfPreference)) { $actions.Add($action) }
         } catch {
             $actions.Add((New-StudentActionResult -Phase Exchange -Status Failed -Message $_.Exception.Message))
         }
@@ -60,7 +60,7 @@ function Invoke-SchuelerSync {
             if ($config.ExpectedTenantId -and $tenantId -ine [string]$config.ExpectedTenantId) { throw 'Der verbundene Graph-Tenant stimmt nicht mit ExpectedTenantId überein.' }
             $snapshot = Get-EntraSnapshot -Config $config
             $null = Connect-SchuelerExchangeOnline
-            $recipients = Get-ExchangeRecipientAddresses
+            $recipients = Get-ExchangeRecipientAddress
             $comparison = Compare-StudentDirectory -Students @($workbook.Students) -Snapshot $snapshot -Config $config -ExchangeAddressOwners $recipients.AddressOwners
             # Read current identities, even when a rename is planned, exactly once during preflight.
             foreach ($entry in @($comparison.ChangedStudents) + @($comparison.ExistingStudents)) {
@@ -124,10 +124,10 @@ function Invoke-SchuelerSync {
                     foreach ($action in @(Invoke-StudentCreateBatch -Entries @($comparison.NewStudents) -Snapshot $snapshot -Config $config -File $File -WorkbookState $workbook -UsedPasswords $secrets @common)) { $actions.Add($action) }
                 }
                 if ($selection.UpdateUsers) {
-                    foreach ($action in @(Invoke-StudentUpdates -Entries @($comparison.ChangedStudents) -Snapshot $snapshot -Config $config -File $File -WorkbookState $workbook -Secrets @($secrets) @common)) { $actions.Add($action) }
+                    foreach ($action in @(Invoke-StudentUpdate -Entries @($comparison.ChangedStudents) -Snapshot $snapshot -Config $config -File $File -WorkbookState $workbook -Secrets @($secrets) @common)) { $actions.Add($action) }
                 }
                 if ($selection.DisableUsers -or $selection.RevokeSessions) {
-                    foreach ($action in @(Invoke-StudentDepartures -Entries @($comparison.Departures) -DisableUsers:$selection.DisableUsers -RevokeSessions:$selection.RevokeSessions -File $File -Secrets @($secrets) @common)) { $actions.Add($action) }
+                    foreach ($action in @(Invoke-StudentDeparture -Entries @($comparison.Departures) -DisableUsers:$selection.DisableUsers -RevokeSessions:$selection.RevokeSessions -File $File -Secrets @($secrets) @common)) { $actions.Add($action) }
                 }
                 $targetsById = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
                 foreach ($action in @($actions | Where-Object { $_.Status -eq 'Succeeded' -and $_.Phase -in @('Create', 'Update') })) {
@@ -147,9 +147,9 @@ function Invoke-SchuelerSync {
                 }
                 if ($targetsById.Count -gt 0) {
                     try {
-                        $batch = Wait-StudentMailboxes -UserPrincipalName @($targetsById.Values) -Config $config.Exchange -Configure `
+                        $batch = Wait-StudentMailbox -UserPrincipalName @($targetsById.Values) -Config $config.Exchange -Configure `
                             -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
-                        foreach ($action in @(ConvertTo-ExchangeActionResults -Batch $batch)) { $actions.Add($action) }
+                        foreach ($action in @(ConvertTo-ExchangeActionResult -Batch $batch)) { $actions.Add($action) }
                     } catch {
                         $actions.Add((New-StudentActionResult -Phase Exchange -Status Failed -Message $_.Exception.Message -Secrets @($secrets)))
                     }

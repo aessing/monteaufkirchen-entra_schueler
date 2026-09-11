@@ -256,7 +256,7 @@ Describe 'Exchange Online student mailbox adapter' {
                     )
                 }
 
-                $inventory = Get-ExchangeRecipientAddresses
+                $inventory = Get-ExchangeRecipientAddress
 
                 @($inventory.ReservedAddresses).Count | Should -Be 4
                 $inventory.ReservedAddresses.Contains('MIA.MUSTER@MONTEAUFKIRCHEN.COM') | Should -BeTrue
@@ -651,7 +651,7 @@ Describe 'Exchange Online student mailbox adapter' {
                 $global:ExchangeTestState.AvailabilityAt[$upns[1]] = 2
                 $global:ExchangeTestState.AvailabilityAt[$upns[2]] = 3
 
-                $result = Wait-StudentMailboxes `
+                $result = Wait-StudentMailbox `
                     -UserPrincipalName $upns `
                     -MaxRetries 5 `
                     -RetryDelaySeconds 60 `
@@ -670,7 +670,7 @@ Describe 'Exchange Online student mailbox adapter' {
                 $upns = @('one@school.example', 'two@school.example')
                 foreach ($upn in $upns) { $global:ExchangeTestState.AvailabilityAt[$upn] = 1 }
 
-                $result = Wait-StudentMailboxes -UserPrincipalName $upns -MaxRetries 5 -RetryDelaySeconds 60 `
+                $result = Wait-StudentMailbox -UserPrincipalName $upns -MaxRetries 5 -RetryDelaySeconds 60 `
                     -SleepAction { param($seconds) $global:ExchangeTestState.Sleeps.Add($seconds) }
 
                 $result.Ready.Count | Should -Be 2
@@ -682,7 +682,7 @@ Describe 'Exchange Online student mailbox adapter' {
                 $upn = 'missing@school.example'
                 $global:ExchangeTestState.AvailabilityAt[$upn] = 99
 
-                $result = Wait-StudentMailboxes -UserPrincipalName $upn -MaxRetries 5 -RetryDelaySeconds 60 `
+                $result = Wait-StudentMailbox -UserPrincipalName $upn -MaxRetries 5 -RetryDelaySeconds 60 `
                     -SleepAction { param($seconds) $global:ExchangeTestState.Sleeps.Add($seconds) }
 
                 $result.Ready.Count | Should -Be 0
@@ -696,7 +696,7 @@ Describe 'Exchange Online student mailbox adapter' {
                 $upn = 'missing@school.example'
                 $global:ExchangeTestState.AvailabilityAt[$upn] = 99
 
-                $result = Wait-StudentMailboxes `
+                $result = Wait-StudentMailbox `
                     -UserPrincipalName $upn `
                     -Config $global:ExchangeTestConfig `
                     -Configure `
@@ -727,7 +727,7 @@ Describe 'Exchange Online student mailbox adapter' {
                     }
                 }
 
-                $result = Wait-StudentMailboxes `
+                $result = Wait-StudentMailbox `
                     -UserPrincipalName $upn `
                     -Config $global:ExchangeTestConfig `
                     -Configure `

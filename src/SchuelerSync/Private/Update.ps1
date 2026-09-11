@@ -1,4 +1,4 @@
-function Resolve-UpdateSelection {
+﻿function Resolve-UpdateSelection {
     param([switch] $Update, [switch] $CreateNewUsers, [switch] $UpdateUsers, [switch] $DisableUsers, [switch] $RevokeSessions)
     $selective = $CreateNewUsers -or $UpdateUsers -or $DisableUsers -or $RevokeSessions
     if ($selective -and -not $Update) { throw 'Aktionsschalter erfordern -Update.' }
@@ -10,7 +10,7 @@ function Resolve-UpdateSelection {
     }
 }
 
-function Assert-NewEntraStudentAttributes {
+function Assert-NewEntraStudentAttribute {
     param([Parameter(Mandatory)][string] $UserId, [Parameter(Mandatory)][object] $Desired)
     $fields = @('DisplayName', 'GivenName', 'Surname', 'UserPrincipalName', 'Mail', 'MailNickname', 'Department', 'OfficeLocation', 'CompanyName', 'EmployeeType', 'UsageLocation', 'AgeGroup', 'ConsentProvidedForMinor')
     $user = Get-MgUser -UserId $UserId -Property @($fields + 'AccountEnabled') -ErrorAction Stop
@@ -23,7 +23,7 @@ function Assert-NewEntraStudentAttributes {
     return $true
 }
 
-function Get-StudentGroupParameters {
+function Get-StudentGroupParameter {
     param([Parameter(Mandatory)][object] $Entry, [Parameter(Mandatory)][object] $Snapshot, [Parameter(Mandatory)][System.Collections.IDictionary] $Config)
     $names = $Entry.DesiredState.RequiredGroupNames
     @{
@@ -68,7 +68,7 @@ function Save-StudentIdentityCheckpoint {
         EntraObjectId = $UserId
         UPN = $UserPrincipalName
     }
-    $written = Write-StudentWorkbookUpdates -Path $File -Updates @($identityUpdate) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false
+    $written = Write-StudentWorkbookUpdate -Path $File -Updates @($identityUpdate) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false
     $verified = Read-StudentWorkbook -Path $File
     if ($verified.SourceHash -cne $written.SourceHash) { throw 'Die Schülerdatei wurde während der Identitätssicherung verändert.' }
     $rows = @($verified.Students | Where-Object RowNumber -eq $identityUpdate.RowNumber)
@@ -110,13 +110,13 @@ function Invoke-StudentCreateBatch {
             $userId = [string]$created.User.Id
             if ([string]::IsNullOrWhiteSpace($userId)) { throw 'Neuanlage lieferte keine Objekt-ID.' }
             $phase = 'Attributes'
-            $attributesVerified = Assert-NewEntraStudentAttributes -UserId $userId -Desired $entry.DesiredState
+            $attributesVerified = Assert-NewEntraStudentAttribute -UserId $userId -Desired $entry.DesiredState
             $phase = 'Manager'
             $manager = Set-EntraStudentManager -UserId $userId -DesiredManagerId $entry.DesiredState.ManagerId -Confirm:$false
             if (-not $manager.Verified) { throw 'Manager wurde nicht verifiziert.' }
             $phase = 'Groups'
-            $groupParameters = Get-StudentGroupParameters -Entry $entry -Snapshot $Snapshot -Config $Config
-            $groups = Sync-EntraStudentGroups -UserId $userId @groupParameters -CurrentDirectGroups @() -Confirm:$false
+            $groupParameters = Get-StudentGroupParameter -Entry $entry -Snapshot $Snapshot -Config $Config
+            $groups = Sync-EntraStudentGroup -UserId $userId @groupParameters -CurrentDirectGroups @() -Confirm:$false
             if (-not $groups.Verified) { throw 'Pflichtgruppen wurden nicht verifiziert.' }
             $pending.Add([pscustomobject]@{
                 RowNumber = [int]$entry.Student.RowNumber; Password = $created.Password; EntraObjectId = $userId; UPN = $upn
@@ -135,7 +135,7 @@ function Invoke-StudentCreateBatch {
         if (-not $PSCmdlet.ShouldProcess($File, 'Persist new student credentials and identities with a recoverable workbook commit')) {
             throw 'Excel-Rückschreibung wurde nicht bestätigt. Neue Konten bleiben deaktiviert.'
         }
-        $written = Write-StudentWorkbookUpdates -Path $File -Updates @($pending) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false
+        $written = Write-StudentWorkbookUpdate -Path $File -Updates @($pending) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false
         $verifiedWorkbook = Read-StudentWorkbook -Path $File
         if ($verifiedWorkbook.SourceHash -cne $written.SourceHash) { throw 'Die Schülerdatei wurde während der Passwort-Rückschreibung verändert.' }
         # Verify the entire batch before enabling any account.
@@ -167,7 +167,7 @@ function Invoke-StudentCreateBatch {
     }
 }
 
-function Invoke-StudentUpdates {
+function Invoke-StudentUpdate {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
@@ -196,7 +196,7 @@ function Invoke-StudentUpdates {
             }
             $phase = 'Attributes'
             try {
-                $attributes = Set-EntraStudentAttributes -UserId $userId -Desired $entry.DesiredState -Differences $entry.Differences -Confirm:$false
+                $attributes = Set-EntraStudentAttribute -UserId $userId -Desired $entry.DesiredState -Differences $entry.Differences -Confirm:$false
             } finally {
                 if ($renamesUpn) {
                     $phase = 'WorkbookIdentity'
@@ -216,8 +216,8 @@ function Invoke-StudentUpdates {
             }
             if (@($entry.Differences | Where-Object Area -eq Group).Count -gt 0) {
                 $phase = 'Groups'
-                $groupParameters = Get-StudentGroupParameters -Entry $entry -Snapshot $Snapshot -Config $Config
-                $groups = Sync-EntraStudentGroups -UserId $userId @groupParameters -CurrentDirectGroups @(Get-UserDirectGroups -Snapshot $Snapshot -UserId $userId) -Confirm:$false
+                $groupParameters = Get-StudentGroupParameter -Entry $entry -Snapshot $Snapshot -Config $Config
+                $groups = Sync-EntraStudentGroup -UserId $userId @groupParameters -CurrentDirectGroups @(Get-UserDirectGroup -Snapshot $Snapshot -UserId $userId) -Confirm:$false
                 if (-not $groups.Verified) { throw 'Pflichtgruppen wurden nicht verifiziert.' }
             }
             New-StudentActionResult -UserId $userId -UserPrincipalName $upn -Phase Update -Status Succeeded
@@ -227,7 +227,7 @@ function Invoke-StudentUpdates {
     }
 }
 
-function Invoke-StudentDepartures {
+function Invoke-StudentDeparture {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
@@ -253,7 +253,7 @@ function Invoke-StudentDepartures {
                     $result = Disable-EntraStudent -UserId $id -Confirm:$false
                     if (-not $result.Verified) { throw 'Deaktivierung wurde nicht verifiziert.' }
                 } else {
-                    $result = Revoke-EntraStudentSessions -UserId $id -Selected -Confirm:$false
+                    $result = Revoke-EntraStudentSession -UserId $id -Selected -Confirm:$false
                     $success = if ($result -is [bool]) { $result } else { Get-ComparisonPropertyValue $result Value }
                     if ($success -ne $true) { throw 'Graph hat den Sitzungswiderruf nicht bestätigt.' }
                 }

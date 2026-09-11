@@ -300,15 +300,15 @@ Describe 'Microsoft Graph inventory and manager resolution' {
 
         It 'keeps dynamic metadata and marks inherited transitive memberships non-removable' {
             $snapshot = Get-EntraSnapshot -Config $global:EntraTestConfig
-            $direct = @(Get-UserDirectGroups -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
-            $transitive = @(Get-UserTransitiveGroups -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+            $direct = @(Get-UserDirectGroup -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+            $transitive = @(Get-UserTransitiveGroup -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
             $inherited = $transitive | Where-Object Id -eq '22222222-2222-2222-2222-222222222222'
 
             $direct.Count | Should -Be 1
             $inherited.IsDynamic | Should -BeTrue
             $inherited.IsInherited | Should -BeTrue
             $inherited.IsRemovable | Should -BeFalse
-            Get-UserTransitiveGroups -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            Get-UserTransitiveGroup -Snapshot $snapshot -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
             Should -Invoke Get-MgUserTransitiveMemberOfAsGroup -Times 1 -Exactly
         }
 

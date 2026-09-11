@@ -44,7 +44,7 @@ Describe 'Student identity normalization' {
         }
 
         It 'generates prefix candidates in order' {
-            $actual = @(Get-UpnCandidates -GivenName 'Maria' -Surname 'Müller' -Domain 'monteaufkirchen.com')
+            $actual = @(Get-UpnCandidate -GivenName 'Maria' -Surname 'Müller' -Domain 'monteaufkirchen.com')
             $actual | Should -Be @(
                 'mmueller@monteaufkirchen.com'
                 'mamueller@monteaufkirchen.com'
@@ -104,7 +104,7 @@ Describe 'Student identity normalization' {
         It 'falls back to a suffixed full name after all collisions' {
             $used = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
             $owners = @{}
-            foreach ($candidate in (Get-UpnCandidates Maria Müller monteaufkirchen.com)) {
+            foreach ($candidate in (Get-UpnCandidate Maria Müller monteaufkirchen.com)) {
                 [void] $used.Add($candidate)
                 $owners[$candidate] = @('other-id')
             }

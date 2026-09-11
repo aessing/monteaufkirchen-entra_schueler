@@ -277,7 +277,7 @@ Describe 'Verified Entra student mutations' {
                     [pscustomobject]@{ Area = 'Exchange'; Field = 'CustomAttribute1'; Desired = 'Schueler'; Action = 'Set' }
                 )
 
-                $result = Set-EntraStudentAttributes -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Desired $global:EntraMutationDesired -Differences $differences -Confirm:$false
+                $result = Set-EntraStudentAttribute -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Desired $global:EntraMutationDesired -Differences $differences -Confirm:$false
 
                 $result.Verified | Should -BeTrue
                 Should -Invoke Update-MgUser -Times 1 -Exactly -ParameterFilter {
@@ -303,7 +303,7 @@ Describe 'Verified Entra student mutations' {
                     [pscustomobject]@{ Area = 'Entra'; Field = 'DisplayName'; Desired = 'Mia Beispiel'; Action = 'Set' }
                 )
 
-                { Set-EntraStudentAttributes -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Desired $global:EntraMutationDesired -Differences $differences -Confirm:$false } |
+                { Set-EntraStudentAttribute -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Desired $global:EntraMutationDesired -Differences $differences -Confirm:$false } |
                     Should -Throw '*DisplayName*could not be verified*'
 
                 Should -Invoke Update-MgUser -Times 1 -Exactly
@@ -377,7 +377,7 @@ Describe 'Verified Entra student mutations' {
                     $global:EntraMutationGroups.Class
                 ))
 
-                $result = Sync-EntraStudentGroups -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false
+                $result = Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false
 
                 $result.Verified | Should -BeTrue
                 $global:EntraMutationState.Events | Should -Be @(
@@ -408,7 +408,7 @@ Describe 'Verified Entra student mutations' {
                     $global:EntraMutationGroups.License
                 ))
 
-                { Sync-EntraStudentGroups -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false } |
+                { Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false } |
                     Should -Throw '*mandatory target groups*'
 
                 Should -Invoke Remove-MgGroupMemberByRef -Times 0 -Exactly
@@ -418,7 +418,7 @@ Describe 'Verified Entra student mutations' {
             It 'does not read or remove old groups when a mandatory add fails' {
                 $global:EntraMutationState.GroupAddFailureId = $global:EntraMutationGroups.Class.Id
 
-                { Sync-EntraStudentGroups -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false } |
+                { Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false } |
                     Should -Throw '*mandatory group*'
 
                 Should -Invoke Remove-MgGroupMemberByRef -Times 0 -Exactly
@@ -455,7 +455,7 @@ Describe 'Verified Entra student mutations' {
                 [void]$global:EntraMutationState.DirectGroupReads.Enqueue($groupsWithProtectedCompetitors)
                 [void]$global:EntraMutationState.DirectGroupReads.Enqueue($groupsWithProtectedCompetitors)
 
-                { Sync-EntraStudentGroups -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups $groupsWithProtectedCompetitors -Confirm:$false } |
+                { Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups $groupsWithProtectedCompetitors -Confirm:$false } |
                     Should -Throw '*exact managed group state*'
 
                 Should -Invoke Remove-MgGroupMemberByRef -Times 0 -Exactly -ParameterFilter {
@@ -544,8 +544,8 @@ Describe 'Verified Entra student mutations' {
             }
 
             It 'revokes sessions only when the action was selected and returns the Graph result' {
-                $notSelected = Revoke-EntraStudentSessions -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Confirm:$false
-                $selected = Revoke-EntraStudentSessions -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Selected -Confirm:$false
+                $notSelected = Revoke-EntraStudentSession -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Confirm:$false
+                $selected = Revoke-EntraStudentSession -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Selected -Confirm:$false
 
                 $notSelected | Should -BeNullOrEmpty
                 $selected.Value | Should -BeTrue
@@ -559,12 +559,12 @@ Describe 'Verified Entra student mutations' {
             foreach ($name in @(
                     'New-DisabledEntraStudent'
                     'New-StudentWithPasswordRetry'
-                    'Set-EntraStudentAttributes'
+                    'Set-EntraStudentAttribute'
                     'Set-EntraStudentManager'
-                    'Sync-EntraStudentGroups'
+                    'Sync-EntraStudentGroup'
                     'Enable-EntraStudent'
                     'Disable-EntraStudent'
-                    'Revoke-EntraStudentSessions'
+                    'Revoke-EntraStudentSession'
                 )) {
                 (Get-Command $name).Parameters.ContainsKey('WhatIf') | Should -BeTrue -Because "$name must support ShouldProcess"
                 (Get-Command $name).Parameters.ContainsKey('Confirm') | Should -BeTrue -Because "$name must support ShouldProcess"

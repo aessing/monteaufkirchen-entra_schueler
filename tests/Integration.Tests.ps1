@@ -283,7 +283,7 @@ Describe 'Stateful student synchronization' {
                 Students = [object[]]@($global:IntegrationState.Students)
             }
         }
-        Mock Write-StudentWorkbookUpdates -ModuleName SchuelerSync {
+        Mock Write-StudentWorkbookUpdate -ModuleName SchuelerSync {
             if ($ExpectedSourceHash -cne $global:IntegrationState.SourceHash) {
                 throw 'Workbook changed before write.'
             }
@@ -320,14 +320,14 @@ Describe 'Stateful student synchronization' {
             $global:IntegrationState.Events.Add('create-disabled')
             $user
         }
-        Mock Assert-NewEntraStudentAttributes -ModuleName SchuelerSync {
+        Mock Assert-NewEntraStudentAttribute -ModuleName SchuelerSync {
             $user = $global:IntegrationState.Users[$UserId]
             $verified = $user.AccountEnabled -eq $false -and $user.DisplayName -ceq $Desired.DisplayName -and
                 $user.Department -ceq $Desired.Department -and $user.OfficeLocation -ceq $Desired.OfficeLocation
             $global:IntegrationState.Events.Add('attributes-verified')
             return $verified
         }
-        Mock Set-EntraStudentAttributes -ModuleName SchuelerSync {
+        Mock Set-EntraStudentAttribute -ModuleName SchuelerSync {
             $user = $global:IntegrationState.Users[$UserId]
             foreach ($difference in @($Differences | Where-Object { $_.Area -eq 'Entra' -and $_.Action -eq 'Set' })) {
                 $user.($difference.Field) = $Desired.($difference.Field)
@@ -376,7 +376,7 @@ Describe 'Stateful student synchronization' {
             $global:IntegrationState.Events.Add("disable:$UserId")
             [pscustomobject]@{ Verified = $true }
         }
-        Mock Revoke-EntraStudentSessions -ModuleName SchuelerSync {
+        Mock Revoke-EntraStudentSession -ModuleName SchuelerSync {
             $global:IntegrationState.SessionRevocations++
             $global:IntegrationState.Events.Add("revoke:$UserId")
             return $true
@@ -384,7 +384,7 @@ Describe 'Stateful student synchronization' {
         Mock Get-EntraStudentCurrentIdentity -ModuleName SchuelerSync {
             $global:IntegrationState.Users[$UserId]
         }
-        Mock Get-ExchangeRecipientAddresses -ModuleName SchuelerSync {
+        Mock Get-ExchangeRecipientAddress -ModuleName SchuelerSync {
             $owners = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
             foreach ($user in $global:IntegrationState.Users.Values) {
                 $owners[$user.UserPrincipalName] = @($user.Id)
@@ -543,7 +543,7 @@ Describe 'Stateful student synchronization' {
         Should -Invoke New-MgUser -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke New-MgGroupMemberByRef -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Remove-MgGroupMemberByRef -ModuleName SchuelerSync -Times 0 -Exactly
-        Should -Invoke Write-StudentWorkbookUpdates -ModuleName SchuelerSync -Times 0 -Exactly
+        Should -Invoke Write-StudentWorkbookUpdate -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Set-StudentMailboxConfiguration -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Start-Sleep -ModuleName SchuelerSync -Times 0 -Exactly
     }

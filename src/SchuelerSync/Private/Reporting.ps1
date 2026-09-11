@@ -1,4 +1,4 @@
-function Protect-StudentMessage {
+﻿function Protect-StudentMessage {
     param([AllowNull()][string] $Message, [AllowNull()][object[]] $Secrets)
     if ($null -eq $Message) { return '' }
     foreach ($secret in @($Secrets)) {
@@ -16,6 +16,11 @@ function Get-StudentRecoveryCommand {
 }
 
 function New-StudentActionResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory action result without changing external state.'
+    )]
     param(
         [string] $UserId, [string] $UserPrincipalName,
         [Parameter(Mandatory)][string] $Phase,
@@ -103,7 +108,7 @@ function Write-StudentComparisonReport {
     }
 }
 
-function ConvertTo-ExchangeActionResults {
+function ConvertTo-ExchangeActionResult {
     param([Parameter(Mandatory)][object] $Batch, [switch] $WhatIfMode)
     foreach ($ready in $Batch.Ready) {
         $status = [string]$ready.Configuration.Status

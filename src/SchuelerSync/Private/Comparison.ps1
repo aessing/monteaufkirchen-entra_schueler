@@ -1,4 +1,4 @@
-function Get-ComparisonPropertyValue {
+﻿function Get-ComparisonPropertyValue {
     param(
         [AllowNull()][object] $InputObject,
         [Parameter(Mandatory)][string] $Name
@@ -22,6 +22,11 @@ function Get-NormalizedStudentNameKey {
 }
 
 function New-ComparisonIssue {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory comparison record without changing external state.'
+    )]
     param(
         [Parameter(Mandatory)][ValidateSet('Warning', 'Error')][string] $Severity,
         [Parameter(Mandatory)][string] $Area,
@@ -68,19 +73,19 @@ function Resolve-StudentIdentity {
 
     $storedUpn = ([string](Get-ComparisonPropertyValue -InputObject $Student -Name StoredUpn)).Trim()
     if (-not [string]::IsNullOrWhiteSpace($storedUpn)) {
-        $matches = @($Snapshot.UsersById.Values | Where-Object {
+        $storedUpnMatches = @($Snapshot.UsersById.Values | Where-Object {
                 [string]::Equals(
                     ([string](Get-ComparisonPropertyValue -InputObject $_ -Name UserPrincipalName)).Trim(),
                     $storedUpn,
                     [StringComparison]::OrdinalIgnoreCase
                 )
             })
-        if ($matches.Count -ne 1) {
-            throw "StoredUpn '$storedUpn' verweist nicht eindeutig auf einen vorhandenen Entra-Benutzer ($($matches.Count) Treffer)."
+        if ($storedUpnMatches.Count -ne 1) {
+            throw "StoredUpn '$storedUpn' verweist nicht eindeutig auf einen vorhandenen Entra-Benutzer ($($storedUpnMatches.Count) Treffer)."
         }
         return [pscustomobject]@{
             Method = 'StoredUpn'
-            User = $matches[0]
+            User = $storedUpnMatches[0]
             Warnings = @()
         }
     }
@@ -129,6 +134,11 @@ function Resolve-StudentIdentity {
 
 function New-StudentDesiredState {
     [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory desired-state record without changing external state.'
+    )]
     param(
         [Parameter(Mandatory)][object] $Student,
         [Parameter(Mandatory)][string] $SelectedUpn,
@@ -166,6 +176,11 @@ function New-StudentDesiredState {
 
 function New-StateDifference {
     [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSUseShouldProcessForStateChangingFunctions',
+        '',
+        Justification = 'Creates and returns an in-memory difference record without changing external state.'
+    )]
     param(
         [Parameter(Mandatory)][string] $Area,
         [Parameter(Mandatory)][string] $Field,
@@ -220,7 +235,7 @@ function Add-ComparisonAddressOwner {
     [void] $ReservedAddresses.Add($normalized)
     $owners = @()
     if ($AddressOwners.Contains($normalized)) { $owners = @($AddressOwners[$normalized]) }
-    $ownerIds = @(Get-AddressOwnerIds $Owner)
+    $ownerIds = @(Get-AddressOwnerId $Owner)
     foreach ($ownerRecord in @($Owner)) {
         if ($null -eq $ownerRecord) { continue }
         $externalIdProperty = $ownerRecord.PSObject.Properties['ExternalDirectoryObjectId']
@@ -246,7 +261,7 @@ function Test-AddressOwnedOnlyBy {
         [Parameter(Mandatory)][string] $OwnerId
     )
 
-    $owners = @(Get-AddressOwnerIds $AddressOwners[$Address])
+    $owners = @(Get-AddressOwnerId $AddressOwners[$Address])
     if ($owners.Count -eq 0) { return $false }
     foreach ($owner in $owners) {
         if (-not [string]::Equals([string]$owner, $OwnerId, [StringComparison]::OrdinalIgnoreCase)) {
@@ -263,7 +278,7 @@ function Test-ValidStudentUpnCandidate {
         [Parameter(Mandatory)][string] $Domain
     )
 
-    foreach ($candidate in @(Get-UpnCandidates -GivenName $Student.GivenName -Surname $Student.Surname -Domain $Domain)) {
+    foreach ($candidate in @(Get-UpnCandidate -GivenName $Student.GivenName -Surname $Student.Surname -Domain $Domain)) {
         if ([string]::Equals($candidate, $UserPrincipalName.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
             return $true
         }
@@ -273,7 +288,7 @@ function Test-ValidStudentUpnCandidate {
     return $UserPrincipalName.Trim() -match "(?i)$pattern"
 }
 
-function Get-ComparisonGroupMatches {
+function Get-ComparisonGroupMatch {
     param(
         [Parameter(Mandatory)][object] $Snapshot,
         [Parameter(Mandatory)][string] $DisplayName
@@ -346,7 +361,7 @@ function Compare-StudentDirectory {
     }
     foreach ($address in @($addressOwners.Keys)) {
         $uniqueOwners = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        foreach ($ownerId in @(Get-AddressOwnerIds $addressOwners[$address])) {
+        foreach ($ownerId in @(Get-AddressOwnerId $addressOwners[$address])) {
             if (-not [string]::IsNullOrWhiteSpace([string]$ownerId)) { [void]$uniqueOwners.Add([string]$ownerId) }
         }
         if ($uniqueOwners.Count -gt 1) {
@@ -357,7 +372,7 @@ function Compare-StudentDirectory {
 
     $objectIdRows = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
     $storedUpnRows = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
-    $nameRows = [hashtable]::new([StringComparer]::Ordinal)
+    $nameRows = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
     for ($index = 0; $index -lt $Students.Count; $index++) {
         $student = $Students[$index]
         $objectId = ([string](Get-ComparisonPropertyValue -InputObject $student -Name EntraObjectId)).Trim()
@@ -446,8 +461,8 @@ function Compare-StudentDirectory {
 
         if ($null -eq $user) {
             $outsideOwners = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-            foreach ($candidate in @(Get-UpnCandidates -GivenName $student.GivenName -Surname $student.Surname -Domain $Config.Domain)) {
-                foreach ($ownerId in @(Get-AddressOwnerIds $addressOwners[$candidate])) {
+            foreach ($candidate in @(Get-UpnCandidate -GivenName $student.GivenName -Surname $student.Surname -Domain $Config.Domain)) {
+                foreach ($ownerId in @(Get-AddressOwnerId $addressOwners[$candidate])) {
                     if (([string]$ownerId).StartsWith('excel-row-', [StringComparison]::OrdinalIgnoreCase)) {
                         continue
                     }
@@ -485,14 +500,14 @@ function Compare-StudentDirectory {
         )
         $groupValidationFailed = $false
         foreach ($groupName in $requiredGroupNames) {
-            $matches = @(Get-ComparisonGroupMatches -Snapshot $Snapshot -DisplayName $groupName)
-            if ($matches.Count -ne 1) {
+            $groupMatches = @(Get-ComparisonGroupMatch -Snapshot $Snapshot -DisplayName $groupName)
+            if ($groupMatches.Count -ne 1) {
                 $groupValidationFailed = $true
-                $description = if ($matches.Count -eq 0) { 'fehlt' } else { "ist mehrdeutig ($($matches.Count) Treffer)" }
-                $errors.Add((New-ComparisonIssue -Severity Error -Area Group -Field $groupName -Current $matches.Count -Desired 1 -Message "Die Pflichtgruppe '$groupName' $description." -Student $student -User $user))
+                $description = if ($groupMatches.Count -eq 0) { 'fehlt' } else { "ist mehrdeutig ($($groupMatches.Count) Treffer)" }
+                $errors.Add((New-ComparisonIssue -Severity Error -Area Group -Field $groupName -Current $groupMatches.Count -Desired 1 -Message "Die Pflichtgruppe '$groupName' $description." -Student $student -User $user))
                 continue
             }
-            if (Test-ComparisonGroupDynamic -Group $matches[0]) {
+            if (Test-ComparisonGroupDynamic -Group $groupMatches[0]) {
                 $groupValidationFailed = $true
                 $errors.Add((New-ComparisonIssue -Severity Error -Area Group -Field $groupName -Current 'Dynamic' -Desired 'StaticAssigned' -Message "Die Pflichtgruppe '$groupName' ist dynamisch und kann nicht als statisches Ziel verwaltet werden." -Student $student -User $user))
             }
@@ -535,7 +550,7 @@ function Compare-StudentDirectory {
 
         $reservationOwner = if ([string]::IsNullOrWhiteSpace($userId)) { "excel-row-$($student.RowNumber)" } else { $userId }
         Add-ComparisonAddressOwner -AddressOwners $addressOwners -ReservedAddresses $reservedAddresses -Address $selectedUpn -Owner $reservationOwner
-        $firstCandidate = @(Get-UpnCandidates -GivenName $student.GivenName -Surname $student.Surname -Domain $Config.Domain)[0]
+        $firstCandidate = @(Get-UpnCandidate -GivenName $student.GivenName -Surname $student.Surname -Domain $Config.Domain)[0]
         if (-not [string]::Equals($selectedUpn, $firstCandidate, [StringComparison]::OrdinalIgnoreCase)) {
             $collisions = @(if ($null -ne $selection) { $selection.Collisions })
             $warnings.Add((New-ComparisonIssue -Severity Warning -Area Entra -Field UserPrincipalName -Current $collisions -Desired $selectedUpn -Message "UPN-Fallback auf '$selectedUpn' nach $($collisions.Count) aktueller Kollision(en)." -Student $student -User $user))
@@ -575,8 +590,8 @@ function Compare-StudentDirectory {
         $managerDifference = New-StateDifference -Area Manager -Field ManagerId -Current $currentManagerId -Desired $desired.ManagerId
         if ($null -ne $managerDifference) { $differences.Add($managerDifference) }
 
-        $directGroups = @(Get-UserDirectGroups -Snapshot $Snapshot -UserId $userId)
-        $transitiveGroups = @(Get-UserTransitiveGroups -Snapshot $Snapshot -UserId $userId)
+        $directGroups = @(Get-UserDirectGroup -Snapshot $Snapshot -UserId $userId)
+        $transitiveGroups = @(Get-UserTransitiveGroup -Snapshot $Snapshot -UserId $userId)
         foreach ($requiredGroupName in $desired.RequiredGroupNames) {
             $isDirectMember = @($directGroups | Where-Object {
                     [string]::Equals([string]$_.DisplayName, [string]$requiredGroupName, [StringComparison]::OrdinalIgnoreCase)

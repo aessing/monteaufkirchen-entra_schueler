@@ -6,7 +6,7 @@ BeforeDiscovery {
 Describe 'Student password generation' {
     InModuleScope SchuelerSync {
         It 'offers at least 24 bits of reachable friendly passwords without duplicate prefix weighting' {
-            $prefixes = Get-StudentPasswordPrefixes
+            $prefixes = Get-StudentPasswordPrefix
             $unique = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
             $unique.UnionWith([string[]]$prefixes)
             $unique.Count | Should -Be $prefixes.Count
@@ -40,7 +40,7 @@ Describe 'Student password generation' {
         }
 
         It 'stops after the bounded uniqueness attempts when every suffix for the selected prefix is reserved' {
-            $prefixes = Get-StudentPasswordPrefixes
+            $prefixes = Get-StudentPasswordPrefix
             $used = [Collections.Generic.HashSet[string]]::new()
             foreach ($number in 10..99) { [void]$used.Add("$($prefixes[0])$number") }
             $script:indexCalls = 0

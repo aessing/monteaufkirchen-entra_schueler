@@ -59,7 +59,7 @@ Describe 'Student workbook adapter' {
             Copy-Item $script:ExcelTestFixture $copy
             $objectId = [guid]::NewGuid().Guid
 
-            $result = Write-StudentWorkbookUpdates -Path $copy -Updates @(
+            $result = Write-StudentWorkbookUpdate -Path $copy -Updates @(
                 [pscustomobject]@{
                     RowNumber = 2
                     Password = 'TigerWiese56'
@@ -80,7 +80,7 @@ Describe 'Student workbook adapter' {
             $copy = Join-Path $TestDrive 'Bestehendes-Passwort.xlsx'
             Copy-Item $script:ExcelTestFixture $copy
             $initialObjectId = [guid]::NewGuid().Guid
-            Write-StudentWorkbookUpdates -Path $copy -Updates @(
+            Write-StudentWorkbookUpdate -Path $copy -Updates @(
                 [pscustomobject]@{
                     RowNumber = 2
                     Password = 'TigerWiese56'
@@ -89,7 +89,7 @@ Describe 'Student workbook adapter' {
                 }
             ) -SkipGitSafetyCheck | Out-Null
 
-            Write-StudentWorkbookUpdates -Path $copy -Updates @(
+            Write-StudentWorkbookUpdate -Path $copy -Updates @(
                 [pscustomobject]@{
                     RowNumber = 2
                     Password = ''
