@@ -1,0 +1,302 @@
+# Test- und Abnahmeplan für die Parallels-VM
+
+Die Tests verwenden ausschließlich erfundene Konten in einer dafür vorgesehenen Testklasse und einem kontrollierten Testmandantenbereich. Führe keine Live-Mutation mit echten Schülerdaten aus.
+
+## Freigabekriterien
+
+Die Implementierung ist erst für den produktiven Einsatz freigegeben, wenn:
+
+- alle Pester-Tests in PowerShell 7 unter Windows bestehen
+- PSScriptAnalyzer keine ungeklärten Fehler meldet
+- alle PowerShell-Dateien ohne Parserfehler sind
+- Standardvergleich und `-WhatIf` nachweislich nichts schreiben
+- Neuzugang, Änderung, Abgang und Exchange-Reparatur mit synthetischen Konten geprüft wurden
+- keine produktive XLSX oder Passwortdatei von Git verfolgt wird
+
+## 1. VM und Module dokumentieren
+
+```powershell
+$PSVersionTable
+
+$required = @(
+  'Microsoft.Graph.Authentication', 'Microsoft.Graph.Users',
+  'Microsoft.Graph.Users.Actions', 'Microsoft.Graph.Groups',
+  'ExchangeOnlineManagement', 'ImportExcel', 'Pester', 'PSScriptAnalyzer'
+)
+Get-Module -ListAvailable $required |
+  Sort-Object Name,Version -Descending |
+  Select-Object Name,Version,Path |
+  Format-Table -AutoSize
+```
+
+Dokumentiere Windows-Version, PowerShell-Version und die höchste gefundene Version jedes Moduls im Abnahmeprotokoll.
+
+## 2. Repository-Tests
+
+Im Repository-Root:
+
+```powershell
+Invoke-Pester .\tests -Output Detailed
+Invoke-ScriptAnalyzer -Path .\Sync-SchuelerEntra.ps1,.\src -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
+
+$parseErrors = foreach ($file in Get-ChildItem . -Recurse -File | Where-Object Extension -in '.ps1','.psm1','.psd1') {
+  $tokens = $null
+  $errors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseFile(
+    $file.FullName,
+    [ref]$tokens,
+    [ref]$errors
+  )
+  $errors
+}
+$parseErrors | Format-List
+if ($parseErrors) { throw 'PowerShell-Parserfehler gefunden.' }
+```
+
+Erwartung: Pester erfolgreich, Analyzer ohne ungeklärte Fehler, `$parseErrors` leer.
+
+## 3. Git- und Datenschutzprüfung
+
+```powershell
+git status --short
+git ls-files '*.xlsx'
+git check-ignore .\Schueler.xlsx
+git grep -n -I -E 'Passwort|PasswordProfile' -- ':!docs/**' ':!tests/**'
+```
+
+Erwartung:
+
+- `Schueler.xlsx` wird ignoriert
+- unter Git liegt nur die synthetische Fixture `tests/fixtures/Schueler-Testdaten.xlsx`
+- keine produktiven Namen, UPNs oder Passwörter sind versioniert
+- Quellcode-Treffer für Passwortlogik enthalten keine echten Geheimnisse
+
+## 4. Synthetische Testdaten
+
+Verwende erfundene Personen, zum Beispiel:
+
+| Fall | Vorname | Nachname | Klasse | Klassenlehrer |
+|---|---|---|---|---|
+| Neuzugang | Lina | Testwald | `JK1-3g2_1` | UPN eines Test-Managers |
+| UPN-Kollision | Luis | Testwald | `JK1-3g2_1` | UPN eines Test-Managers |
+| Klassenwechsel | Mira | Beispielstern | `JK4-6m2_4` | UPN eines Test-Managers |
+| Abgang | Theo | Demoklang | nur im Mandanten | UPN eines Test-Managers |
+
+Alle Testkonten und Gruppen müssen eindeutig als synthetisch gekennzeichnet und nach der Abnahme kontrolliert bereinigt werden. Nutze keine Namen existierender Kinder oder Beschäftigter.
+
+Erzeuge eine Arbeitskopie außerhalb des Repository-Roots:
+
+```powershell
+$testRoot = 'C:\Temp\EntraSchuelerSync-Abnahme'
+New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+Copy-Item .\tests\fixtures\Schueler-Testdaten.xlsx (Join-Path $testRoot 'Schueler-Abnahme.xlsx')
+$testFile = Join-Path $testRoot 'Schueler-Abnahme.xlsx'
+```
+
+Passe nur die erfundenen Zeilen und den vorgesehenen Test-Manager an.
+
+## 5. Lesenden Standardmodus beweisen
+
+```powershell
+$before = Get-FileHash $testFile -Algorithm SHA256
+$result = .\Sync-SchuelerEntra.ps1 -File $testFile
+$after = Get-FileHash $testFile -Algorithm SHA256
+
+$before.Hash -eq $after.Hash
+$result.Mode
+$result.HasErrors
+```
+
+Erwartung:
+
+- Hash bleibt identisch
+- `Mode` ist `Compare`
+- keine Graph- oder Exchange-Schreiboperation
+- kein Warten auf fehlende Postfächer
+- Tabellen für Neuzugänge, Abgänge, Änderungen und Bestehende
+
+## 6. WhatIf beweisen
+
+```powershell
+$before = Get-FileHash $testFile -Algorithm SHA256
+$result = .\Sync-SchuelerEntra.ps1 -File $testFile -Update -WhatIf
+$after = Get-FileHash $testFile -Algorithm SHA256
+
+$before.Hash -eq $after.Hash
+$result.Actions | Format-Table Phase,Status,UserPrincipalName
+```
+
+Erwartung:
+
+- Excel-Hash bleibt identisch
+- keine neuen Konten, Attribute, Manager oder Gruppen
+- keine Passworterzeugung und kein Backup
+- keine Exchange-Schreiboperation
+- keine 60-Sekunden-Wartezeit
+- geplante Phasen tragen Status `WhatIf`
+
+Wiederhole mit selektiven Schaltern:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -CreateNewUsers -WhatIf
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -UpdateUsers -WhatIf
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers -RevokeSessions -WhatIf
+```
+
+## 7. Neuzugang live testen
+
+Dieser Schritt verändert den Testmandanten. Prüfe zuerst Tenant-ID, UPN und Zielgruppen.
+
+```powershell
+$result = .\Sync-SchuelerEntra.ps1 -File $testFile -Update -CreateNewUsers
+$result.Actions | Format-Table Phase,Status,UserId,UserPrincipalName,RecoveryCommand -Wrap
+```
+
+Prüfe für den erfundenen Neuzugang:
+
+```powershell
+$row = Import-Excel $testFile | Where-Object Vorname -eq 'Lina'
+$row.Passwort.Length
+$user = Get-MgUser -UserId $row.EntraObjectId -Property id,displayName,givenName,surname,userPrincipalName,mail,mailNickname,department,officeLocation,companyName,employeeType,usageLocation,ageGroup,consentProvidedForMinor,legalAgeGroupClassification,accountEnabled
+$user | Format-List
+Get-MgUserManager -UserId $user.Id
+Get-MgUserMemberOfAsGroup -UserId $user.Id -All | Select-Object Id,DisplayName
+```
+
+Erwartung:
+
+- Passwortlänge genau 12
+- zwei CamelCase-Wörter mit zusammen zehn ASCII-Buchstaben und zwei Ziffern
+- `ForceChangePasswordNextSignIn = false`, über das erstellte PasswordProfile oder einen kontrollierten Anmeldetest bestätigt
+- Name bleibt mit Umlauten korrekt, UPN ist normalisiert
+- Konto erst nach erfolgreicher Excel-Rückschreibung aktiviert
+- Gruppen `SEC-A-LIC-O365A1Student`, `SEC-A-ROL-Schule_Schüler` und `SEC-A-CLS-JK1-3g2_1`
+- Office Location `G2`
+- `ageGroup = Minor`, `consentProvidedForMinor = Granted`, `usageLocation = DE`
+- `legalAgeGroupClassification = MinorWithParentalConsent` wird nur gelesen
+- genau eine Backup-Datei enthält den vorherigen Arbeitsmappenstand
+
+Melde das Testkonto einmal mit dem Initialpasswort an. Es darf kein erzwungener Passwortwechsel erscheinen.
+
+## 8. UPN-Kollision testen
+
+Reserviere den ersten UPN-Kandidaten mit einem synthetischen Benutzer oder Exchange-Empfänger. Führe den Vergleich aus und prüfe:
+
+- Warnung enthält den kollidierenden Kandidaten und den gewählten Ersatz
+- Präfix wächst vom ersten zum zweiten Buchstaben und danach weiter
+- nach vollständigem Vornamen beginnt der numerische Fallback bei `2`
+- Kollisionsquellen aus UPN, Mail, SMTP-Proxyadresse und Exchange-Empfänger werden erkannt
+- eine Adresse desselben Objekt-IDs wird wiederverwendet
+
+Nutze den tatsächlich erzeugten UPN für alle weiteren Prüfungen.
+
+## 9. Änderung und Gruppennormalisierung testen
+
+Ändere die Klasse eines synthetischen bestehenden Schülers von `JK1-3g2_1` auf `JK4-6m2_4`. Füge ihm außerdem direkt eine fremde statische `SEC-A-ROL-...`-Gruppe und eine alte `SEC-A-CLS-...`-Gruppe hinzu.
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -File $testFile
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -UpdateUsers -WhatIf
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -UpdateUsers
+```
+
+Erwartung:
+
+- `department = JK4-6m2_4`
+- `officeLocation = M2`
+- neue Klassengruppe wurde vor Entfernung der alten Gruppe bestätigt
+- nur `SEC-A-ROL-Schule_Schüler` bleibt als direkte Rollengruppe
+- nur `SEC-A-CLS-JK4-6m2_4` bleibt als direkte Klassengruppe
+- Lizenzgruppe bleibt vorhanden
+- Passwortspalte bleibt bytegenau unverändert
+- dynamische oder geerbte Testgruppe wird nicht entfernt und als Warnung ausgegeben
+
+## 10. Abgang testen
+
+Entferne nur die erfundene Abgangszeile aus der Testarbeitsmappe. Prüfe zuerst Compare und WhatIf, danach getrennt die Aktionen:
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -File $testFile
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers -WhatIf
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -RevokeSessions
+```
+
+Erwartung:
+
+- Konto ist deaktiviert
+- Sitzungswiderruf wurde von Graph bestätigt
+- Konto, Lizenz und Gruppen wurden nicht gelöscht
+- ein erneuter Vergleich zeigt den weiterhin in der Schüler-Rollengruppe vorhandenen deaktivierten Abgang
+- ein erneuter lesender Lauf führt keine Mutation aus
+
+## 11. Exchange Online testen
+
+### Sofort vorhandenes Postfach
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -ConfigureExchangeOnlineOnly -Mail 'test1@monteaufkirchen.com' -WhatIf
+.\Sync-SchuelerEntra.ps1 -ConfigureExchangeOnlineOnly -Mail 'test1@monteaufkirchen.com'
+```
+
+Lies danach `Get-Mailbox` und `Get-CASMailbox` aus und gleiche jeden Wert mit [ENTRA-SCHUELER-SYNC.md](ENTRA-SCHUELER-SYNC.md) ab. Prüfe beide AuditAdmin-Varianten, einmal ohne und einmal mit `CommunicationsCompliance`.
+
+### Verzögerte Bereitstellung
+
+Verwende einen synthetischen Neuzugang, dessen Postfach bei der ersten Prüfung noch fehlt. Miss Zeit und Aufrufe. Erwartung:
+
+- eine sofortige Prüfung
+- höchstens fünf weitere Prüfungen
+- 60 Sekunden zwischen den Wiederholungen
+- nur eine Wartezeit pro Batch-Runde
+- gefundene Postfächer werden aus dem Batch entfernt
+- nach sechs erfolglosen Prüfungen Status `Pending` mit fertigem Reparaturbefehl
+
+### Schreibfehler
+
+Entziehe in einer kontrollierten Testkonstellation einen benötigten Exchange-Parameter oder simuliere ihn ausschließlich im Pester-Test. Erwartung: `Set-Mailbox` oder `Set-CASMailbox` meldet sofort `Failed`. Der Schreibfehler wird nicht als vermeintlich fehlendes Postfach wiederholt.
+
+## 12. Idempotenz
+
+Nach einem vollständig erfolgreichen Testlauf:
+
+```powershell
+$before = Get-FileHash $testFile -Algorithm SHA256
+$result = .\Sync-SchuelerEntra.ps1 -File $testFile
+$after = Get-FileHash $testFile -Algorithm SHA256
+
+$result.Comparison.ChangedStudents.Count
+$before.Hash -eq $after.Hash
+```
+
+Erwartung: keine Änderungen für aktive, vollständig konforme Schüler und identischer Excel-Hash. Ein deaktivierter Abgang darf weiterhin als Abgang erscheinen, solange er Mitglied der Schüler-Rollengruppe bleibt.
+
+## 13. Aufräumen
+
+Vor dem Löschen erfundener Konten sichere das Abnahmeprotokoll ohne Passwörter. Entferne danach ausschließlich die dokumentierten synthetischen Objekte. Lösche keine produktiven Benutzer oder Gruppen.
+
+```powershell
+Disconnect-MgGraph
+Disconnect-ExchangeOnline -Confirm:$false
+
+Get-ChildItem $testRoot -Force
+```
+
+Entferne die lokale Testarbeitsmappe, Backups und temporären Dateien nach der vereinbarten sicheren Löschregel. Prüfe abschließend:
+
+```powershell
+git status --short
+git ls-files '*.xlsx'
+```
+
+## Abnahmeprotokoll
+
+Halte fest:
+
+- Datum, VM, Windows- und PowerShell-Version
+- getestete Modulversionen
+- Tenant-ID und Testbereich, ohne Tokens oder Passwörter
+- Commit-ID des getesteten Stands
+- Ergebnis jeder Sektion 1 bis 13
+- IDs ausschließlich der erfundenen Testobjekte
+- offene Abweichungen und verantwortliche Freigabe
