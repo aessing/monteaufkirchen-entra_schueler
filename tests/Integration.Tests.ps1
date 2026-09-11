@@ -1,5 +1,38 @@
 BeforeAll {
     $repoRoot = Split-Path $PSScriptRoot -Parent
+    $global:IntegrationStubCommands = [Collections.Generic.List[string]]::new()
+    if ($null -eq (Get-Command New-MgUser -ErrorAction SilentlyContinue)) {
+        function global:New-MgUser {
+            [CmdletBinding()]
+            param([hashtable] $BodyParameter)
+            throw 'Integration test stub must be mocked.'
+        }
+        $global:IntegrationStubCommands.Add('New-MgUser')
+    }
+    if ($null -eq (Get-Command Get-MgUserMemberOfAsGroup -ErrorAction SilentlyContinue)) {
+        function global:Get-MgUserMemberOfAsGroup {
+            [CmdletBinding()]
+            param([string] $UserId, [switch] $All)
+            throw 'Integration test stub must be mocked.'
+        }
+        $global:IntegrationStubCommands.Add('Get-MgUserMemberOfAsGroup')
+    }
+    if ($null -eq (Get-Command New-MgGroupMemberByRef -ErrorAction SilentlyContinue)) {
+        function global:New-MgGroupMemberByRef {
+            [CmdletBinding()]
+            param([string] $GroupId, [hashtable] $BodyParameter)
+            throw 'Integration test stub must be mocked.'
+        }
+        $global:IntegrationStubCommands.Add('New-MgGroupMemberByRef')
+    }
+    if ($null -eq (Get-Command Remove-MgGroupMemberByRef -ErrorAction SilentlyContinue)) {
+        function global:Remove-MgGroupMemberByRef {
+            [CmdletBinding()]
+            param([string] $GroupId, [string] $DirectoryObjectId)
+            throw 'Integration test stub must be mocked.'
+        }
+        $global:IntegrationStubCommands.Add('Remove-MgGroupMemberByRef')
+    }
     Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
 
     $global:IntegrationGroupIds = @{
@@ -135,7 +168,10 @@ BeforeAll {
 }
 
 AfterAll {
-    foreach ($name in 'IntegrationGroupIds', 'IntegrationState') {
+    foreach ($commandName in @($global:IntegrationStubCommands)) {
+        Remove-Item -LiteralPath "Function:\global:$commandName" -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($name in 'IntegrationGroupIds', 'IntegrationState', 'IntegrationStubCommands') {
         Remove-Variable -Name $name -Scope Global -ErrorAction SilentlyContinue
     }
     foreach ($name in 'New-IntegrationStudent', 'New-IntegrationUser', 'New-IntegrationGroup', 'New-IntegrationSnapshot') {
@@ -219,6 +255,8 @@ Describe 'Stateful student synchronization' {
             Events = [Collections.Generic.List[string]]::new()
             PasswordsGenerated = [Collections.Generic.List[string]]::new()
             PasswordsWritten = [Collections.Generic.List[string]]::new()
+            CreateBodies = [Collections.Generic.List[object]]::new()
+            GroupReads = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
             WorkbookWrites = 0
             SessionRevocations = 0
         }
@@ -269,18 +307,18 @@ Describe 'Stateful student synchronization' {
             $global:IntegrationState.PasswordsGenerated.Add($password)
             $password
         }
-        Mock New-StudentWithPasswordRetry -ModuleName SchuelerSync {
+        Mock New-MgUser -ModuleName SchuelerSync {
             $id = 'new-id'
-            $desired = $Desired
-            $user = New-IntegrationUser -Id $id -GivenName $desired.GivenName -Surname $desired.Surname `
-                -UserPrincipalName $desired.UserPrincipalName -Department $desired.Department `
-                -OfficeLocation $desired.OfficeLocation -AccountEnabled:$false
+            $global:IntegrationState.CreateBodies.Add($BodyParameter)
+            $user = New-IntegrationUser -Id $id -GivenName $BodyParameter.GivenName -Surname $BodyParameter.Surname `
+                -UserPrincipalName $BodyParameter.UserPrincipalName -Department $BodyParameter.Department `
+                -OfficeLocation $BodyParameter.OfficeLocation -AccountEnabled:$BodyParameter.AccountEnabled
             $global:IntegrationState.Users[$id] = $user
             $global:IntegrationState.DirectGroups[$id] = @()
             $global:IntegrationState.Managers[$id] = $null
-            $global:IntegrationState.Mailboxes[$desired.UserPrincipalName] = [pscustomobject]@{ Exists = $true; Configured = $false }
+            $global:IntegrationState.Mailboxes[$BodyParameter.UserPrincipalName] = [pscustomobject]@{ Exists = $true; Configured = $false }
             $global:IntegrationState.Events.Add('create-disabled')
-            [pscustomobject]@{ User = $user; Password = $InitialPassword; Attempts = 1 }
+            $user
         }
         Mock Assert-NewEntraStudentAttributes -ModuleName SchuelerSync {
             $user = $global:IntegrationState.Users[$UserId]
@@ -302,26 +340,31 @@ Describe 'Stateful student synchronization' {
             $global:IntegrationState.Events.Add("manager-set:$UserId")
             [pscustomobject]@{ Verified = $true; ManagerId = $DesiredManagerId }
         }
-        Mock Sync-EntraStudentGroups -ModuleName SchuelerSync {
-            $requiredIds = @($RoleGroup.Id, $LicenseGroup.Id, $ClassGroup.Id)
-            $currentIds = @($global:IntegrationState.DirectGroups[$UserId])
-            foreach ($groupId in $requiredIds) {
-                if ($currentIds -notcontains $groupId) {
-                    $currentIds += $groupId
-                    $global:IntegrationState.Events.Add("group-add:${UserId}:$($global:IntegrationState.Groups[$groupId].DisplayName)")
-                }
+        Mock New-MgGroupMemberByRef -ModuleName SchuelerSync {
+            $userId = ([string]$BodyParameter['@odata.id'] -split '/')[-1]
+            $currentIds = @($global:IntegrationState.DirectGroups[$userId])
+            if ($currentIds -notcontains $GroupId) {
+                $global:IntegrationState.DirectGroups[$userId] = @($currentIds + $GroupId)
             }
-            foreach ($groupId in @($currentIds)) {
-                if ($requiredIds -contains $groupId) { continue }
-                $name = [string]$global:IntegrationState.Groups[$groupId].DisplayName
-                if ($name.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) -or
-                    $name.StartsWith($ClassGroupPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-                    $currentIds = @($currentIds | Where-Object { $_ -ne $groupId })
-                    $global:IntegrationState.Events.Add("group-remove:${UserId}:$name")
-                }
+            $name = [string]$global:IntegrationState.Groups[$GroupId].DisplayName
+            $global:IntegrationState.Events.Add("group-add:${userId}:$name")
+        }
+        Mock Remove-MgGroupMemberByRef -ModuleName SchuelerSync {
+            $global:IntegrationState.DirectGroups[$DirectoryObjectId] = @(
+                $global:IntegrationState.DirectGroups[$DirectoryObjectId] | Where-Object { $_ -ne $GroupId }
+            )
+            $name = [string]$global:IntegrationState.Groups[$GroupId].DisplayName
+            $global:IntegrationState.Events.Add("group-remove:${DirectoryObjectId}:$name")
+        }
+        Mock Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync {
+            $reads = if ($global:IntegrationState.GroupReads.ContainsKey($UserId)) {
+                [int]$global:IntegrationState.GroupReads[$UserId] + 1
+            } else { 1 }
+            $global:IntegrationState.GroupReads[$UserId] = $reads
+            $global:IntegrationState.Events.Add("group-read:${UserId}:$reads")
+            foreach ($groupId in @($global:IntegrationState.DirectGroups[$UserId])) {
+                $global:IntegrationState.Groups[$groupId]
             }
-            $global:IntegrationState.DirectGroups[$UserId] = @($currentIds)
-            [pscustomobject]@{ Verified = $true }
         }
         Mock Enable-EntraStudent -ModuleName SchuelerSync {
             $global:IntegrationState.Users[$UserId].AccountEnabled = $true
@@ -396,7 +439,14 @@ Describe 'Stateful student synchronization' {
         $global:IntegrationState.PasswordsWritten | Should -HaveCount 1
         $global:IntegrationState.PasswordsWritten[0].Length | Should -Be 12
         $global:IntegrationState.PasswordsWritten[0] | Should -Be $global:IntegrationState.PasswordsGenerated[0]
+        $global:IntegrationState.CreateBodies | Should -HaveCount 1
+        $createBody = $global:IntegrationState.CreateBodies[0]
+        $createBody.AccountEnabled | Should -BeFalse
+        $createBody.PasswordProfile.Password | Should -Be $global:IntegrationState.PasswordsGenerated[0]
+        $createBody.PasswordProfile.ForceChangePasswordNextSignIn | Should -BeFalse
+        Should -Invoke New-MgUser -ModuleName SchuelerSync -Times 1 -Exactly
         $global:IntegrationState.WorkbookWrites | Should -Be 1
+        $global:IntegrationState.SourceHash | Should -Be 'source-2'
         $global:IntegrationState.Users['new-id'].AccountEnabled | Should -BeTrue
         $global:IntegrationState.Users['new-id'].DisplayName | Should -Be 'Mia Muster'
         $global:IntegrationState.Users['new-id'].UsageLocation | Should -Be 'DE'
@@ -412,16 +462,26 @@ Describe 'Stateful student synchronization' {
         [Array]::IndexOf($events, 'create-disabled') | Should -BeLessThan ([Array]::IndexOf($events, 'attributes-verified'))
         [Array]::IndexOf($events, 'attributes-verified') | Should -BeLessThan ([Array]::IndexOf($events, 'manager-set:new-id'))
         [Array]::IndexOf($events, 'manager-set:new-id') | Should -BeLessThan ([Array]::IndexOf($events, 'excel-write'))
+        $newGroupVerification = [Array]::IndexOf($events, 'group-read:new-id:1')
         foreach ($requiredGroup in 'SEC-A-ROL-Schule_Schüler', 'SEC-A-LIC-O365A1Student', 'SEC-A-CLS-JK1-3g2_1') {
-            [Array]::IndexOf($events, "group-add:new-id:$requiredGroup") | Should -BeLessThan ([Array]::IndexOf($events, 'excel-write'))
+            $requiredAdd = [Array]::IndexOf($events, "group-add:new-id:$requiredGroup")
+            $requiredAdd | Should -BeGreaterOrEqual 0
+            $requiredAdd | Should -BeLessThan $newGroupVerification
         }
+        $newGroupVerification | Should -BeLessThan ([Array]::IndexOf($events, 'group-read:new-id:2'))
+        [Array]::IndexOf($events, 'group-read:new-id:2') | Should -BeLessThan ([Array]::IndexOf($events, 'excel-write'))
         [Array]::IndexOf($events, 'excel-write') | Should -BeLessThan ([Array]::IndexOf($events, 'enable:new-id'))
         $classAdd = [Array]::IndexOf($events, 'group-add:changed-id:SEC-A-CLS-JK4-6m2_4')
+        $changedGroupVerification = [Array]::IndexOf($events, 'group-read:changed-id:1')
+        $changedFinalVerification = [Array]::IndexOf($events, 'group-read:changed-id:2')
         $classRemove = [Array]::IndexOf($events, 'group-remove:changed-id:SEC-A-CLS-JK1-3g1_1')
         $roleRemove = [Array]::IndexOf($events, 'group-remove:changed-id:SEC-A-ROL-Schule_PädagogischesTeam')
         $classAdd | Should -BeGreaterOrEqual 0
-        $classAdd | Should -BeLessThan $classRemove
-        $classAdd | Should -BeLessThan $roleRemove
+        $classAdd | Should -BeLessThan $changedGroupVerification
+        $changedGroupVerification | Should -BeLessThan $classRemove
+        $changedGroupVerification | Should -BeLessThan $roleRemove
+        $classRemove | Should -BeLessThan $changedFinalVerification
+        $roleRemove | Should -BeLessThan $changedFinalVerification
         @($global:IntegrationState.DirectGroups['new-id']) | Should -Contain $global:IntegrationGroupIds.StudentRole
         @($global:IntegrationState.DirectGroups['new-id']) | Should -Contain $global:IntegrationGroupIds.License
         @($global:IntegrationState.DirectGroups['new-id']) | Should -Contain $global:IntegrationGroupIds.ClassG2
@@ -435,6 +495,9 @@ Describe 'Stateful student synchronization' {
         $changedRoles | Should -Contain $global:IntegrationGroupIds.StudentRole
         $changedClasses | Should -HaveCount 1
         $changedClasses | Should -Contain $global:IntegrationGroupIds.ClassM2
+        Should -Invoke New-MgGroupMemberByRef -ModuleName SchuelerSync -Times 4 -Exactly
+        Should -Invoke Remove-MgGroupMemberByRef -ModuleName SchuelerSync -Times 2 -Exactly
+        Should -Invoke Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync -Times 4 -Exactly
         [Array]::IndexOf($events, 'disable:departure-id') | Should -BeLessThan ([Array]::IndexOf($events, 'revoke:departure-id'))
         [Array]::IndexOf($events, 'revoke:departure-id') | Should -BeLessThan ([Array]::IndexOf($events, 'exchange-configure:mmuster@monteaufkirchen.com'))
         foreach ($upn in 'mmuster@monteaufkirchen.com', 'bbeispiel@monteaufkirchen.com', 'cbestand@monteaufkirchen.com') {
@@ -460,6 +523,7 @@ Describe 'Stateful student synchronization' {
         $second.Actions | Should -BeNullOrEmpty
         $global:IntegrationState.Events.Count | Should -Be $writesBeforeSecondComparison
         $global:IntegrationState.WorkbookWrites | Should -Be 1
+        $global:IntegrationState.SourceHash | Should -Be 'source-2'
         $global:IntegrationState.SessionRevocations | Should -Be 1
     }
 
@@ -476,6 +540,9 @@ Describe 'Stateful student synchronization' {
         $global:IntegrationState.PasswordsWritten | Should -BeNullOrEmpty
         $global:IntegrationState.SessionRevocations | Should -Be 0
         Should -Invoke New-StudentPassword -ModuleName SchuelerSync -Times 0 -Exactly
+        Should -Invoke New-MgUser -ModuleName SchuelerSync -Times 0 -Exactly
+        Should -Invoke New-MgGroupMemberByRef -ModuleName SchuelerSync -Times 0 -Exactly
+        Should -Invoke Remove-MgGroupMemberByRef -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Write-StudentWorkbookUpdates -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Set-StudentMailboxConfiguration -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Start-Sleep -ModuleName SchuelerSync -Times 0 -Exactly
@@ -494,10 +561,43 @@ Describe 'Static analyzer contract' {
     }
 
     It 'documents the narrow plain-text password suppression at the Graph boundary' {
-        $source = Get-Content -LiteralPath (Join-Path $repoRoot 'src/SchuelerSync/Private/Entra.ps1') -Raw
+        $tokens = $null
+        $parseErrors = $null
+        $sourcePath = Join-Path $repoRoot 'src/SchuelerSync/Private/Entra.ps1'
+        $ast = [Management.Automation.Language.Parser]::ParseFile($sourcePath, [ref]$tokens, [ref]$parseErrors)
 
-        $source | Should -Match "SuppressMessageAttribute\('PSAvoidUsingPlainTextForPassword'"
-        $source | Should -Match 'New-MgUser requires an in-memory plain string'
-        $source | Should -Match 'not logged and is persisted only to the protected workbook'
+        $parseErrors | Should -BeNullOrEmpty
+        $function = $ast.Find({
+                param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'New-DisabledEntraStudent'
+            }, $true)
+        $function | Should -Not -BeNullOrEmpty
+        $passwordParameter = @($function.Body.ParamBlock.Parameters | Where-Object {
+                $_.Name.VariablePath.UserPath -eq 'Password'
+            })
+        $passwordParameter | Should -HaveCount 1
+        $passwordParameter[0].StaticType | Should -Be ([string])
+
+        $suppressions = @($function.Body.ParamBlock.Attributes | Where-Object {
+                $_.TypeName.FullName -match '(^|\.)SuppressMessageAttribute$'
+            })
+        $matchingSuppression = @($suppressions | Where-Object {
+                $_.PositionalArguments.Count -ge 2 -and
+                $_.PositionalArguments[0].SafeGetValue() -eq 'PSAvoidUsingPlainTextForPassword' -and
+                $_.PositionalArguments[1].SafeGetValue() -eq 'Password'
+            })
+        $matchingSuppression | Should -HaveCount 1
+        $justification = @($matchingSuppression[0].NamedArguments | Where-Object ArgumentName -eq 'Justification')
+        $justification | Should -HaveCount 1
+        $justification[0].Argument.SafeGetValue() | Should -Match 'New-MgUser requires an in-memory plain string'
+        $justification[0].Argument.SafeGetValue() | Should -Match 'not logged and is persisted only to the protected workbook'
+
+        $graphCreate = $function.Find({
+                param($node)
+                $node -is [Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'New-MgUser'
+            }, $true)
+        $graphCreate | Should -Not -BeNullOrEmpty
     }
 }
