@@ -65,6 +65,7 @@ Describe 'Student workbook adapter' {
                     Password = 'TigerWiese56'
                     EntraObjectId = $objectId
                     UPN = 'mmuster@monteaufkirchen.com'
+                    Mail = 'mmuster@monteaufkirchen.com'
                 }
             ) -SkipGitSafetyCheck
 
@@ -74,6 +75,8 @@ Describe 'Student workbook adapter' {
             $saved[0].Passwort | Should -Be 'TigerWiese56'
             $saved[0].EntraObjectId | Should -Be $objectId
             $saved[0].UPN | Should -Be 'mmuster@monteaufkirchen.com'
+            $saved[0].Mail | Should -Be 'mmuster@monteaufkirchen.com'
+            (Read-StudentWorkbook -Path $copy).Students[0].StoredMail | Should -Be 'mmuster@monteaufkirchen.com'
         }
 
         It 'does not replace an existing password with an empty update' {
@@ -86,6 +89,7 @@ Describe 'Student workbook adapter' {
                     Password = 'TigerWiese56'
                     EntraObjectId = $initialObjectId
                     UPN = 'mmuster@monteaufkirchen.com'
+                    Mail = 'mmuster@monteaufkirchen.com'
                 }
             ) -SkipGitSafetyCheck | Out-Null
 
@@ -95,6 +99,7 @@ Describe 'Student workbook adapter' {
                     Password = ''
                     EntraObjectId = $initialObjectId
                     UPN = 'mmuster@monteaufkirchen.com'
+                    Mail = 'mmuster@monteaufkirchen.com'
                 }
             ) -SkipGitSafetyCheck | Out-Null
 

@@ -57,8 +57,14 @@ Describe 'Documentation contract' {
         $LASTEXITCODE | Should -Be 0
     }
 
+    It 'keeps the common root report filename out of Git' {
+        $reportPath = Join-Path $repoRoot 'output.txt'
+        $null = & git -C $repoRoot check-ignore --no-index $reportPath
+        $LASTEXITCODE | Should -Be 0
+    }
+
     It 'documents the exact workbook schema and managed columns' {
-        foreach ($header in @('Name mit Rufname', 'Vorname', 'Nachname', 'Klassen', 'Klassenlehrer', 'Passwort', 'EntraObjectId', 'UPN')) {
+        foreach ($header in @('Name mit Rufname', 'Vorname', 'Nachname', 'Klassen', 'Klassenlehrer', 'Passwort', 'EntraObjectId', 'UPN', 'Mail')) {
             $guide | Should -Match ([regex]::Escape($header))
         }
         $guide | Should -Match 'Kopfzeile|Zeile 1'

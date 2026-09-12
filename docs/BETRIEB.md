@@ -1,6 +1,6 @@
 # Betrieb und Wiederanlauf
 
-Diese Anleitung ist für den kontrollierten Betrieb in der Windows-Parallels-VM. Die fachlichen Regeln stehen in [ENTRA-SCHUELER-SYNC.md](ENTRA-SCHUELER-SYNC.md). Verwende in Tests ausschließlich erfundene Schüler.
+Diese Anleitung gilt für PowerShell 7 auf Windows und macOS. Für Windows-spezifische Dateisperren und kontrollierte Mandantentests ist die Windows-Parallels-VM vorgesehen. Die fachlichen Regeln stehen in [ENTRA-SCHUELER-SYNC.md](ENTRA-SCHUELER-SYNC.md). Verwende in Tests ausschließlich erfundene Schüler.
 
 ## 1. Arbeitsumgebung vorbereiten
 
@@ -21,7 +21,9 @@ Schließe die Arbeitsmappe in Excel vor einem Update. Kontrolliere die erwartete
 
 ## 2. Arbeitsmappe prüfen
 
-Pflichtspalten sind `Name mit Rufname`, `Vorname`, `Nachname`, `Klassen` und `Klassenlehrer`. Genau ein Arbeitsblatt muss alle fünf Überschriften enthalten. Bestehende Zusatzspalten `Passwort`, `EntraObjectId` und `UPN` dürfen nicht manuell umsortiert oder geleert werden, während ein Lauf aktiv ist.
+Pflichtspalten sind `Name mit Rufname`, `Vorname`, `Nachname`, `Klassen` und `Klassenlehrer`. Genau ein Arbeitsblatt muss alle fünf Überschriften enthalten. Bestehende Zusatzspalten `Passwort`, `EntraObjectId`, `UPN` und `Mail` dürfen nicht manuell umsortiert oder geleert werden, während ein Lauf aktiv ist.
+
+Die Schule muss keinen UPN liefern. Sind `EntraObjectId` und `UPN` leer, gleicht das Skript die Excel-Felder `Vorname` (Rufname) und `Nachname` mit `givenName` und `surname` der direkten Mitglieder von `SEC-A-ROL-Schule_Schüler` ab. Der Treffer muss innerhalb dieser Gruppe eindeutig sein.
 
 Prüfe den Pfad und den Git-Schutz:
 
@@ -106,7 +108,7 @@ Prüfe nach einem Neuzugang:
 
 - Konto wurde zuerst deaktiviert erstellt
 - Attribute, Manager und drei Pflichtgruppen stimmen
-- `Passwort`, `EntraObjectId` und `UPN` stehen in der richtigen Excel-Zeile
+- `Passwort`, `EntraObjectId`, `UPN` und `Mail` stehen in der richtigen Excel-Zeile
 - Passwort ist exakt 12 Zeichen lang
 - `ForceChangePasswordNextSignIn` ist `false`
 - Konto wurde erst danach aktiviert
@@ -116,7 +118,8 @@ Prüfe nach einer Änderung:
 
 - nur gelistete Abweichungen wurden geschrieben
 - die stabile Objekt-ID blieb erhalten
-- bei UPN-Wechsel steht der tatsächlich gelesene UPN in Excel
+- `EntraObjectId`, der tatsächlich vorhandene `UPN` und `Mail` stehen in Excel
+- ein manuell vergebener bestehender UPN blieb unverändert
 - Zielgruppen wurden hinzugefügt und bestätigt, bevor alte direkte Rollen- oder Klassengruppen entfernt wurden
 - dynamische und geerbte Mitgliedschaften wurden nur gewarnt
 - die Passwortspalte blieb unverändert

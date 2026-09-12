@@ -139,6 +139,7 @@ Vom Skript verwaltete Zusatzspalten:
 - `Passwort`
 - `EntraObjectId`
 - `UPN`
+- `Mail`
 
 Fehlende Zusatzspalten werden erst bei einem autorisierten Update am rechten Tabellenende ergänzt. Im Vergleichsmodus wird die Arbeitsmappe nie verändert.
 
@@ -185,8 +186,8 @@ Vor einer Excel-Schreiboperation prüft das Skript, sofern Git verfügbar ist, o
 
 Eine Excel-Zeile wird in dieser Reihenfolge zugeordnet:
 
-1. Gültige `EntraObjectId`, wenn vorhanden
-2. Gespeicherter `UPN`, wenn vorhanden
+1. Gültige `EntraObjectId`, wenn vorhanden und das Ziel direktes Mitglied der Schüler-Rollengruppe ist
+2. Gespeicherter `UPN`, wenn vorhanden und der eindeutige Treffer direktes Mitglied der Schüler-Rollengruppe ist
 3. Eindeutige, normalisierte Kombination aus `givenName` und `surname` innerhalb der Mitglieder der Schüler-Rollengruppe
 
 Vor einer Neuanlage prüft das Skript zusätzlich das gesamte Entra-Benutzerverzeichnis. Ein möglicher Treffer außerhalb der Schüler-Rollengruppe wird als Konflikt gemeldet und nicht automatisch zum Schüler umgewidmet. Mehrere mögliche Treffer blockieren alle Mutationen und insbesondere die Deaktivierung vermeintlicher Abgänge.
@@ -215,7 +216,7 @@ UPN-Kandidaten werden in dieser Reihenfolge gebildet:
 
 Die Belegung wird gegen alle Entra-UPNs, Entra-Mailadressen, vorhandene Proxyadressen und Exchange-Empfänger sowie gegen bereits für denselben Lauf reservierte Adressen geprüft. Eine Adresse, die demselben Entra-Objekt gehört, gilt nicht als Kollision.
 
-Bei unverändertem Vor- und Nachnamen bleibt ein bereits regelkonform vergebener UPN stabil, auch wenn eine früher verursachende Kollision später nicht mehr existiert. Bei Namensänderungen wird der Soll-UPN neu berechnet. Jede Abweichung vom ersten Kandidaten wird mit Ursache und gewähltem UPN in der Warnungstabelle ausgegeben.
+Der UPN eines bestehenden Schülers bleibt immer unverändert, auch bei einer Namensänderung oder wenn eine früher verursachende Kollision nicht mehr existiert. Der Algorithmus wählt nur für Neuzugänge einen neuen UPN. Jede Abweichung vom ersten Kandidaten wird mit Ursache und gewähltem UPN in der Warnungstabelle ausgegeben.
 
 ## Klassen- und Office-Location-Regel
 
@@ -348,7 +349,7 @@ Ein neuer Schüler wird fail-safe angelegt:
 4. Entra-Sollattribute setzen
 5. Manager setzen und prüfen
 6. Lizenz-, Rollen- und Klassengruppe hinzufügen und prüfen
-7. `Passwort`, `EntraObjectId` und tatsächlichen `UPN` sicher in Excel zurückschreiben
+7. `Passwort`, `EntraObjectId`, tatsächlichen `UPN` und `Mail` sicher in Excel zurückschreiben
 8. Konto aktivieren und Aktivierung prüfen
 9. Postfachverfügbarkeit gesammelt abwarten und EXO konfigurieren
 
@@ -360,7 +361,7 @@ Bei `-DisableUsers` wird `accountEnabled = false` gesetzt und erneut gelesen. Be
 
 ### Änderungen
 
-Bei `-UpdateUsers` werden ausschließlich abweichende Eigenschaften geschrieben. UPN, Mail, Manager und Gruppen werden jeweils nach dem Schreiben erneut gelesen. Bestehende Passwörter und die Excel-Passwortspalte bleiben unverändert.
+Bei `-UpdateUsers` werden ausschließlich abweichende Eigenschaften geschrieben. UPN, Mail, Manager und Gruppen werden jeweils nach dem Schreiben erneut gelesen. Danach schreibt das Skript für alle eindeutig zugeordneten Bestandskonten die aktuelle `EntraObjectId`, den tatsächlich vorhandenen `UPN` und `Mail` nach Excel. Bestehende Passwörter und die Excel-Passwortspalte bleiben unverändert.
 
 ### Laufzeitfehler
 

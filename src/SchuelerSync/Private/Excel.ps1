@@ -6,7 +6,7 @@
     'Klassenlehrer'
 )
 
-$script:ManagedStudentHeaders = @('Passwort', 'EntraObjectId', 'UPN')
+$script:ManagedStudentHeaders = @('Passwort', 'EntraObjectId', 'UPN', 'Mail')
 
 function ConvertTo-WorkbookCellText {
     param([AllowNull()][object] $Value)
@@ -126,6 +126,9 @@ function Read-StudentWorkbook {
                 } else { '' }
                 StoredUpn = if ($headers.ContainsKey('UPN')) {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value
+                } else { '' }
+                StoredMail = if ($headers.ContainsKey('Mail')) {
+                    ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Mail']].Value
                 } else { '' }
             }
         }
@@ -287,6 +290,7 @@ function Write-StudentWorkbookUpdate {
             }
             EntraObjectId = Get-RequiredWorkbookUpdateValue -Update $update -PropertyName 'EntraObjectId'
             UPN = Get-RequiredWorkbookUpdateValue -Update $update -PropertyName 'UPN'
+            Mail = Get-RequiredWorkbookUpdateValue -Update $update -PropertyName 'Mail'
         }
     }
 
@@ -334,6 +338,7 @@ function Write-StudentWorkbookUpdate {
             }
             $worksheet.Cells[$update.RowNumber, $headers['EntraObjectId']].Value = $update.EntraObjectId
             $worksheet.Cells[$update.RowNumber, $headers['UPN']].Value = $update.UPN
+            $worksheet.Cells[$update.RowNumber, $headers['Mail']].Value = $update.Mail
         }
         $package.Save()
         $package.Dispose()
@@ -352,7 +357,8 @@ function Write-StudentWorkbookUpdate {
             foreach ($update in $updatesByRow.Values) {
                 $storedObjectId = ConvertTo-WorkbookCellText $verificationWorksheet.Cells[$update.RowNumber, $verificationHeaders['EntraObjectId']].Value
                 $storedUpn = ConvertTo-WorkbookCellText $verificationWorksheet.Cells[$update.RowNumber, $verificationHeaders['UPN']].Value
-                if ($storedObjectId -ne $update.EntraObjectId -or $storedUpn -ne $update.UPN) {
+                $storedMail = ConvertTo-WorkbookCellText $verificationWorksheet.Cells[$update.RowNumber, $verificationHeaders['Mail']].Value
+                if ($storedObjectId -ne $update.EntraObjectId -or $storedUpn -ne $update.UPN -or $storedMail -ne $update.Mail) {
                     throw "Temporäre Schülerdatei konnte die Entra-Daten für Zeile $($update.RowNumber) nicht verifizieren."
                 }
                 if (-not [string]::IsNullOrWhiteSpace($update.Password)) {

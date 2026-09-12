@@ -64,6 +64,10 @@ function Resolve-StudentIdentity {
         if ($null -eq $user) {
             throw "EntraObjectId '$objectId' verweist auf keinen vorhandenen Entra-Benutzer."
         }
+        $resolvedUserId = ([string](Get-ComparisonPropertyValue -InputObject $user -Name Id)).Trim()
+        if (-not $Snapshot.StudentRoleMemberIds.Contains($resolvedUserId)) {
+            throw "EntraObjectId '$objectId' verweist auf einen Entra-Benutzer außerhalb der Schüler-Rollengruppe."
+        }
         return [pscustomobject]@{
             Method = 'EntraObjectId'
             User = $user
@@ -82,6 +86,10 @@ function Resolve-StudentIdentity {
             })
         if ($storedUpnMatches.Count -ne 1) {
             throw "StoredUpn '$storedUpn' verweist nicht eindeutig auf einen vorhandenen Entra-Benutzer ($($storedUpnMatches.Count) Treffer)."
+        }
+        $resolvedUserId = ([string](Get-ComparisonPropertyValue -InputObject $storedUpnMatches[0] -Name Id)).Trim()
+        if (-not $Snapshot.StudentRoleMemberIds.Contains($resolvedUserId)) {
+            throw "StoredUpn '$storedUpn' verweist auf einen Entra-Benutzer außerhalb der Schüler-Rollengruppe."
         }
         return [pscustomobject]@{
             Method = 'StoredUpn'

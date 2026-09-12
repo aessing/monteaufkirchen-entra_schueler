@@ -1,45 +1,24 @@
 # Abnahmestand und VM-Protokoll
 
-Stand der lokalen Prüfung: 11. September 2026 auf `codex/entra-schueler-sync-impl`, einschließlich der Korrekturen aus der abschließenden Codeprüfung.
+Stand der Release-Prüfung: 12. September 2026 auf `codex/entra-schueler-sync` vor dem Merge für `v0.1.0`.
 
-Die Implementierung liegt zur abschließenden Codeprüfung und zur Abnahme in der Windows-Parallels-VM vor. Eine produktive Freigabe ist damit noch nicht erteilt. Lokal wurden **keine Pester-Tests erfolgreich ausgeführt und keine Live-Mandantentests durchgeführt**.
+Die automatisierten PowerShell-Prüfungen wurden auf macOS erfolgreich ausgeführt. Ein lesender Lauf gegen den vorgesehenen Mandanten wurde vom Betreiber durchgeführt und lieferte die erwarteten Vergleichstabellen. Produktive Schreibaktionen wurden im Rahmen dieser lokalen Prüfung nicht unabhängig ausgeführt oder bestätigt. Die kontrollierte Windows- und Mandantenabnahme bleibt deshalb getrennt dokumentiert.
 
 ## Lokal ausgeführte Prüfungen
 
 | Prüfung | Ergebnis |
 |---|---|
-| `git status --short` | Arbeitsbaum vor diesem Protokoll sauber |
-| `git diff --check` und `git diff 5303d37..HEAD --check` | Keine Whitespace-Fehler |
+| PowerShell | PowerShell 7.6.6 auf macOS |
+| Pester | 223 Tests erkannt, 222 bestanden, 0 fehlgeschlagen, 1 Windows-spezifischer Test übersprungen |
+| PSScriptAnalyzer | Keine Befunde für Einstiegsskript und Modul mit `PSScriptAnalyzerSettings.psd1` |
+| Nativer PowerShell-Parser | 29 versionierte `.ps1`-, `.psm1`- und `.psd1`-Dateien ohne Parserfehler |
+| `Test-ModuleManifest` | Erfolgreich, Modulversion `0.1.0`, PowerShell-Mindestversion `7.0` |
+| `git diff --check` | Keine Whitespace-Fehler |
 | `git check-ignore -v Schueler.xlsx` und synthetische Zielpfade | XLSX-Regeln greifen im Root und in Unterordnern, auch für Sicherungen, temporäre Kopien und Großschreibung der Endung |
 | `git ls-files '*.xlsx'` | Ausschließlich `tests/fixtures/Schueler-Testdaten.xlsx` verfolgt |
-| Quellcode-Suche nach Passwortzuweisungen, privaten Schlüsseln und Tokens | Kein literales Geheimnis gefunden. Die Formatvorlage im Generator ist kein Passwort |
-| Quellcode-Suche und Sichtprüfung der Passwort-Ausgabepfade | Kein direkter Passwortwert in den Ausgabeaufrufen. Das ersetzt keinen Laufzeittest aller PowerShell-Ausgabekanäle |
-| Modulmanifest und Konfiguration, statisch gelesen | Export `Invoke-SchuelerSync`, Version `0.1.0`, PowerShell-Mindestversion `7.0`, Domain, Schüler-Rollen-ID, Passwortlänge `12`, EXO-Wiederholungen `5` und Wartezeit `60` konsistent |
-| Lokale Markdown-Dateiziele | 20 Verweise auf vorhandene Dateien geprüft. Sieben bestehende relative GitHub-Issue-/Security-Verweise sind Hosting-Links und wurden nicht als lokale Dateien bewertet |
-| `file docs/assets/entra-schueler-sync-hero.png` | PNG, 2048 × 768 Pixel |
-| `unzip -t tests/fixtures/Schueler-Testdaten.xlsx` | Alle ZIP-Einträge fehlerfrei |
-| Fixture-XML gelesen | Fünf Pflichtspalten, zwei erfundene Schülerzeilen, keine Passwort-, UPN- oder Objekt-ID-Werte |
-| Testinventar | 14 Testdateien, 177 statische `It`-Deklarationen und ein separater Discovery-Prüfer. Dies ist keine Anzahl ausgeführter oder bestandener Tests |
+| Modulinventar | Graph SDK 2.39.0, ExchangeOnlineManagement 3.10.1, ImportExcel 7.8.10, Pester 5.7.1 und PSScriptAnalyzer 1.25.0 |
+| Lesender Mandantenvergleich | Vom Betreiber erfolgreich ausgeführt, keine lokale Bestätigung produktiver Schreibaktionen |
 | Passwort-Auswahlraum, unabhängig aus dem Wortkatalog berechnet | 847 eindeutige Wörter, 220.505 eindeutige Zehnbuchstaben-Präfixe, 19.845.450 mögliche Ausgaben, rund 24,24 Bit |
-| Discovery-Struktur, statisch geprüft | Alle zehn Testdateien mit `InModuleScope` importieren in `BeforeDiscovery`. Fixturepfade entstehen innerhalb der Run-Phase, kein Test ersetzt das Modul mit `-Force` |
-
-Zusätzlich wurden alle 27 `.ps1`-, `.psm1`- und `.psd1`-Dateien mit `tree-sitter-powershell 0.26.4` untersucht. Der Ersatzparser meldet keine Fehler- oder Missing-Knoten. Leere Mock-Scriptblöcke verwenden nun explizit `{ return }`, damit sie auch mit diesem Parser lesbar sind. Die native PowerShell-Parserprüfung sowie die neue Fresh-Session-Discovery-Prüfung bleiben Aufgabe der VM.
-
-Diese drei lokalen Befehle wurden separat versucht:
-
-```sh
-pwsh -NoLogo -NoProfile -Command 'Invoke-Pester ./tests -Output Detailed -PassThru'
-pwsh -NoLogo -NoProfile -Command 'Invoke-ScriptAnalyzer -Path ./Sync-SchuelerEntra.ps1 -Settings ./PSScriptAnalyzerSettings.psd1; Invoke-ScriptAnalyzer -Path ./src -Recurse -Settings ./PSScriptAnalyzerSettings.psd1'
-pwsh -NoLogo -NoProfile -Command 'Test-ModuleManifest ./src/SchuelerSync/SchuelerSync.psd1'
-```
-
-Alle drei endeten vor dem Start von PowerShell mit Exitcode `127` und exakt:
-
-```text
-zsh:1: operation not permitted: pwsh
-```
-
-Damit sind Pester, PSScriptAnalyzer und die native Manifestprüfung lokal **nicht geprüft**. Die echte Schülerdatei wurde weder gelesen noch kopiert oder verändert. Es fand keine Anmeldung und keine Schreiboperation bei Graph oder Exchange Online statt.
 
 ## Reproduzierbare VM-Prüfung
 
@@ -93,10 +72,10 @@ Die Live-Befehle und Sollwerte stehen vollständig in [TESTING.md](TESTING.md). 
 
 Jede Position benötigt Datum, tatsächliches Ergebnis und gegebenenfalls eine bereinigte Fehlermeldung. Schreibe keine Passwörter oder Tokens in das Protokoll.
 
-- [ ] Native Parserprüfung aller 25 PowerShell-Dateien, insbesondere `tests/Entra.Tests.ps1`
-- [ ] `Test-ModuleManifest` erfolgreich
-- [ ] Gesamte Pester-Suite erfolgreich, tatsächliche Anzahl Passed/Failed/Skipped dokumentiert
-- [ ] PSScriptAnalyzer ohne ungeklärte Befunde
+- [x] Native Parserprüfung aller 29 versionierten PowerShell-Dateien
+- [x] `Test-ModuleManifest` auf macOS erfolgreich
+- [x] Gesamte Pester-Suite auf macOS erfolgreich, tatsächliche Anzahl Passed/Failed/Skipped dokumentiert
+- [x] PSScriptAnalyzer ohne ungeklärte Befunde
 - [ ] Standardvergleich zeigt alle Tabellen, unveränderter Excel-Hash, keine Graph-/EXO-Schreiboperationen
 - [ ] Vollständiges und selektives `-WhatIf` ohne Passworterzeugung, Backup, Dateiänderung, Mandantenänderung oder EXO-Wartezeit
 - [ ] Isolierter Neuzugang bleibt bis zur verifizierten Excel-Rückschreibung deaktiviert

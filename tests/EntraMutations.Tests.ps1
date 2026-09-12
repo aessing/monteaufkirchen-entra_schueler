@@ -111,7 +111,7 @@ Describe 'Verified Entra student mutations' {
                 throw [InvalidOperationException]::new('Request failed while adding the mandatory group.')
             }
         }
-        Mock Remove-MgGroupMemberByRef -ModuleName SchuelerSync {
+        Mock Remove-MgGroupMemberDirectoryObjectByRef -ModuleName SchuelerSync {
             $global:EntraMutationState.Events.Add("remove-$GroupId")
         }
         Mock Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync {
@@ -394,7 +394,7 @@ Describe 'Verified Entra student mutations' {
                     $BodyParameter['@odata.id'] -eq 'https://graph.microsoft.com/v1.0/directoryObjects/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and
                     $ErrorAction -eq 'Stop'
                 }
-                Should -Invoke Remove-MgGroupMemberByRef -Times 2 -Exactly -ParameterFilter {
+                Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -Times 2 -Exactly -ParameterFilter {
                     $DirectoryObjectId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $ErrorAction -eq 'Stop'
                 }
                 Should -Invoke Get-MgUserMemberOfAsGroup -Times 2 -Exactly -ParameterFilter {
@@ -411,7 +411,7 @@ Describe 'Verified Entra student mutations' {
                 { Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false } |
                     Should -Throw '*mandatory target groups*'
 
-                Should -Invoke Remove-MgGroupMemberByRef -Times 0 -Exactly
+                Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -Times 0 -Exactly
                 $global:EntraMutationState.Events[-1] | Should -Be 'read-direct-groups'
             }
 
@@ -421,7 +421,7 @@ Describe 'Verified Entra student mutations' {
                 { Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups @() -Confirm:$false } |
                     Should -Throw '*mandatory group*'
 
-                Should -Invoke Remove-MgGroupMemberByRef -Times 0 -Exactly
+                Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -Times 0 -Exactly
                 Should -Invoke Get-MgUserMemberOfAsGroup -Times 0 -Exactly
                 $global:EntraMutationState.Events | Should -Be @(
                     'add-11111111-1111-1111-1111-111111111111'
@@ -458,7 +458,7 @@ Describe 'Verified Entra student mutations' {
                 { Sync-EntraStudentGroup -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -RoleGroup $global:EntraMutationGroups.Role -LicenseGroup $global:EntraMutationGroups.License -ClassGroup $global:EntraMutationGroups.Class -CurrentDirectGroups $groupsWithProtectedCompetitors -Confirm:$false } |
                     Should -Throw '*exact managed group state*'
 
-                Should -Invoke Remove-MgGroupMemberByRef -Times 0 -Exactly -ParameterFilter {
+                Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -Times 0 -Exactly -ParameterFilter {
                     $GroupId -in @(
                         '66666666-6666-6666-6666-666666666666'
                         '77777777-7777-7777-7777-777777777777'

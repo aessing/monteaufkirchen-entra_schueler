@@ -2,6 +2,8 @@
 
 # Entra-Schülersynchronisation
 
+Aktuelle Version: **0.1.0**
+
 Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra ID und Exchange Online. Der Standardlauf ist rein lesend. Änderungen benötigen ausdrücklich `-Update`, `-Add`, `-Remove` oder den getrennten Exchange-Reparaturmodus.
 
 > [!IMPORTANT]
@@ -10,6 +12,7 @@ Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra I
 ## Das erledigt das Tool
 
 - Tabellen für Neuzugänge, Abgänge, Änderungen und bestehende Schüler
+- Zuordnung ohne gelieferte UPN über eindeutigen Rufnamen und Nachnamen innerhalb der Schüler-Rollengruppe
 - Feldgenaue Abweichungen für Entra, Manager, Gruppen und Exchange Online
 - Eindeutige UPNs unter `@monteaufkirchen.com`, inklusive Umlautumschrift und Kollisionsprüfung
 - Sichere Neuanlage mit deaktiviertem Konto, Pflichtzustand, geschützter Excel-Rückschreibung und erst anschließender Aktivierung
@@ -22,7 +25,7 @@ Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra I
 
 ## Voraussetzungen
 
-- Windows mit PowerShell 7.0 oder neuer
+- Windows oder macOS mit PowerShell 7.0 oder neuer
 - Interaktive Anmeldung bei Microsoft Graph und Exchange Online
 - Berechtigtes Administratorkonto im richtigen Mandanten
 - Die Module `Microsoft.Graph.Authentication`, `Microsoft.Graph.Users`, `Microsoft.Graph.Users.Actions`, `Microsoft.Graph.Groups`, `ExchangeOnlineManagement` und `ImportExcel`
@@ -46,7 +49,7 @@ Eine andere `.xlsx`-Datei kannst du mit `-File` angeben. Relative Pfade beziehen
 .\Sync-SchuelerEntra.ps1 -File 'C:\Schuelerimport\Schueler-2026.xlsx'
 ```
 
-Mit `-OutputFile` speicherst du den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Eine vorhandene Datei wird ersetzt. Der empfohlene Ordner `Berichte` ist wegen der enthaltenen personenbezogenen Daten von Git ausgeschlossen:
+Mit `-OutputFile` speicherst du den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Eine vorhandene Datei wird ersetzt. Der empfohlene Ordner `Berichte` und der häufig verwendete Rootname `output.txt` sind wegen der enthaltenen personenbezogenen Daten von Git ausgeschlossen:
 
 ```powershell
 .\Sync-SchuelerEntra.ps1 -OutputFile '.\Berichte\Schueler-Abgleich.txt'
@@ -63,6 +66,8 @@ Führe danach alle geplanten Aktionen aus:
 ```powershell
 .\Sync-SchuelerEntra.ps1 -File 'C:\Schuelerimport\Schueler-2026.xlsx' -Update
 ```
+
+Bei `-Update` beziehungsweise `-UpdateUsers` schreibt das Skript für alle eindeutig zugeordneten Bestandskonten die aktuelle `EntraObjectId`, den tatsächlich vorhandenen `UPN` und `Mail` nach Excel. Manuell vergebene UPNs bleiben dabei unverändert. Neue Schüler erhalten zusätzlich ihr Initialpasswort in der Spalte `Passwort`.
 
 Sobald du einen Aktionsschalter angibst, werden nur die ausgewählten Graph-Aktionen ausgeführt. Erstellen und Aktualisieren ziehen die Exchange-Konfiguration für erfolgreich bearbeitete Benutzer automatisch nach:
 
@@ -112,6 +117,8 @@ Einen einzelnen Schüler deaktivierst du per UPN. Dabei werden zusätzlich alle 
 - [Vollständige Fach- und Schnittstellendokumentation](docs/ENTRA-SCHUELER-SYNC.md)
 - [Betrieb, Fehlerbehebung und Wiederanlauf](docs/BETRIEB.md)
 - [Testplan für die Parallels-VM](docs/TESTING.md)
+- [Abnahmestand](docs/ABNAHME.md)
+- [Changelog](CHANGELOG.md)
 - [Sicherheitsrichtlinie](docs/SECURITY.md)
 
-Die PowerShell- und Live-Mandantentests müssen vor dem produktiven Einsatz in der vorgesehenen Windows-Parallels-VM abgeschlossen werden.
+Die automatisierte Suite läuft unter PowerShell 7 auf macOS und Windows. Vor produktiven Schreibläufen bleiben die kontrollierten Windows- und Mandantentests aus dem Testplan erforderlich.

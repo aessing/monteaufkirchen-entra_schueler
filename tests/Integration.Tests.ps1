@@ -25,13 +25,13 @@ BeforeAll {
         }
         $global:IntegrationStubCommands.Add('New-MgGroupMemberByRef')
     }
-    if ($null -eq (Get-Command Remove-MgGroupMemberByRef -ErrorAction SilentlyContinue)) {
-        function global:Remove-MgGroupMemberByRef {
+    if ($null -eq (Get-Command Remove-MgGroupMemberDirectoryObjectByRef -ErrorAction SilentlyContinue)) {
+        function global:Remove-MgGroupMemberDirectoryObjectByRef {
             [CmdletBinding()]
             param([string] $GroupId, [string] $DirectoryObjectId)
             throw 'Integration test stub must be mocked.'
         }
-        $global:IntegrationStubCommands.Add('Remove-MgGroupMemberByRef')
+        $global:IntegrationStubCommands.Add('Remove-MgGroupMemberDirectoryObjectByRef')
     }
     Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 
@@ -64,6 +64,7 @@ BeforeAll {
             Password = ''
             EntraObjectId = $EntraObjectId
             StoredUpn = $StoredUpn
+            StoredMail = ''
         }
     }
 
@@ -292,6 +293,7 @@ Describe 'Stateful student synchronization' {
                 if ($row.Count -ne 1) { throw "Unknown workbook row $($update.RowNumber)." }
                 $row[0].EntraObjectId = [string]$update.EntraObjectId
                 $row[0].StoredUpn = [string]$update.UPN
+                $row[0].StoredMail = [string]$update.Mail
                 if (-not [string]::IsNullOrWhiteSpace([string]$update.Password)) {
                     $row[0].Password = [string]$update.Password
                     $global:IntegrationState.PasswordsWritten.Add([string]$update.Password)
@@ -349,7 +351,7 @@ Describe 'Stateful student synchronization' {
             $name = [string]$global:IntegrationState.Groups[$GroupId].DisplayName
             $global:IntegrationState.Events.Add("group-add:${userId}:$name")
         }
-        Mock Remove-MgGroupMemberByRef -ModuleName SchuelerSync {
+        Mock Remove-MgGroupMemberDirectoryObjectByRef -ModuleName SchuelerSync {
             $global:IntegrationState.DirectGroups[$DirectoryObjectId] = @(
                 $global:IntegrationState.DirectGroups[$DirectoryObjectId] | Where-Object { $_ -ne $GroupId }
             )
@@ -445,8 +447,8 @@ Describe 'Stateful student synchronization' {
         $createBody.PasswordProfile.Password | Should -Be $global:IntegrationState.PasswordsGenerated[0]
         $createBody.PasswordProfile.ForceChangePasswordNextSignIn | Should -BeFalse
         Should -Invoke New-MgUser -ModuleName SchuelerSync -Times 1 -Exactly
-        $global:IntegrationState.WorkbookWrites | Should -Be 1
-        $global:IntegrationState.SourceHash | Should -Be 'source-2'
+        $global:IntegrationState.WorkbookWrites | Should -Be 2
+        $global:IntegrationState.SourceHash | Should -Be 'source-3'
         $global:IntegrationState.Users['new-id'].AccountEnabled | Should -BeTrue
         $global:IntegrationState.Users['new-id'].DisplayName | Should -Be 'Mia Muster'
         $global:IntegrationState.Users['new-id'].UsageLocation | Should -Be 'DE'
@@ -496,7 +498,7 @@ Describe 'Stateful student synchronization' {
         $changedClasses | Should -HaveCount 1
         $changedClasses | Should -Contain $global:IntegrationGroupIds.ClassM2
         Should -Invoke New-MgGroupMemberByRef -ModuleName SchuelerSync -Times 4 -Exactly
-        Should -Invoke Remove-MgGroupMemberByRef -ModuleName SchuelerSync -Times 2 -Exactly
+        Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -ModuleName SchuelerSync -Times 2 -Exactly
         Should -Invoke Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync -Times 4 -Exactly
         [Array]::IndexOf($events, 'disable:departure-id') | Should -BeLessThan ([Array]::IndexOf($events, 'revoke:departure-id'))
         [Array]::IndexOf($events, 'revoke:departure-id') | Should -BeLessThan ([Array]::IndexOf($events, 'exchange-configure:mmuster@monteaufkirchen.com'))
@@ -522,8 +524,8 @@ Describe 'Stateful student synchronization' {
         $second.Comparison.Departures[0].AccountEnabled | Should -BeFalse
         $second.Actions | Should -BeNullOrEmpty
         $global:IntegrationState.Events.Count | Should -Be $writesBeforeSecondComparison
-        $global:IntegrationState.WorkbookWrites | Should -Be 1
-        $global:IntegrationState.SourceHash | Should -Be 'source-2'
+        $global:IntegrationState.WorkbookWrites | Should -Be 2
+        $global:IntegrationState.SourceHash | Should -Be 'source-3'
         $global:IntegrationState.SessionRevocations | Should -Be 1
     }
 
@@ -542,7 +544,7 @@ Describe 'Stateful student synchronization' {
         Should -Invoke New-StudentPassword -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke New-MgUser -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke New-MgGroupMemberByRef -ModuleName SchuelerSync -Times 0 -Exactly
-        Should -Invoke Remove-MgGroupMemberByRef -ModuleName SchuelerSync -Times 0 -Exactly
+        Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Write-StudentWorkbookUpdate -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Set-StudentMailboxConfiguration -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Start-Sleep -ModuleName SchuelerSync -Times 0 -Exactly

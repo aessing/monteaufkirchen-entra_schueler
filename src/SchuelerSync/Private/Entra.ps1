@@ -724,7 +724,7 @@ function Sync-EntraStudentGroup {
         if (-not $isManaged -or $isInherited -or $isDynamic) { continue }
 
         if ($PSCmdlet.ShouldProcess($displayName, "Remove Entra student '$UserId' from competing managed group")) {
-            Remove-MgGroupMemberByRef -GroupId $groupId -DirectoryObjectId $UserId -ErrorAction Stop
+            Remove-MgGroupMemberDirectoryObjectByRef -GroupId $groupId -DirectoryObjectId $UserId -ErrorAction Stop
             $removedGroupIds.Add($groupId)
         } else {
             $removalSkipped = $true

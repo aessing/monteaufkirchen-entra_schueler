@@ -236,7 +236,9 @@ function Invoke-SchuelerSync {
             }
             if ($Update -and -not $WhatIfPreference) {
                 $hasRenames = $selection.UpdateUsers -and @($comparison.ChangedStudents | Where-Object { Test-StudentUpnRename -Entry $_ }).Count -gt 0
-                if (($selection.CreateNewUsers -and @($comparison.NewStudents).Count -gt 0) -or $hasRenames) {
+                $hasIdentityBackfill = $selection.UpdateUsers -and
+                    (@($comparison.ChangedStudents).Count + @($comparison.ExistingStudents).Count -gt 0)
+                if (($selection.CreateNewUsers -and @($comparison.NewStudents).Count -gt 0) -or $hasRenames -or $hasIdentityBackfill) {
                     Assert-WorkbookSafeForPasswordWrite -Path $File
                 }
                 Assert-StudentWorkbookVersion -Path $File -ExpectedSourceHash $workbook.SourceHash
@@ -279,6 +281,10 @@ function Invoke-SchuelerSync {
                 }
                 if ($selection.UpdateUsers) {
                     foreach ($action in @(Invoke-StudentUpdate -Entries @($comparison.ChangedStudents) -Snapshot $snapshot -Config $config -File $File -WorkbookState $workbook -Secrets @($secrets) @common)) { $actions.Add($action) }
+                    $identityEntries = @($comparison.ExistingStudents) + @($comparison.ChangedStudents)
+                    foreach ($action in @(Save-StudentWorkbookIdentityBatch -Entries $identityEntries -File $File -WorkbookState $workbook -Secrets @($secrets) @common)) {
+                        $actions.Add($action)
+                    }
                 }
                 if ($selection.DisableUsers -or $selection.RevokeSessions) {
                     foreach ($action in @(Invoke-StudentDeparture -Entries @($comparison.Departures) -DisableUsers:$selection.DisableUsers -RevokeSessions:$selection.RevokeSessions -File $File -Secrets @($secrets) @common)) { $actions.Add($action) }

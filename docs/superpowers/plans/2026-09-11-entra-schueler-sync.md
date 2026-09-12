@@ -60,7 +60,7 @@
 }
 ```
 
-Jeder Student besitzt `RowNumber`, `NameMitRufname`, `GivenName`, `Surname`, `ClassName`, `Teacher`, `Password`, `EntraObjectId` und `StoredUpn`.
+Jeder Student besitzt `RowNumber`, `NameMitRufname`, `GivenName`, `Surname`, `ClassName`, `Teacher`, `Password`, `EntraObjectId`, `StoredUpn` und `StoredMail`.
 
 `Get-EntraSnapshot` liefert:
 
@@ -400,7 +400,7 @@ git commit -m "feat: add deterministic student identity rules"
 - Create: `tests/fixtures/Schueler-Testdaten.xlsx`
 
 **Interfaces:**
-- Consumes: ImportExcel and row updates with `RowNumber`, `Password`, `EntraObjectId` and `UPN`.
+- Consumes: ImportExcel and row updates with `RowNumber`, `Password`, `EntraObjectId`, `UPN` and `Mail`.
 - Produces: `Resolve-StudentWorkbookPath`, `Read-StudentWorkbook`, `Assert-WorkbookSafeForPasswordWrite` and `Write-StudentWorkbookUpdates`.
 
 - [ ] **Step 1: Create a synthetic fixture**
@@ -441,7 +441,7 @@ $context.Students[0].ClassName | Should -Be 'JK1-3g2_1'
     Should -Throw '*.xlsx*'
 ```
 
-Add a write test that passes `-SkipGitSafetyCheck`, writes `TigerWiese56`, a synthetic GUID and `mmuster@monteaufkirchen.com` to row 2, then reimports the workbook and checks all three values plus the existence of a backup.
+Add a write test that passes `-SkipGitSafetyCheck`, writes `TigerWiese56`, a synthetic GUID, `mmuster@monteaufkirchen.com` as UPN and the current mail address to row 2, then reimports the workbook and checks all four values plus the existence of a backup.
 
 - [ ] **Step 3: Run the tests**
 
@@ -462,10 +462,10 @@ Run `Invoke-Pester tests/Excel.Tests.ps1 -Output Detailed`. Expected: FAIL becau
 1. Run safety checks.
 2. Create `<base>.backup-YYYYMMDD-HHmmss.xlsx`.
 3. Copy the source to `.<base>.<guid>.tmp.xlsx`.
-4. Add missing `Passwort`, `EntraObjectId` and `UPN` headers at the right.
+4. Add missing `Passwort`, `EntraObjectId`, `UPN` and `Mail` headers at the right.
 5. Write only supplied row updates. Preserve existing passwords when `Password` is empty.
 6. Close and reopen the temporary workbook.
-7. Verify object ID, UPN and any new password for every row.
+7. Verify object ID, UPN, mail and any new password for every row.
 8. Replace the source with the verified temporary file.
 9. Delete only the temporary file after a failure and retain the backup.
 10. Return `Path` and `BackupPath`.
@@ -618,8 +618,8 @@ Build synthetic desired and current users. Assert exact values for:
 
 - `DisplayName = '<Vorname> <Nachname>'` while keeping umlauts in `GivenName` and `Surname`.
 - `Mail = UserPrincipalName`.
-- `MailNickname` is the local part of `UserPrincipalName` and changes with a recalculated UPN.
-- An unchanged name keeps an already valid candidate UPN, even when an earlier collision has disappeared. A changed given name or surname recalculates the UPN.
+- `MailNickname` is the local part of `UserPrincipalName`. Existing students keep their current UPN and mail nickname.
+- UPN candidates are calculated only for new students. Existing students keep their current UPN even when their name changes or an earlier collision disappears.
 - `Department = Klassen` and `OfficeLocation` from `Get-OfficeLocation`.
 - Company, employee type, usage location, age group and minor consent from config.
 - `LegalAgeGroupClassification` is comparison-only because Graph computes it from age and consent. It is never sent to `Update-MgUser`.
@@ -684,8 +684,8 @@ Return `Method`, `User` and `Warnings`. Never fall through from a present but in
 1. Validates duplicate Excel object IDs, stored UPNs and normalized name keys.
 2. Resolves all Excel rows before calculating departures.
 3. Merges Graph UPNs, mail values and proxy addresses with the Exchange recipient-address map before selecting any new UPN.
-4. Keeps a matched user's current UPN when the normalized Excel names are unchanged and the UPN is one of that name's valid prefix or numbered candidates.
-5. Recalculates the UPN after a given-name or surname change and adds selected new UPNs to the shared reservation maps in workbook order.
+4. Keeps every matched user's current UPN, including manually assigned values and name changes.
+5. Calculates UPNs only for new students and adds selected new UPNs to the shared reservation maps in workbook order.
 6. Creates warnings for UPN fallback levels, missing `mail` values, dynamic managed groups and comparison-only legal-age discrepancies.
 7. Adds manager lookup failures, missing or ambiguous groups, dynamic mandatory target groups and identity conflicts to `Errors`.
 8. Calculates departures only from student-role members not claimed by an unambiguous Excel row.
@@ -787,7 +787,7 @@ $body = @{
 
 - [ ] **Step 5: Implement add-before-remove group reconciliation**
 
-Use `New-MgGroupMemberByRef -GroupId <id> -BodyParameter @{ '@odata.id' = 'https://graph.microsoft.com/v1.0/directoryObjects/<user-id>' }` and `Remove-MgGroupMemberByRef`.
+Use `New-MgGroupMemberByRef -GroupId <id> -BodyParameter @{ '@odata.id' = 'https://graph.microsoft.com/v1.0/directoryObjects/<user-id>' }` and `Remove-MgGroupMemberDirectoryObjectByRef`.
 
 `Sync-EntraStudentGroups` performs:
 

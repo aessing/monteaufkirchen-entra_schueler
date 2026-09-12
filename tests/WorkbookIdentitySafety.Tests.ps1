@@ -24,7 +24,7 @@ Describe 'Version-bound workbook identity writes' {
             Mock Copy-Item { throw 'Confidential copy must not begin.' }
             {
                 Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
                 ) -Confirm:$false
             } | Should -Throw '*ignoriert*'
             Should -Invoke Copy-Item -Times 0 -Exactly
@@ -42,7 +42,7 @@ Describe 'Version-bound workbook identity writes' {
             Copy-Item -LiteralPath $script:workbookFixture -Destination $source
             $original = Read-StudentWorkbook -Path $source
             $result = Write-StudentWorkbookUpdate -Path $source -ExpectedSourceHash $original.SourceHash -Updates @(
-                [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
             ) -Confirm:$false
             (Read-StudentWorkbook -Path $source).Students[0].Password | Should -Be 'TigerWiese56'
             Test-Path -LiteralPath $result.BackupPath | Should -BeTrue
@@ -85,7 +85,7 @@ Describe 'Version-bound workbook identity writes' {
             $editedHash = (Get-FileHash -LiteralPath $script:copy -Algorithm SHA256).Hash
             {
                 Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
                 ) -Confirm:$false
             } | Should -Throw '*Vorprüfung*'
             (Get-FileHash -LiteralPath $script:copy -Algorithm SHA256).Hash | Should -Be $editedHash
@@ -111,7 +111,7 @@ Describe 'Version-bound workbook identity writes' {
             }
             {
                 Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
                 ) -Confirm:$false
             } | Should -Throw '*Vorprüfung*'
             (Get-FileHash -LiteralPath $script:copy -Algorithm SHA256).Hash | Should -Be $script:lateEditHash
@@ -135,7 +135,7 @@ Describe 'Version-bound workbook identity writes' {
             $failure = $null
             try {
                 Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
                 ) -Confirm:$false
             } catch { $failure = $_.Exception.Message }
             $failure | Should -Not -BeNullOrEmpty
@@ -158,7 +158,7 @@ Describe 'Version-bound workbook identity writes' {
             }
             {
                 Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
                 ) -Confirm:$false
             } | Should -Throw '*Simulated install failure*'
             (Get-FileHash -LiteralPath $script:copy -Algorithm SHA256).Hash | Should -Be $original.SourceHash
@@ -167,7 +167,7 @@ Describe 'Version-bound workbook identity writes' {
         It 'leaves exactly the previous bytes in the backup after a successful commit' {
             $original = Read-StudentWorkbook -Path $script:copy
             $result = Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
             ) -Confirm:$false
             (Get-FileHash -LiteralPath $result.BackupPath -Algorithm SHA256).Hash | Should -Be $original.SourceHash
             @(Get-ChildItem -LiteralPath $script:testDirectory -Filter '*.backup-*.xlsx').Count | Should -Be 1
@@ -183,7 +183,7 @@ Describe 'Version-bound workbook identity writes' {
             }
             {
                 Write-StudentWorkbookUpdate -Path $script:copy -ExpectedSourceHash $original.SourceHash -Updates @(
-                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com' }
+                    [pscustomobject]@{ RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = 'new-user'; UPN = 'mmuster@monteaufkirchen.com'; Mail = 'mmuster@monteaufkirchen.com' }
                 ) -Confirm:$false
             } | Should -Throw
             (Get-FileHash -LiteralPath $script:copy -Algorithm SHA256).Hash | Should -Be $original.SourceHash
@@ -232,14 +232,23 @@ Describe 'Version-bound workbook identity writes' {
                 $sheet.Cells[1, 6].Value = 'Passwort'
                 $sheet.Cells[1, 7].Value = 'EntraObjectId'
                 $sheet.Cells[1, 8].Value = 'UPN'
+                $sheet.Cells[1, 9].Value = 'Mail'
                 $sheet.Cells[2, 6].Value = 'TigerWiese56'
                 $sheet.Cells[2, 7].Value = ''
                 $sheet.Cells[2, 8].Value = 'mmuster@monteaufkirchen.com'
+                $sheet.Cells[2, 9].Value = 'alias.before@monteaufkirchen.com'
                 $package.Save()
             } finally { $package.Dispose() }
             $original = Read-StudentWorkbook -Path $script:copy
-            $script:currentUser = [pscustomobject]@{ Id = 'stable-user-id'; UserPrincipalName = 'mmuster@monteaufkirchen.com' }
-            $snapshot = [pscustomobject]@{ UsersById = @{ 'stable-user-id' = $script:currentUser } }
+            $script:currentUser = [pscustomobject]@{
+                Id = 'stable-user-id'; UserPrincipalName = 'mmuster@monteaufkirchen.com'; Mail = 'alias.before@monteaufkirchen.com'
+            }
+            $roleMembers = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            [void] $roleMembers.Add('stable-user-id')
+            $snapshot = [pscustomobject]@{
+                UsersById = @{ 'stable-user-id' = $script:currentUser }
+                StudentRoleMemberIds = $roleMembers
+            }
             (Resolve-StudentIdentity -Student $original.Students[0] -Snapshot $snapshot).Method | Should -Be StoredUpn
             $entry = [pscustomobject]@{
                 Student = $original.Students[0]; User = $script:currentUser
@@ -251,6 +260,7 @@ Describe 'Version-bound workbook identity writes' {
                 $checkpoint.Students[0].EntraObjectId | Should -Be 'stable-user-id'
                 $checkpoint.Students[0].Password | Should -Be 'TigerWiese56'
                 $script:currentUser.UserPrincipalName = 'mneu@monteaufkirchen.com'
+                $script:currentUser.Mail = 'alias.after@monteaufkirchen.com'
                 if ($script:attributeFailure) { throw 'Attribute verification failed after accepted rename' }
                 [pscustomobject]@{ Verified = $true }
             }
@@ -259,6 +269,7 @@ Describe 'Version-bound workbook identity writes' {
             $result[0].Status | Should -Be $(if ($AttributesFail) { 'Failed' } else { 'Succeeded' })
             $next = Read-StudentWorkbook -Path $script:copy
             $next.Students[0].StoredUpn | Should -Be 'mneu@monteaufkirchen.com'
+            $next.Students[0].StoredMail | Should -Be 'alias.after@monteaufkirchen.com'
             $next.Students[0].Password | Should -Be 'TigerWiese56'
             $identity = Resolve-StudentIdentity -Student $next.Students[0] -Snapshot $snapshot
             $identity.Method | Should -Be EntraObjectId

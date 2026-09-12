@@ -44,7 +44,7 @@ function Test-StudentUpnRename {
 
 function Get-EntraStudentCurrentIdentity {
     param([Parameter(Mandatory)][string] $UserId)
-    $user = Get-MgUser -UserId $UserId -Property @('id', 'userPrincipalName') -ErrorAction Stop
+    $user = Get-MgUser -UserId $UserId -Property @('id', 'userPrincipalName', 'mail') -ErrorAction Stop
     if ([string]$user.Id -ine $UserId -or [string]::IsNullOrWhiteSpace([string]$user.UserPrincipalName)) {
         throw "Aktuelle UPN konnte für Entra-Objekt '$UserId' nicht verifiziert werden."
     }
@@ -57,6 +57,7 @@ function Save-StudentIdentityCheckpoint {
         [Parameter(Mandatory)][object] $Entry,
         [Parameter(Mandatory)][string] $UserId,
         [Parameter(Mandatory)][string] $UserPrincipalName,
+        [Parameter(Mandatory)][string] $Mail,
         [Parameter(Mandatory)][string] $File,
         [Parameter(Mandatory)][object] $WorkbookState
     )
@@ -67,16 +68,93 @@ function Save-StudentIdentityCheckpoint {
         RowNumber = [int]$Entry.Student.RowNumber
         EntraObjectId = $UserId
         UPN = $UserPrincipalName
+        Mail = $Mail
     }
     $written = Write-StudentWorkbookUpdate -Path $File -Updates @($identityUpdate) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false
     $verified = Read-StudentWorkbook -Path $File
     if ($verified.SourceHash -cne $written.SourceHash) { throw 'Die Schülerdatei wurde während der Identitätssicherung verändert.' }
     $rows = @($verified.Students | Where-Object RowNumber -eq $identityUpdate.RowNumber)
     $originalPassword = [string](Get-ComparisonPropertyValue $Entry.Student Password)
-    if ($rows.Count -ne 1 -or $rows[0].EntraObjectId -ine $UserId -or $rows[0].StoredUpn -ine $UserPrincipalName -or $rows[0].Password -cne $originalPassword) {
+    if ($rows.Count -ne 1 -or $rows[0].EntraObjectId -ine $UserId -or $rows[0].StoredUpn -ine $UserPrincipalName -or
+        $rows[0].StoredMail -ine $Mail -or $rows[0].Password -cne $originalPassword) {
         throw "Identitätssicherung konnte für Zeile $($identityUpdate.RowNumber) nicht verifiziert werden."
     }
     $WorkbookState.SourceHash = $verified.SourceHash
+}
+
+function Save-StudentWorkbookIdentityBatch {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
+        [Parameter(Mandatory)][string] $File,
+        [Parameter(Mandatory)][object] $WorkbookState,
+        [object[]] $Secrets
+    )
+
+    $updates = [Collections.Generic.List[object]]::new()
+    foreach ($entry in $Entries) {
+        $userId = [string](Get-ComparisonPropertyValue -InputObject $entry.User -Name Id)
+        try {
+            $identity = Get-EntraStudentCurrentIdentity -UserId $userId
+            $upn = ([string](Get-ComparisonPropertyValue -InputObject $identity -Name UserPrincipalName)).Trim()
+            $mail = ([string](Get-ComparisonPropertyValue -InputObject $identity -Name Mail)).Trim()
+            if ([string]::IsNullOrWhiteSpace($mail)) {
+                throw "Aktuelle Mail-Adresse konnte für Entra-Objekt '$userId' nicht verifiziert werden."
+            }
+            $storedObjectId = ([string](Get-ComparisonPropertyValue -InputObject $entry.Student -Name EntraObjectId)).Trim()
+            $storedUpn = ([string](Get-ComparisonPropertyValue -InputObject $entry.Student -Name StoredUpn)).Trim()
+            $storedMail = ([string](Get-ComparisonPropertyValue -InputObject $entry.Student -Name StoredMail)).Trim()
+            if ([string]::Equals($storedObjectId, $userId, [StringComparison]::OrdinalIgnoreCase) -and
+                [string]::Equals($storedUpn, $upn, [StringComparison]::OrdinalIgnoreCase) -and
+                [string]::Equals($storedMail, $mail, [StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+            $updates.Add([pscustomobject]@{
+                    RowNumber = [int]$entry.Student.RowNumber
+                    EntraObjectId = $userId
+                    UPN = $upn
+                    Mail = $mail
+                    OriginalPassword = [string](Get-ComparisonPropertyValue -InputObject $entry.Student -Name Password)
+                })
+        } catch {
+            New-StudentActionResult -UserId $userId -Phase WorkbookIdentity -Status Failed -Message $_.Exception.Message `
+                -Secrets $Secrets -RecoveryCommand (Get-StudentRecoveryCommand -File $File)
+        }
+    }
+    if ($updates.Count -eq 0) { return }
+
+    if (-not $PSCmdlet.ShouldProcess($File, 'Persist current Entra identities for matched students')) {
+        foreach ($update in $updates) {
+            New-StudentActionResult -UserId $update.EntraObjectId -UserPrincipalName $update.UPN -Phase WorkbookIdentity `
+                -Status $(if ($WhatIfPreference) { 'WhatIf' } else { 'Skipped' })
+        }
+        return
+    }
+
+    try {
+        $written = Write-StudentWorkbookUpdate -Path $File -Updates @($updates) -ExpectedSourceHash $WorkbookState.SourceHash -Confirm:$false
+        $verified = Read-StudentWorkbook -Path $File
+        if ($verified.SourceHash -cne $written.SourceHash) {
+            throw 'Die Schülerdatei wurde während der Identitätsrückschreibung verändert.'
+        }
+        foreach ($update in $updates) {
+            $rows = @($verified.Students | Where-Object RowNumber -eq $update.RowNumber)
+            if ($rows.Count -ne 1 -or $rows[0].EntraObjectId -ine $update.EntraObjectId -or
+                $rows[0].StoredUpn -ine $update.UPN -or $rows[0].StoredMail -ine $update.Mail -or
+                $rows[0].Password -cne $update.OriginalPassword) {
+                throw "Identitätsrückschreibung konnte für Zeile $($update.RowNumber) nicht verifiziert werden."
+            }
+        }
+        $WorkbookState.SourceHash = $verified.SourceHash
+        foreach ($update in $updates) {
+            New-StudentActionResult -UserId $update.EntraObjectId -UserPrincipalName $update.UPN -Phase WorkbookIdentity -Status Succeeded
+        }
+    } catch {
+        foreach ($update in $updates) {
+            New-StudentActionResult -UserId $update.EntraObjectId -UserPrincipalName $update.UPN -Phase WorkbookIdentity -Status Failed `
+                -Message $_.Exception.Message -Secrets $Secrets -RecoveryCommand (Get-StudentRecoveryCommand -File $File)
+        }
+    }
 }
 
 function Invoke-StudentCreateBatch {
@@ -119,7 +197,7 @@ function Invoke-StudentCreateBatch {
             $groups = Sync-EntraStudentGroup -UserId $userId @groupParameters -CurrentDirectGroups @() -Confirm:$false
             if (-not $groups.Verified) { throw 'Pflichtgruppen wurden nicht verifiziert.' }
             $pending.Add([pscustomobject]@{
-                RowNumber = [int]$entry.Student.RowNumber; Password = $created.Password; EntraObjectId = $userId; UPN = $upn
+                RowNumber = [int]$entry.Student.RowNumber; Password = $created.Password; EntraObjectId = $userId; UPN = $upn; Mail = $upn
                 AttributesVerified = [bool]$attributesVerified; ManagerVerified = [bool]$manager.Verified; GroupsVerified = [bool]$groups.Verified
             })
         } catch {
@@ -141,7 +219,8 @@ function Invoke-StudentCreateBatch {
         # Verify the entire batch before enabling any account.
         foreach ($candidate in $pending) {
             $rows = @($verifiedWorkbook.Students | Where-Object RowNumber -eq $candidate.RowNumber)
-            if ($rows.Count -ne 1 -or $rows[0].EntraObjectId -ne $candidate.EntraObjectId -or $rows[0].StoredUpn -ine $candidate.UPN -or $rows[0].Password -cne $candidate.Password) {
+            if ($rows.Count -ne 1 -or $rows[0].EntraObjectId -ne $candidate.EntraObjectId -or $rows[0].StoredUpn -ine $candidate.UPN -or
+                $rows[0].StoredMail -ine $candidate.Mail -or $rows[0].Password -cne $candidate.Password) {
                 throw "Excel-Verifikation fehlgeschlagen für Zeile $($candidate.RowNumber)."
             }
         }
@@ -192,7 +271,8 @@ function Invoke-StudentUpdate {
             if ($renamesUpn) {
                 $phase = 'WorkbookIdentity'
                 # Persist the stable ID before Graph can partially apply a rename.
-                Save-StudentIdentityCheckpoint -Entry $entry -UserId $userId -UserPrincipalName $upn -File $File -WorkbookState $WorkbookState -Confirm:$false
+                Save-StudentIdentityCheckpoint -Entry $entry -UserId $userId -UserPrincipalName $upn `
+                    -Mail ([string]$entry.User.Mail) -File $File -WorkbookState $WorkbookState -Confirm:$false
             }
             $phase = 'Attributes'
             try {
@@ -203,7 +283,8 @@ function Invoke-StudentUpdate {
                     # Graph may have accepted the rename even when its verification failed.
                     $currentIdentity = Get-EntraStudentCurrentIdentity -UserId $userId
                     $upn = [string]$currentIdentity.UserPrincipalName
-                    Save-StudentIdentityCheckpoint -Entry $entry -UserId $userId -UserPrincipalName $upn -File $File -WorkbookState $WorkbookState -Confirm:$false
+                    Save-StudentIdentityCheckpoint -Entry $entry -UserId $userId -UserPrincipalName $upn `
+                        -Mail ([string]$currentIdentity.Mail) -File $File -WorkbookState $WorkbookState -Confirm:$false
                     $phase = 'Attributes'
                 }
             }

@@ -10,7 +10,7 @@ Der reine Exchange-Modus liest keine Excel-Datei und ändert weder Entra-Benutze
 
 ## Laufzeit und Module
 
-Unterstützt wird PowerShell 7.0 oder neuer auf Windows. Das Modulmanifest fordert mindestens PowerShell 7.0. Die Abnahme erfolgt in einer Windows-Parallels-VM.
+Unterstützt wird PowerShell 7.0 oder neuer auf Windows und macOS. Das Modulmanifest fordert mindestens PowerShell 7.0. Die automatisierte Suite kann auf beiden Plattformen laufen. Windows-spezifisches Dateisperrverhalten und produktive Mandantenschreibläufe werden zusätzlich in einer Windows-Parallels-VM abgenommen.
 
 Die Abhängigkeiten sind nicht auf feste Versionen gepinnt. Installiere aktuelle, vom jeweiligen Hersteller unterstützte Versionen und dokumentiere die tatsächlich getesteten Versionen vor dem produktiven Einsatz.
 
@@ -82,21 +82,22 @@ Vom Skript verwaltete Zusatzspalten:
 | `Passwort` | Nur bei neuen Schülern befüllt, bei bestehenden nie geändert |
 | `EntraObjectId` | Stabile und bevorzugte Identität |
 | `UPN` | Tatsächlich verwendeter UPN |
+| `Mail` | Aktuelle Entra-Mailadresse |
 
 Fehlende Zusatzspalten werden nur bei einer autorisierten Rückschreibung rechts ergänzt. Vollständig leere Zeilen werden ignoriert. Eine teilweise gefüllte Datenzeile führt zum Abbruch.
 
 So darf die Tabelle beispielsweise aussehen:
 
-| Name mit Rufname | Vorname | Nachname | Klassen | Klassenlehrer | Passwort | EntraObjectId | UPN |
-|---|---|---|---|---|---|---|---|
-| Muster, Mia | Mia | Muster | JK1-3g2_1 | Lea Lehrerin | | | |
-| Beispiel, Ömer | Ömer | Beispiel | JK4-6m2_4 | lehrer@monteaufkirchen.com | | | |
+| Name mit Rufname | Vorname | Nachname | Klassen | Klassenlehrer | Passwort | EntraObjectId | UPN | Mail |
+|---|---|---|---|---|---|---|---|---|
+| Muster, Mia | Mia | Muster | JK1-3g2_1 | Lea Lehrerin | | | | |
+| Beispiel, Ömer | Ömer | Beispiel | JK4-6m2_4 | lehrer@monteaufkirchen.com | | | | |
 
-Für jede nicht vollständig leere Datenzeile müssen alle fünf Pflichtfelder gefüllt sein. `Klassenlehrer` enthält entweder den exakten Entra-DisplayName oder die exakte Mail-Adresse beziehungsweise den UPN der Lehrkraft. `Passwort`, `EntraObjectId` und `UPN` sind optional. Lasse sie für neue Schüler leer. Ändere vorhandene Werte in diesen drei verwalteten Spalten nicht manuell während eines Laufs.
+Für jede nicht vollständig leere Datenzeile müssen alle fünf Pflichtfelder gefüllt sein. `Klassenlehrer` enthält entweder den exakten Entra-DisplayName oder die exakte Mail-Adresse beziehungsweise den UPN der Lehrkraft. `Passwort`, `EntraObjectId`, `UPN` und `Mail` sind optional. Lasse sie für neue Schüler leer. Die Schule muss keinen UPN liefern. Ohne gespeicherte Identität erfolgt die Zuordnung über den eindeutigen Rufnamen aus `Vorname` und `Nachname` innerhalb der Schüler-Rollengruppe. Ändere vorhandene Werte in den verwalteten Spalten nicht manuell während eines Laufs.
 
 ### Git- und Dateischutz
 
-Die Root-`.gitignore` enthält `/*.xlsx` und zusätzlich `*.[xX][lL][sS][xX]` für Root und Unterordner, unabhängig von der Großschreibung der Dateiendung. Nur `tests/fixtures/Schueler-Testdaten.xlsx` ist als synthetische Fixture ausgenommen. Sicherungen und temporäre XLSX-Dateien bleiben durch zusätzliche Muster ausgeschlossen.
+Die Root-`.gitignore` enthält `/*.xlsx` und zusätzlich `*.[xX][lL][sS][xX]` für Root und Unterordner, unabhängig von der Großschreibung der Dateiendung. Nur `tests/fixtures/Schueler-Testdaten.xlsx` ist als synthetische Fixture ausgenommen. Sicherungen und temporäre XLSX-Dateien bleiben durch zusätzliche Muster ausgeschlossen. Der empfohlene Ordner `Berichte` und der häufig verwendete Rootbericht `output.txt` sind ebenfalls ausgeschlossen.
 
 Vor einer Rückschreibung prüft das Skript die Schreibbarkeit und eine exklusive Dateisperre. Innerhalb eines Git-Worktrees müssen die Quelldatei, der konkret gewählte Sicherungspfad und der temporäre Zielpfad jeweils ignoriert und unverfolgt sein. Alle drei Prüfungen erfolgen vor der ersten vertraulichen Kopie. Eine Ignore-Regel nur für die Quelle reicht nicht aus, auch in einem fremden Repository mit eigener `.gitignore`. Das gilt ebenso für eine mit `-File` gewählte Datei in einem Unterordner. Dateien außerhalb eines Git-Repositories benötigen diese Git-Prüfung nicht, müssen aber sicher gespeichert werden.
 
@@ -308,7 +309,7 @@ Bestehende Entra-Benutzer behalten ihren aktuellen UPN auch dann, wenn sich Vorn
 3. Attribute schreiben und lesen
 4. Manager setzen und lesen
 5. Lizenz-, Rollen- und Klassengruppe hinzufügen und lesen
-6. `Passwort`, `EntraObjectId` und tatsächlichen `UPN` in die geschützte Arbeitsmappe schreiben und lesen
+6. `Passwort`, `EntraObjectId`, tatsächlichen `UPN` und `Mail` in die geschützte Arbeitsmappe schreiben und lesen
 7. Benutzer aktivieren und Aktivierung lesen
 8. Postfach gesammelt abwarten und konfigurieren
 
@@ -404,7 +405,7 @@ Ausführliche Ablaufbeispiele stehen in [BETRIEB.md](BETRIEB.md).
 - Keine automatische Korrektur dynamischer oder geerbter Gruppen
 - Kein tenantweiter Rollback nach bereits erfolgreichen Einzelaktionen
 - `legalAgeGroupClassification` ist schreibgeschützt und wird nur validiert
-- Die produktive Freigabe erfordert die Windows- und Mandantentests aus [TESTING.md](TESTING.md)
+- Produktive Schreibläufe erfordern die kontrollierten Windows- und Mandantentests aus [TESTING.md](TESTING.md)
 
 ## Primärquellen
 

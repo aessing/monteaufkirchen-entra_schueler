@@ -194,7 +194,7 @@ Describe 'Stable student identity and directory comparison' {
                 $objectWinner = New-TestUser -Id object-id-wins -UserPrincipalName object@monteaufkirchen.com
                 $storedWinner = New-TestUser -Id stored-upn-loses -UserPrincipalName stored@monteaufkirchen.com
                 $nameWinner = New-TestUser -Id name-loses -UserPrincipalName name@monteaufkirchen.com
-                $snapshot = New-TestSnapshot -Users @($objectWinner, $storedWinner, $nameWinner) -RoleMemberIds @('name-loses')
+                $snapshot = New-TestSnapshot -Users @($objectWinner, $storedWinner, $nameWinner) -RoleMemberIds @('object-id-wins', 'name-loses')
                 $student = New-TestStudent -EntraObjectId object-id-wins -StoredUpn stored@monteaufkirchen.com
 
                 $match = Resolve-StudentIdentity -Student $student -Snapshot $snapshot
@@ -206,13 +206,31 @@ Describe 'Stable student identity and directory comparison' {
 
             It 'uses stored UPN when no object ID exists' {
                 $storedWinner = New-TestUser -Id stored-upn-wins -UserPrincipalName stored@monteaufkirchen.com
-                $snapshot = New-TestSnapshot -Users @($storedWinner) -RoleMemberIds @()
+                $snapshot = New-TestSnapshot -Users @($storedWinner) -RoleMemberIds @('stored-upn-wins')
                 $student = New-TestStudent -StoredUpn ' STORED@MONTEAUFKIRCHEN.COM '
 
                 $match = Resolve-StudentIdentity -Student $student -Snapshot $snapshot
 
                 $match.Method | Should -Be 'StoredUpn'
                 $match.User.Id | Should -Be 'stored-upn-wins'
+            }
+
+            It 'rejects an object ID that belongs to a user outside the student role group' {
+                $outsideUser = New-TestUser -Id outside-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($outsideUser) -RoleMemberIds @()
+                $student = New-TestStudent -EntraObjectId outside-id
+
+                { Resolve-StudentIdentity -Student $student -Snapshot $snapshot } |
+                    Should -Throw '*EntraObjectId*außerhalb der Schüler-Rollengruppe*'
+            }
+
+            It 'rejects a stored UPN that belongs to a user outside the student role group' {
+                $outsideUser = New-TestUser -Id outside-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($outsideUser) -RoleMemberIds @()
+                $student = New-TestStudent -StoredUpn lea@monteaufkirchen.com
+
+                { Resolve-StudentIdentity -Student $student -Snapshot $snapshot } |
+                    Should -Throw '*StoredUpn*außerhalb der Schüler-Rollengruppe*'
             }
 
             It 'uses a unique normalized name only inside the student role group' {

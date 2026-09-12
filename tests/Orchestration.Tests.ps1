@@ -1,5 +1,19 @@
 BeforeDiscovery {
+    if ($null -eq (Get-Command Get-MgUser -ErrorAction SilentlyContinue)) {
+        function global:Get-MgUser {
+            param([string] $UserId, [string[]] $Property)
+            throw 'Test stub must be mocked.'
+        }
+        $global:OrchestrationCreatedMgUserStub = $true
+    }
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
+}
+
+AfterAll {
+    if ($global:OrchestrationCreatedMgUserStub) {
+        Remove-Item Function:\Get-MgUser -ErrorAction SilentlyContinue
+        Remove-Variable OrchestrationCreatedMgUserStub -Scope Global -ErrorAction SilentlyContinue
+    }
 }
 
 Describe 'Public orchestration' {
@@ -8,8 +22,8 @@ Describe 'Public orchestration' {
             function New-TestEntry([string] $Id, [int] $Row = 2) {
                 [pscustomobject]@{
                     Student = [pscustomobject]@{ RowNumber = $Row; NameMitRufname = "Test $Row"; ClassName = 'JK1-3g2_1'; Password = 'NeverReport12' }
-                    User = if ($Id) { [pscustomobject]@{ Id = $Id; UserPrincipalName = "$Id@monteaufkirchen.com"; DisplayName = "Test $Row"; AccountEnabled = $true } } else { $null }
-                    DesiredState = [pscustomobject]@{ UserPrincipalName = "test$Row@monteaufkirchen.com"; DisplayName = "Test $Row"; Department = 'JK1-3g2_1'; ManagerId = 'teacher'; RequiredGroupNames = @('role', 'license', 'class') }
+                    User = if ($Id) { [pscustomobject]@{ Id = $Id; UserPrincipalName = "$Id@monteaufkirchen.com"; Mail = "$Id@monteaufkirchen.com"; DisplayName = "Test $Row"; AccountEnabled = $true } } else { $null }
+                    DesiredState = [pscustomobject]@{ UserPrincipalName = "test$Row@monteaufkirchen.com"; Mail = "test$Row@monteaufkirchen.com"; DisplayName = "Test $Row"; Department = 'JK1-3g2_1'; ManagerId = 'teacher'; RequiredGroupNames = @('role', 'license', 'class') }
                     Differences = @()
                 }
             }
@@ -25,7 +39,7 @@ Describe 'Public orchestration' {
             Mock Assert-WorkbookSafeForPasswordWrite { return }
             Mock Connect-SchuelerGraph { [pscustomobject]@{ TenantId = 'test-tenant'; Account = 'admin@test.invalid' } }
             Mock Get-EntraSnapshot { [pscustomobject]@{} }
-            Mock Get-EntraStudentCurrentIdentity { [pscustomobject]@{ Id = $UserId; UserPrincipalName = "$UserId@monteaufkirchen.com" } }
+            Mock Get-EntraStudentCurrentIdentity { [pscustomobject]@{ Id = $UserId; UserPrincipalName = "$UserId@monteaufkirchen.com"; Mail = "$UserId@monteaufkirchen.com" } }
             Mock Connect-SchuelerExchangeOnline { return }
             Mock Get-ExchangeRecipientAddress { [pscustomobject]@{ AddressOwners = @{} } }
             Mock Compare-StudentDirectory { $script:comparison }
@@ -110,6 +124,40 @@ Describe 'Public orchestration' {
             Should -Invoke Wait-StudentMailbox -ParameterFilter { $UserPrincipalName.Count -eq 1 -and $UserPrincipalName[0] -eq 'changed@monteaufkirchen.com' }
             Should -Invoke Invoke-StudentCreateBatch -Times 0
         }
+        It 'backfills current Entra ID, UPN and mail for all matched students during UpdateUsers' {
+            Mock Get-EntraStudentCurrentIdentity {
+                [pscustomobject]@{
+                    Id = $UserId
+                    UserPrincipalName = if ($UserId -eq 'changed') { 'manual.changed@monteaufkirchen.com' } else { 'existing@monteaufkirchen.com' }
+                    Mail = if ($UserId -eq 'changed') { 'manual.changed@monteaufkirchen.com' } else { 'existing@monteaufkirchen.com' }
+                }
+            }
+            Mock Write-StudentWorkbookUpdate { [pscustomobject]@{ SourceHash = 'backfilled-version' } }
+
+            Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -UpdateUsers -Confirm:$false | Out-Null
+
+            Should -Invoke Assert-WorkbookSafeForPasswordWrite -Times 1 -Exactly
+            Should -Invoke Write-StudentWorkbookUpdate -Times 1 -Exactly -ParameterFilter {
+                $Updates.Count -eq 2 -and
+                @($Updates | Where-Object { $_.RowNumber -eq 3 -and $_.EntraObjectId -eq 'changed' -and $_.UPN -eq 'manual.changed@monteaufkirchen.com' -and $_.Mail -eq 'manual.changed@monteaufkirchen.com' }).Count -eq 1 -and
+                @($Updates | Where-Object { $_.RowNumber -eq 4 -and $_.EntraObjectId -eq 'existing' -and $_.UPN -eq 'existing@monteaufkirchen.com' -and $_.Mail -eq 'existing@monteaufkirchen.com' }).Count -eq 1
+            }
+        }
+        It 'does not rewrite Excel when stored identities already match Entra' {
+            $existing = New-TestEntry 'existing' 4
+            $existing.Student | Add-Member -NotePropertyName EntraObjectId -NotePropertyValue 'existing'
+            $existing.Student | Add-Member -NotePropertyName StoredUpn -NotePropertyValue 'existing@monteaufkirchen.com'
+            $existing.Student | Add-Member -NotePropertyName StoredMail -NotePropertyValue 'existing@monteaufkirchen.com'
+            $script:comparison = [pscustomobject]@{
+                NewStudents = @(); ChangedStudents = @(); ExistingStudents = @($existing); Departures = @()
+                Warnings = @(); Errors = @()
+            }
+            Mock Write-StudentWorkbookUpdate { [pscustomobject]@{ SourceHash = 'unexpected-version' } }
+
+            Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -UpdateUsers -Confirm:$false | Out-Null
+
+            Should -Invoke Write-StudentWorkbookUpdate -Times 0 -Exactly
+        }
         It 'uses the reread UPN for full Exchange after a partial rename failure' {
             Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Manager -Status Failed }
             Mock Get-EntraStudentCurrentIdentity { [pscustomobject]@{ Id = $UserId; UserPrincipalName = 'renamed@monteaufkirchen.com' } } -ParameterFilter { $UserId -eq 'changed' }
@@ -122,6 +170,17 @@ Describe 'Public orchestration' {
             Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'renamed@monteaufkirchen.com' -Phase Manager -Status Failed }
             Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -UpdateUsers -Confirm:$false | Out-Null
             Should -Invoke Wait-StudentMailbox -Times 0
+        }
+        It 'backfills resolved identities even when an unrelated student update phase fails' {
+            Mock Invoke-StudentUpdate { New-StudentActionResult -UserId 'changed' -UserPrincipalName 'changed@monteaufkirchen.com' -Phase Manager -Status Failed }
+            Mock Write-StudentWorkbookUpdate { [pscustomobject]@{ SourceHash = 'backfilled-version' } }
+
+            Invoke-SchuelerSync -File 'synthetic.xlsx' -Update -UpdateUsers -Confirm:$false | Out-Null
+
+            Should -Invoke Write-StudentWorkbookUpdate -Times 1 -Exactly -ParameterFilter {
+                $Updates.Count -eq 2 -and
+                @($Updates.EntraObjectId | Sort-Object) -join ',' -eq 'changed,existing'
+            }
         }
         It 'checks rename workbook writeability before any Graph or Exchange write' {
             $script:comparison.ChangedStudents[0].Differences = @([pscustomobject]@{ Area = 'Entra'; Field = 'UserPrincipalName'; Action = 'Set' })
@@ -287,7 +346,7 @@ Describe 'Fail-safe new account batching' {
         BeforeEach {
             $script:events = [Collections.Generic.List[string]]::new()
             $script:stored = @()
-            $script:desired = [pscustomobject]@{ UserPrincipalName = 'new@monteaufkirchen.com'; DisplayName = 'New Test'; ManagerId = 'teacher'; RequiredGroupNames = @('role', 'license', 'class') }
+            $script:desired = [pscustomobject]@{ UserPrincipalName = 'new@monteaufkirchen.com'; Mail = 'new@monteaufkirchen.com'; DisplayName = 'New Test'; ManagerId = 'teacher'; RequiredGroupNames = @('role', 'license', 'class') }
             $script:entry = [pscustomobject]@{ Student = [pscustomobject]@{ RowNumber = 2 }; DesiredState = $script:desired }
             $script:snapshot = [pscustomobject]@{ GroupsByDisplayName = @{ role = 'role'; license = 'license'; class = 'class' } }
             $script:config = @{ RoleGroupPrefix = 'role'; ClassGroupPrefix = 'class' }
@@ -300,7 +359,7 @@ Describe 'Fail-safe new account batching' {
             Mock Sync-EntraStudentGroup { $script:events.Add('groups'); [pscustomobject]@{ Verified = $true } }
             Mock Write-StudentWorkbookUpdate {
                 $script:events.Add('excel-write')
-                $script:stored = @($Updates | ForEach-Object { [pscustomobject]@{ RowNumber = $_.RowNumber; EntraObjectId = $_.EntraObjectId; StoredUpn = $_.UPN; Password = $_.Password } })
+                $script:stored = @($Updates | ForEach-Object { [pscustomobject]@{ RowNumber = $_.RowNumber; EntraObjectId = $_.EntraObjectId; StoredUpn = $_.UPN; StoredMail = $_.Mail; Password = $_.Password } })
                 [pscustomobject]@{ SourceHash = 'saved-version' }
             }
             Mock Read-StudentWorkbook { $script:events.Add('excel-read'); [pscustomobject]@{ Students = $script:stored; SourceHash = 'saved-version' } }
@@ -375,6 +434,47 @@ Describe 'Existing students and departures' {
             Should -Invoke Sync-EntraStudentGroup -Times 0
             Should -Invoke New-StudentPassword -Times 0
             Should -Invoke Write-StudentWorkbookUpdate -Times 0
+        }
+        It 'reads the current UPN and mail used for workbook identity backfill' {
+            Mock Get-MgUser {
+                [pscustomobject]@{
+                    Id = 'existing'
+                    UserPrincipalName = 'manual@monteaufkirchen.com'
+                    Mail = if ($Property -contains 'mail') { 'manual@monteaufkirchen.com' } else { $null }
+                }
+            }
+
+            $identity = Get-EntraStudentCurrentIdentity -UserId 'existing'
+
+            $identity.UserPrincipalName | Should -Be 'manual@monteaufkirchen.com'
+            $identity.Mail | Should -Be 'manual@monteaufkirchen.com'
+        }
+        It 'rejects identity backfill success when the installed workbook does not preserve the row password' {
+            $entry = [pscustomobject]@{
+                Student = [pscustomobject]@{
+                    RowNumber = 2; Password = 'TigerWiese56'; EntraObjectId = ''; StoredUpn = ''; StoredMail = ''
+                }
+                User = [pscustomobject]@{ Id = 'existing' }
+            }
+            $workbookState = [pscustomobject]@{ SourceHash = 'original-version' }
+            Mock Get-EntraStudentCurrentIdentity {
+                [pscustomobject]@{ Id = 'existing'; UserPrincipalName = 'manual@monteaufkirchen.com'; Mail = 'mail@monteaufkirchen.com' }
+            }
+            Mock Write-StudentWorkbookUpdate { [pscustomobject]@{ SourceHash = 'saved-version' } }
+            Mock Read-StudentWorkbook {
+                [pscustomobject]@{
+                    SourceHash = 'saved-version'
+                    Students = @([pscustomobject]@{
+                            RowNumber = 2; Password = 'ChangedValue12'; EntraObjectId = 'existing'
+                            StoredUpn = 'manual@monteaufkirchen.com'; StoredMail = 'mail@monteaufkirchen.com'
+                        })
+                }
+            }
+
+            $result = @(Save-StudentWorkbookIdentityBatch -Entries @($entry) -File 'synthetic.xlsx' -WorkbookState $workbookState -Confirm:$false)
+
+            $result.Status | Should -Be Failed
+            $workbookState.SourceHash | Should -Be 'original-version'
         }
         It 'still revokes after a failed disable and records each outcome separately' {
             $result = @(Invoke-StudentDeparture -Entries @($script:entry) -DisableUsers -RevokeSessions -File 'synthetic.xlsx' -Confirm:$false)
