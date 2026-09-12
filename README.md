@@ -2,7 +2,7 @@
 
 # Entra-Schülersynchronisation
 
-Aktuelle Version: **0.1.0**
+Aktuelle Version: **0.1.1**
 
 Dieses PowerShell-Tool vergleicht eine Excel-Schülerliste mit Microsoft Entra ID und Exchange Online. Der Standardlauf ist rein lesend. Änderungen benötigen ausdrücklich `-Update`, `-Add`, `-Remove` oder den getrennten Exchange-Reparaturmodus.
 
@@ -92,7 +92,7 @@ Einen einzelnen Schüler kannst du ohne Excel-Datei anlegen oder aktualisieren:
 .\Sync-SchuelerEntra.ps1 -Add -Vorname 'Mia' -Nachname 'Muster' -Klasse 'JK1-3g2_1' -Klassenlehrer 'Lea Lehrerin'
 ```
 
-Ist der Schüler bereits eindeutig in der Schüler-Rollengruppe vorhanden, aktualisiert das Skript seine abweichenden Daten. Ein deaktiviertes Bestandskonto wird erst nach erfolgreicher Prüfung des Pflichtzustands aktiviert. Nur bei einer echten Neuanlage entsteht ein Passwort. Es wird genau einmal im Terminal angezeigt, nicht in Excel und nicht in `-OutputFile`. Bei einem Teilfehler enthält das Ergebnis die Objekt-ID und einen sicheren Wiederanlaufbefehl.
+Ist der Schüler bereits eindeutig in der Schüler-Rollengruppe vorhanden, aktualisiert das Skript seine abweichenden Daten. Ein deaktiviertes Bestandskonto wird erst nach erfolgreicher Prüfung des Pflichtzustands aktiviert. Nur bei einer echten Neuanlage entsteht ein Passwort. Es wird genau einmal im Terminal angezeigt, nicht in Excel und nicht in `-OutputFile`. Bei einem Teilfehler enthält das Ergebnis die Objekt-ID und einen sicheren Wiederanlaufbefehl. Dieser `-Add -EntraObjectId`-Wiederanlauf funktioniert auch dann, wenn die Schüler-Rollengruppe vor dem Fehler noch nicht gesetzt werden konnte. Unmittelbar vor jeder Mutationsphase liest das Skript das Konto erneut aus Graph. Name, Firma und Mitarbeitertyp müssen weiterhin exakt zum angegebenen Schüler passen.
 
 Einen einzelnen Schüler deaktivierst du per UPN. Dabei werden zusätzlich alle Sitzungen widerrufen. Der Benutzer wird nicht gelöscht und seine Gruppen oder Lizenzen bleiben erhalten:
 

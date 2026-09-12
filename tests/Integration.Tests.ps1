@@ -1,3 +1,7 @@
+BeforeDiscovery {
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
+}
+
 BeforeAll {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $global:IntegrationStubCommands = [Collections.Generic.List[string]]::new()
@@ -548,6 +552,167 @@ Describe 'Stateful student synchronization' {
         Should -Invoke Write-StudentWorkbookUpdate -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Set-StudentMailboxConfiguration -ModuleName SchuelerSync -Times 0 -Exactly
         Should -Invoke Start-Sleep -ModuleName SchuelerSync -Times 0 -Exactly
+    }
+}
+
+Describe 'Manual recovery through real comparison and mutation orchestration' {
+    InModuleScope SchuelerSync {
+        BeforeEach {
+            $script:recoveryConfig = @{
+                Domain = 'monteaufkirchen.com'
+                CompanyName = 'Montessori Schule Aufkirchen'
+                EmployeeType = 'Schüler'
+                AgeGroup = 'Minor'
+                ConsentProvidedForMinor = 'Granted'
+                LegalAgeGroupClassification = 'MinorWithParentalConsent'
+                UsageLocation = 'DE'
+                StudentRoleGroup = @{
+                    Name = 'SEC-A-ROL-Schule_Schüler'
+                    Id = 'cebc1326-1174-4126-ba84-7a8960850e0a'
+                }
+                LicenseGroupName = 'SEC-A-LIC-O365A1Student'
+                RoleGroupPrefix = 'SEC-A-ROL-'
+                ClassGroupPrefix = 'SEC-A-CLS-'
+            }
+            $script:recoveryUserId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+            $script:recoveryTeacherId = '11111111-2222-3333-4444-555555555555'
+            $users = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+            $users[$script:recoveryUserId] = New-IntegrationUser -Id $script:recoveryUserId -GivenName Mia -Surname Muster `
+                -UserPrincipalName mmuster@monteaufkirchen.com -Department JK1-3g1_1 -OfficeLocation G1 -AccountEnabled:$false
+            $users[$script:recoveryTeacherId] = New-IntegrationUser -Id $script:recoveryTeacherId -GivenName Lea -Surname Lehrerin `
+                -UserPrincipalName lea.lehrerin@monteaufkirchen.com -EmployeeType 'Pädagogisches Team'
+
+            $groups = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+            $groups[$global:IntegrationGroupIds.StudentRole] = New-IntegrationGroup -Id $global:IntegrationGroupIds.StudentRole -DisplayName 'SEC-A-ROL-Schule_Schüler'
+            $groups[$global:IntegrationGroupIds.License] = New-IntegrationGroup -Id $global:IntegrationGroupIds.License -DisplayName 'SEC-A-LIC-O365A1Student'
+            $groups[$global:IntegrationGroupIds.ClassG2] = New-IntegrationGroup -Id $global:IntegrationGroupIds.ClassG2 -DisplayName 'SEC-A-CLS-JK1-3g2_1'
+
+            $directGroups = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+            $directGroups[$script:recoveryUserId] = @()
+            $directGroups[$script:recoveryTeacherId] = @()
+            $managers = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+            $managers[$script:recoveryUserId] = $null
+            $managers[$script:recoveryTeacherId] = $null
+            $global:IntegrationState = @{
+                Users = $users
+                Groups = $groups
+                DirectGroups = $directGroups
+                Managers = $managers
+                Events = [Collections.Generic.List[string]]::new()
+            }
+            $script:recoveryStudent = New-IntegrationStudent -RowNumber 0 -GivenName Mia -Surname Muster `
+                -ClassName JK1-3g2_1 -Teacher 'Lea Lehrerin' -EntraObjectId $script:recoveryUserId
+            $script:recoveryIdentityReads = 0
+            $script:staleAtIdentityRead = 0
+
+            Mock Get-MgUser {
+                $user = $global:IntegrationState.Users[$UserId]
+                if ($null -eq $user) { throw "Unknown user '$UserId'." }
+                if (@($Property) -contains 'companyName' -and @($Property) -contains 'employeeType') {
+                    $script:recoveryIdentityReads++
+                    $global:IntegrationState.Events.Add("identity-read:$($script:recoveryIdentityReads)")
+                    if ($script:staleAtIdentityRead -gt 0 -and $script:recoveryIdentityReads -ge $script:staleAtIdentityRead) {
+                        $copy = $user.PSObject.Copy()
+                        $copy.CompanyName = 'Andere Firma'
+                        return $copy
+                    }
+                }
+                return $user
+            }
+            Mock Update-MgUser {
+                $user = $global:IntegrationState.Users[$UserId]
+                if ($null -ne $BodyParameter) {
+                    $fields = if ($BodyParameter -is [Collections.IDictionary]) {
+                        @($BodyParameter.Keys)
+                    } else {
+                        @($BodyParameter.PSObject.Properties.Name)
+                    }
+                    foreach ($field in $fields) {
+                        $value = if ($BodyParameter -is [Collections.IDictionary]) { $BodyParameter[$field] } else { $BodyParameter.$field }
+                        if ($null -ne $value -and $null -ne $user.PSObject.Properties[$field] -and $field -ne 'Id') {
+                            $user.$field = $value
+                        }
+                    }
+                    $global:IntegrationState.Events.Add("attributes-set:$UserId")
+                }
+                if ($AccountEnabled) {
+                    $user.AccountEnabled = [bool]$AccountEnabled
+                    $global:IntegrationState.Events.Add("enable:$UserId")
+                }
+            }
+            Mock Set-MgUserManagerByRef {
+                $managerId = ([string]$BodyParameter['@odata.id'] -split '/')[-1]
+                $global:IntegrationState.Managers[$UserId] = $managerId
+                $global:IntegrationState.Events.Add("manager-set:$UserId")
+            }
+            Mock Get-MgUserManager {
+                [pscustomobject]@{ Id = $global:IntegrationState.Managers[$UserId] }
+            }
+            Mock New-MgGroupMemberByRef {
+                $userId = ([string]$BodyParameter['@odata.id'] -split '/')[-1]
+                $current = @($global:IntegrationState.DirectGroups[$userId])
+                if ($current -notcontains $GroupId) {
+                    $global:IntegrationState.DirectGroups[$userId] = @($current + $GroupId)
+                }
+                $global:IntegrationState.Events.Add("group-add:${userId}:$GroupId")
+            }
+            Mock Remove-MgGroupMemberDirectoryObjectByRef {
+                throw 'Recovery test must not remove an unrelated group.'
+            }
+            Mock Get-MgUserMemberOfAsGroup {
+                foreach ($groupId in @($global:IntegrationState.DirectGroups[$UserId])) {
+                    $global:IntegrationState.Groups[$groupId]
+                }
+            }
+        }
+
+        It 'recovers an exact disabled object outside the student role and reaches the required state' {
+            $snapshot = New-IntegrationSnapshot
+
+            $comparison = Compare-StudentDirectory -Students @($script:recoveryStudent) -Snapshot $snapshot `
+                -Config $script:recoveryConfig -AllowRecoveryObjectIdOutsideStudentRole
+
+            $comparison.Errors | Should -BeNullOrEmpty
+            $comparison.ChangedStudents | Should -HaveCount 1
+            $result = Invoke-ManualStudentUpdate -Entry $comparison.ChangedStudents[0] -Snapshot $snapshot `
+                -Config $script:recoveryConfig -RecoveryObjectId -Confirm:$false
+
+            $result.Message | Should -BeNullOrEmpty
+            $result.Status | Should -Be 'Succeeded'
+            $global:IntegrationState.Users[$script:recoveryUserId].Department | Should -Be 'JK1-3g2_1'
+            $global:IntegrationState.Users[$script:recoveryUserId].OfficeLocation | Should -Be 'G2'
+            $global:IntegrationState.Managers[$script:recoveryUserId] | Should -Be $script:recoveryTeacherId
+            @($global:IntegrationState.DirectGroups[$script:recoveryUserId]) | Should -Contain $global:IntegrationGroupIds.StudentRole
+            @($global:IntegrationState.DirectGroups[$script:recoveryUserId]) | Should -Contain $global:IntegrationGroupIds.License
+            @($global:IntegrationState.DirectGroups[$script:recoveryUserId]) | Should -Contain $global:IntegrationGroupIds.ClassG2
+            $global:IntegrationState.Users[$script:recoveryUserId].AccountEnabled | Should -BeTrue
+            $script:recoveryIdentityReads | Should -Be 5
+
+            $events = @($global:IntegrationState.Events)
+            [Array]::IndexOf($events, "manager-set:$($script:recoveryUserId)") | Should -BeLessThan `
+                ([Array]::IndexOf($events, "group-add:$($script:recoveryUserId):$($global:IntegrationGroupIds.StudentRole)"))
+            [Array]::IndexOf($events, "group-add:$($script:recoveryUserId):$($global:IntegrationGroupIds.ClassG2)") | Should -BeLessThan `
+                ([Array]::IndexOf($events, "enable:$($script:recoveryUserId)"))
+        }
+
+        It 'fails closed before the next phase when the recovery identity becomes stale' {
+            $snapshot = New-IntegrationSnapshot
+            $comparison = Compare-StudentDirectory -Students @($script:recoveryStudent) -Snapshot $snapshot `
+                -Config $script:recoveryConfig -AllowRecoveryObjectIdOutsideStudentRole
+            $script:staleAtIdentityRead = 3
+
+            $result = Invoke-ManualStudentUpdate -Entry $comparison.ChangedStudents[0] -Snapshot $snapshot `
+                -Config $script:recoveryConfig -RecoveryObjectId -Confirm:$false
+
+            $result.Status | Should -Be 'Failed'
+            $result.Phase | Should -Be 'Manager'
+            $global:IntegrationState.Users[$script:recoveryUserId].Department | Should -Be 'JK1-3g2_1'
+            $global:IntegrationState.Managers[$script:recoveryUserId] | Should -BeNullOrEmpty
+            $global:IntegrationState.DirectGroups[$script:recoveryUserId] | Should -BeNullOrEmpty
+            $global:IntegrationState.Users[$script:recoveryUserId].AccountEnabled | Should -BeFalse
+            @($global:IntegrationState.Events | Where-Object { $_ -like 'group-add:*' }) | Should -BeNullOrEmpty
+            @($global:IntegrationState.Events | Where-Object { $_ -like 'enable:*' }) | Should -BeNullOrEmpty
+        }
     }
 }
 

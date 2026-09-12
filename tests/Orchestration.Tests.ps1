@@ -271,7 +271,9 @@ Describe 'Public orchestration' {
                 -Klassenlehrer 'Lea Lehrerin' -EntraObjectId $resumeId -Confirm:$false
 
             $result.HasErrors | Should -BeFalse
-            Should -Invoke Compare-StudentDirectory -ParameterFilter { $Students[0].EntraObjectId -eq $resumeId } -Times 1 -Exactly
+            Should -Invoke Compare-StudentDirectory -ParameterFilter {
+                $Students[0].EntraObjectId -eq $resumeId -and $AllowRecoveryObjectIdOutsideStudentRole
+            } -Times 1 -Exactly
             Should -Invoke Invoke-ManualStudentUpdate -Times 1 -Exactly
             Should -Invoke Invoke-ManualStudentAdd -Times 0 -Exactly
         }
