@@ -66,3 +66,20 @@ $RECYCLE.BIN/
 
 # .nfs files are created when an open file is removed but is still being accessed
 .nfs*
+
+# ----------------------- Local worktrees ------------------------ #
+.worktrees/
+
+# ---------------------- Schüler-Importdaten ---------------------- #
+# Contains personal data and generated initial passwords.
+/*.xlsx
+# Custom workbooks can also live in subdirectories or use uppercase extensions.
+*.[xX][lL][sS][xX]
+!tests/fixtures/Schueler-Testdaten.xlsx
+# Recommended destination for reports containing personal student data.
+/Berichte/
+# Common root-level report name used during manual comparisons.
+/output.txt
+# Never allow generated confidential artifacts to inherit a fixture exception.
+*.backup-*.[xX][lL][sS][xX]
+.*.tmp.[xX][lL][sS][xX]
