@@ -192,6 +192,8 @@ Eine Excel-Zeile wird in dieser Reihenfolge zugeordnet:
 
 Vor einer Neuanlage prüft das Skript zusätzlich das gesamte Entra-Benutzerverzeichnis. Ein möglicher Treffer außerhalb der Schüler-Rollengruppe wird als Konflikt gemeldet und nicht automatisch zum Schüler umgewidmet. Mehrere mögliche Treffer blockieren alle Mutationen und insbesondere die Deaktivierung vermeintlicher Abgänge.
 
+Die einzige Ausnahme ist ein ausdrücklicher manueller Wiederanlauf mit `-Add -EntraObjectId`. Er darf das exakt bezeichnete, teilweise angelegte Konto auch dann auflösen, wenn die Schüler-Rollengruppe noch fehlt. Unmittelbar vor jeder Mutationsphase wird das Konto erneut aus Graph gelesen. Normalisierter Vor- und Nachname, `CompanyName` und `EmployeeType` müssen weiterhin zum angegebenen Schüler passen. Excel-Abgleich, gespeicherter UPN und Namenssuche erhalten diese Ausnahme nicht.
+
 Eine gespeicherte Objekt-ID ist die stabile Identität. Dadurch bleibt ein Schüler bei einer späteren Änderung des Vor- oder Nachnamens zuordenbar.
 
 ## UPN- und Mail-Algorithmus

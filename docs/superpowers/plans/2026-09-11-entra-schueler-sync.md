@@ -646,6 +646,8 @@ Run `Invoke-Pester tests/Comparison.Tests.ps1 -Output Detailed`. Expected: FAIL 
 
 Return `Method`, `User` and `Warnings`. Never fall through from a present but invalid object ID or UPN to a weaker match. `Compare-StudentDirectory` detects collisions before category construction and suppresses destructive actions whenever ownership is ambiguous.
 
+The only opt-in exception is the manual `-Add -EntraObjectId` recovery path. It may resolve the exact partially created object before role membership exists, but orchestration must verify normalized given name and surname, `CompanyName` and `EmployeeType` before any mutation. Workbook matching, stored UPN matching and name matching never receive this exception.
+
 - [ ] **Step 5: Implement desired state and explicit differences**
 
 `New-StudentDesiredState` creates:

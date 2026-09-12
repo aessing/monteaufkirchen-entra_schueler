@@ -19,10 +19,14 @@ Describe 'Manual update of an existing student' {
                 )
             }
             $script:updateSnapshot = [pscustomobject]@{ GroupsByDisplayName = @{ role = 'role'; license = 'license'; class = 'class' } }
-            $script:updateConfig = @{ RoleGroupPrefix = 'SEC-A-ROL-'; ClassGroupPrefix = 'SEC-A-CLS-' }
+            $script:updateConfig = @{
+                RoleGroupPrefix = 'SEC-A-ROL-'; ClassGroupPrefix = 'SEC-A-CLS-'
+                CompanyName = 'Montessori Schule Aufkirchen'; EmployeeType = 'Schüler'
+            }
             Mock Set-EntraStudentAttribute { [pscustomobject]@{ Verified = $true } }
             Mock Set-EntraStudentManager { [pscustomobject]@{ Verified = $true } }
             Mock Sync-EntraStudentGroup { [pscustomobject]@{ Verified = $true } }
+            Mock Enable-EntraStudent { [pscustomobject]@{ Verified = $true } }
             Mock Get-UserManagerId { 'old-teacher' }
             Mock Get-UserDirectGroup { @() }
             Mock New-StudentPassword { throw 'Existing users must not receive a password.' }
@@ -60,6 +64,37 @@ Describe 'Manual update of an existing student' {
 
             $result[0].Status | Should -Be 'Failed'
             $result[0].RecoveryCommand | Should -Match ([regex]::Escape("-EntraObjectId 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'"))
+        }
+
+        It 'stops a recovery before the next mutation when the live identity changes between phases' {
+            $script:updateEntry.Student = [pscustomobject]@{
+                RowNumber = 0; NameMitRufname = 'Muster, Mia'; GivenName = 'Mia'; Surname = 'Muster'
+                ClassName = 'JK1-3g2_1'; Teacher = 'Lea Lehrerin'
+            }
+            $script:updateEntry.User = [pscustomobject]@{
+                Id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'; UserPrincipalName = 'mmuster@monteaufkirchen.com'
+                GivenName = 'Mia'; Surname = 'Muster'; CompanyName = 'Montessori Schule Aufkirchen'
+                EmployeeType = 'Schüler'; AccountEnabled = $false
+            }
+            $script:recoveryReadCount = 0
+            Mock Get-MgUser {
+                $script:recoveryReadCount++
+                [pscustomobject]@{
+                    Id = $UserId; GivenName = 'Mia'; Surname = 'Muster'
+                    CompanyName = if ($script:recoveryReadCount -lt 3) { 'Montessori Schule Aufkirchen' } else { 'Andere Firma' }
+                    EmployeeType = 'Schüler'
+                }
+            }
+
+            $result = @(Invoke-ManualStudentUpdate -Entry $script:updateEntry -Snapshot $script:updateSnapshot `
+                    -Config $script:updateConfig -RecoveryObjectId -Confirm:$false)
+
+            $result[0].Status | Should -Be 'Failed'
+            $result[0].Phase | Should -Be 'Manager'
+            Should -Invoke Set-EntraStudentAttribute -Times 1 -Exactly
+            Should -Invoke Set-EntraStudentManager -Times 0 -Exactly
+            Should -Invoke Sync-EntraStudentGroup -Times 0 -Exactly
+            Should -Invoke Enable-EntraStudent -Times 0 -Exactly
         }
     }
 }

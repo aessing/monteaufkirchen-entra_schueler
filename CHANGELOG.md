@@ -6,6 +6,14 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-12
+
+### Fixed
+
+- Der ausdrückliche Wiederanlauf mit `-Add -EntraObjectId` erreicht ein teilweise angelegtes, noch nicht der Schüler-Rollengruppe zugeordnetes Konto wieder.
+- Der Wiederanlauf liest das Ziel unmittelbar vor jeder Mutationsphase erneut aus Graph und prüft die exakte Objekt-ID, den normalisierten Vor- und Nachnamen, `CompanyName` und `EmployeeType`.
+- Der normale Excel- und Namensabgleich blockiert unverändert alle Konten außerhalb der direkten Schüler-Rollengruppe.
+
 ## [0.1.0] - 2026-09-12
 
 ### Added
@@ -37,5 +45,6 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 - Passwörter werden nicht in Berichte, Ergebnisobjekte oder `-OutputFile` geschrieben
 - Abgänge werden deaktiviert und Sitzungen widerrufen, Benutzerkonten, Gruppen und Lizenzen werden nicht gelöscht
 
-[Unreleased]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/releases/tag/v0.1.0

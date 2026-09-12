@@ -1,6 +1,6 @@
 # Abnahmestand und VM-Protokoll
 
-Stand der Release-Prüfung: 12. September 2026 auf `codex/entra-schueler-sync` vor dem Merge für `v0.1.0`.
+Stand der Release-Prüfung: 12. September 2026 auf `codex/v0.1.1-recovery-fix` vor dem Merge für `v0.1.1`.
 
 Die automatisierten PowerShell-Prüfungen wurden auf macOS erfolgreich ausgeführt. Ein lesender Lauf gegen den vorgesehenen Mandanten wurde vom Betreiber durchgeführt und lieferte die erwarteten Vergleichstabellen. Produktive Schreibaktionen wurden im Rahmen dieser lokalen Prüfung nicht unabhängig ausgeführt oder bestätigt. Die kontrollierte Windows- und Mandantenabnahme bleibt deshalb getrennt dokumentiert.
 
@@ -9,10 +9,11 @@ Die automatisierten PowerShell-Prüfungen wurden auf macOS erfolgreich ausgefüh
 | Prüfung | Ergebnis |
 |---|---|
 | PowerShell | PowerShell 7.6.6 auf macOS |
-| Pester | 223 Tests erkannt, 222 bestanden, 0 fehlgeschlagen, 1 Windows-spezifischer Test übersprungen |
+| Pester | 228 Tests erkannt, 227 bestanden, 0 fehlgeschlagen, 1 Windows-spezifischer Test übersprungen |
 | PSScriptAnalyzer | Keine Befunde für Einstiegsskript und Modul mit `PSScriptAnalyzerSettings.psd1` |
 | Nativer PowerShell-Parser | 29 versionierte `.ps1`-, `.psm1`- und `.psd1`-Dateien ohne Parserfehler |
-| `Test-ModuleManifest` | Erfolgreich, Modulversion `0.1.0`, PowerShell-Mindestversion `7.0` |
+| `Test-ModuleManifest` | Erfolgreich, Modulversion `0.1.1`, PowerShell-Mindestversion `7.0` |
+| Manueller Wiederanlauf | Unit- und Integrationstests bestätigen `-Add -EntraObjectId` für ein passendes, noch nicht gruppiertes Teilkonto sowie die erneute Graph-Prüfung vor jeder Mutationsphase. Normaler Abgleich, Fremdkonten und ein zwischenzeitlich verändertes Konto bleiben blockiert |
 | `git diff --check` | Keine Whitespace-Fehler |
 | `git check-ignore -v Schueler.xlsx` und synthetische Zielpfade | XLSX-Regeln greifen im Root und in Unterordnern, auch für Sicherungen, temporäre Kopien und Großschreibung der Endung |
 | `git ls-files '*.xlsx'` | Ausschließlich `tests/fixtures/Schueler-Testdaten.xlsx` verfolgt |

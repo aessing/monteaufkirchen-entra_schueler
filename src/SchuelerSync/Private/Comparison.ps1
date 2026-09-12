@@ -55,7 +55,8 @@ function Resolve-StudentIdentity {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object] $Student,
-        [Parameter(Mandatory)][object] $Snapshot
+        [Parameter(Mandatory)][object] $Snapshot,
+        [switch] $AllowRecoveryObjectIdOutsideStudentRole
     )
 
     $objectId = ([string](Get-ComparisonPropertyValue -InputObject $Student -Name EntraObjectId)).Trim()
@@ -65,7 +66,7 @@ function Resolve-StudentIdentity {
             throw "EntraObjectId '$objectId' verweist auf keinen vorhandenen Entra-Benutzer."
         }
         $resolvedUserId = ([string](Get-ComparisonPropertyValue -InputObject $user -Name Id)).Trim()
-        if (-not $Snapshot.StudentRoleMemberIds.Contains($resolvedUserId)) {
+        if (-not $AllowRecoveryObjectIdOutsideStudentRole -and -not $Snapshot.StudentRoleMemberIds.Contains($resolvedUserId)) {
             throw "EntraObjectId '$objectId' verweist auf einen Entra-Benutzer außerhalb der Schüler-Rollengruppe."
         }
         return [pscustomobject]@{
@@ -341,7 +342,8 @@ function Compare-StudentDirectory {
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Students,
         [Parameter(Mandatory)][object] $Snapshot,
         [Parameter(Mandatory)][System.Collections.IDictionary] $Config,
-        [System.Collections.IDictionary] $ExchangeAddressOwners = @{}
+        [System.Collections.IDictionary] $ExchangeAddressOwners = @{},
+        [switch] $AllowRecoveryObjectIdOutsideStudentRole
     )
 
     $errors = [Collections.Generic.List[object]]::new()
@@ -422,7 +424,8 @@ function Compare-StudentDirectory {
         if ($invalidIndices.Contains($index)) { continue }
         $student = $Students[$index]
         try {
-            $identity = Resolve-StudentIdentity -Student $student -Snapshot $Snapshot
+            $identity = Resolve-StudentIdentity -Student $student -Snapshot $Snapshot `
+                -AllowRecoveryObjectIdOutsideStudentRole:$AllowRecoveryObjectIdOutsideStudentRole
             $records.Add([pscustomobject]@{
                     Index = $index
                     Student = $student

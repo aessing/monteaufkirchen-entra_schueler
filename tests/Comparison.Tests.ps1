@@ -224,6 +224,17 @@ Describe 'Stable student identity and directory comparison' {
                     Should -Throw '*EntraObjectId*außerhalb der Schüler-Rollengruppe*'
             }
 
+            It 'allows an explicit object ID outside the student role only for the manual recovery path' {
+                $outsideUser = New-TestUser -Id recovery-id -UserPrincipalName recovery@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($outsideUser) -RoleMemberIds @()
+                $student = New-TestStudent -EntraObjectId recovery-id
+
+                $match = Resolve-StudentIdentity -Student $student -Snapshot $snapshot -AllowRecoveryObjectIdOutsideStudentRole
+
+                $match.Method | Should -Be 'EntraObjectId'
+                $match.User.Id | Should -Be 'recovery-id'
+            }
+
             It 'rejects a stored UPN that belongs to a user outside the student role group' {
                 $outsideUser = New-TestUser -Id outside-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
                 $snapshot = New-TestSnapshot -Users @($outsideUser) -RoleMemberIds @()

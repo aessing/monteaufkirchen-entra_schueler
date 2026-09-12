@@ -1,4 +1,42 @@
-﻿function Invoke-ManualStudentAdd {
+﻿function Assert-ManualRecoveryStudentIdentity {
+    param(
+        [Parameter(Mandatory)][object] $Entry,
+        [Parameter(Mandatory)][System.Collections.IDictionary] $Config
+    )
+
+    $expectedId = ([string](Get-ComparisonPropertyValue -InputObject $Entry.User -Name Id)).Trim()
+    if ([string]::IsNullOrWhiteSpace($expectedId)) {
+        throw 'Die Wiederanlauf-Objekt-ID ist leer.'
+    }
+    $current = Get-MgUser -UserId $expectedId -Property @(
+        'id', 'givenName', 'surname', 'companyName', 'employeeType'
+    ) -ErrorAction Stop
+    $actualId = ([string](Get-ComparisonPropertyValue -InputObject $current -Name Id)).Trim()
+    $sameId = [string]::Equals($actualId, $expectedId, [StringComparison]::OrdinalIgnoreCase)
+    $sameName = $false
+    try {
+        $sameName = (Get-NormalizedStudentNameKey -Student $Entry.Student) -ceq
+            (Get-NormalizedStudentNameKey -Student $current)
+    } catch {
+        $sameName = $false
+    }
+    $sameCompany = [string]::Equals(
+        [string](Get-ComparisonPropertyValue -InputObject $current -Name CompanyName),
+        [string]$Config.CompanyName,
+        [StringComparison]::Ordinal
+    )
+    $sameEmployeeType = [string]::Equals(
+        [string](Get-ComparisonPropertyValue -InputObject $current -Name EmployeeType),
+        [string]$Config.EmployeeType,
+        [StringComparison]::Ordinal
+    )
+    if (-not $sameId -or -not $sameName -or -not $sameCompany -or -not $sameEmployeeType) {
+        throw "Die Wiederanlauf-Objekt-ID '$expectedId' gehört aktuell nicht zum angegebenen Schüler und konfigurierten Schülertyp."
+    }
+    return $current
+}
+
+function Invoke-ManualStudentAdd {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(Mandatory)][object] $Entry,
@@ -72,7 +110,8 @@ function Invoke-ManualStudentUpdate {
     param(
         [Parameter(Mandatory)][object] $Entry,
         [Parameter(Mandatory)][object] $Snapshot,
-        [Parameter(Mandatory)][System.Collections.IDictionary] $Config
+        [Parameter(Mandatory)][System.Collections.IDictionary] $Config,
+        [switch] $RecoveryObjectId
     )
 
     $ErrorActionPreference = 'Stop'
@@ -80,6 +119,9 @@ function Invoke-ManualStudentUpdate {
     $upn = [string]$Entry.User.UserPrincipalName
     $phase = 'Add'
     $needsEnable = (Get-ComparisonPropertyValue $Entry.User AccountEnabled) -eq $false
+    if ($RecoveryObjectId) {
+        $null = Assert-ManualRecoveryStudentIdentity -Entry $Entry -Config $Config
+    }
     if (@($Entry.Differences).Count -eq 0 -and -not $needsEnable) {
         return New-StudentActionResult -UserId $userId -UserPrincipalName $upn -Phase Add -Status Compliant
     }
@@ -93,12 +135,14 @@ function Invoke-ManualStudentUpdate {
         $groupsVerified = $true
         if (@($Entry.Differences | Where-Object Area -eq Entra).Count -gt 0) {
             $phase = 'Attributes'
+            if ($RecoveryObjectId) { $null = Assert-ManualRecoveryStudentIdentity -Entry $Entry -Config $Config }
             $attributes = Set-EntraStudentAttribute -UserId $userId -Desired $Entry.DesiredState -Differences $Entry.Differences -Confirm:$false
             if (-not $attributes.Verified) { throw 'Attribute wurden nicht verifiziert.' }
             $attributesVerified = $attributes.Verified
         }
         if (@($Entry.Differences | Where-Object Area -eq Manager).Count -gt 0) {
             $phase = 'Manager'
+            if ($RecoveryObjectId) { $null = Assert-ManualRecoveryStudentIdentity -Entry $Entry -Config $Config }
             $manager = Set-EntraStudentManager -UserId $userId -CurrentManagerId (Get-UserManagerId -Snapshot $Snapshot -UserId $userId) `
                 -DesiredManagerId $Entry.DesiredState.ManagerId -Confirm:$false
             if (-not $manager.Verified) { throw 'Manager wurde nicht verifiziert.' }
@@ -106,6 +150,7 @@ function Invoke-ManualStudentUpdate {
         }
         if (@($Entry.Differences | Where-Object Area -eq Group).Count -gt 0) {
             $phase = 'Groups'
+            if ($RecoveryObjectId) { $null = Assert-ManualRecoveryStudentIdentity -Entry $Entry -Config $Config }
             $groupParameters = Get-StudentGroupParameter -Entry $Entry -Snapshot $Snapshot -Config $Config
             $groups = Sync-EntraStudentGroup -UserId $userId @groupParameters -CurrentDirectGroups @(Get-UserDirectGroup -Snapshot $Snapshot -UserId $userId) -Confirm:$false
             if (-not $groups.Verified) { throw 'Pflichtgruppen wurden nicht verifiziert.' }
@@ -113,6 +158,7 @@ function Invoke-ManualStudentUpdate {
         }
         if ($needsEnable) {
             $phase = 'Enable'
+            if ($RecoveryObjectId) { $null = Assert-ManualRecoveryStudentIdentity -Entry $Entry -Config $Config }
             $enabled = Enable-EntraStudent -UserId $userId -WorkbookVerified -GroupsVerified:$groupsVerified `
                 -ManagerVerified:$managerVerified -AttributesVerified:$attributesVerified -Confirm:$false
             if (-not $enabled.Verified) { throw 'Aktivierung wurde nicht verifiziert.' }

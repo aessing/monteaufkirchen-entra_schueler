@@ -95,7 +95,9 @@ function Invoke-SchuelerSync {
                 StoredUpn = ''
             }
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe Schüler, Klassenlehrer, Gruppen und UPN ...' -PercentComplete 45
-            $comparison = Compare-StudentDirectory -Students @($student) -Snapshot $snapshot -Config $config -ExchangeAddressOwners $recipients.AddressOwners
+            $comparison = Compare-StudentDirectory -Students @($student) -Snapshot $snapshot -Config $config `
+                -ExchangeAddressOwners $recipients.AddressOwners `
+                -AllowRecoveryObjectIdOutsideStudentRole:$PSBoundParameters.ContainsKey('EntraObjectId')
             # The one-row comparison sees all other role members as departures. They are outside this manual operation.
             $comparison.Departures = @()
             $manualEntries = @($comparison.NewStudents) + @($comparison.ChangedStudents) + @($comparison.ExistingStudents)
@@ -120,7 +122,8 @@ function Invoke-SchuelerSync {
                 $manualActions = if ($isNewStudent) {
                     @(Invoke-ManualStudentAdd -Entry $manualEntry -Snapshot $snapshot -Config $config @common)
                 } else {
-                    @(Invoke-ManualStudentUpdate -Entry $manualEntry -Snapshot $snapshot -Config $config @common)
+                    @(Invoke-ManualStudentUpdate -Entry $manualEntry -Snapshot $snapshot -Config $config `
+                            -RecoveryObjectId:$PSBoundParameters.ContainsKey('EntraObjectId') @common)
                 }
                 foreach ($action in $manualActions) {
                     $actions.Add($action)

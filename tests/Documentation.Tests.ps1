@@ -5,15 +5,26 @@ BeforeAll {
     $guidePath = Join-Path $repoRoot 'docs/ENTRA-SCHUELER-SYNC.md'
     $operationsPath = Join-Path $repoRoot 'docs/BETRIEB.md'
     $testingPath = Join-Path $repoRoot 'docs/TESTING.md'
+    $changelogPath = Join-Path $repoRoot 'CHANGELOG.md'
+    $manifestPath = Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1'
     $heroPath = Join-Path $repoRoot 'docs/assets/entra-schueler-sync-hero.png'
     $command = Get-Command $entryPoint -ErrorAction Stop
     $readme = Get-Content -LiteralPath $readmePath -Raw
     $guide = Get-Content -LiteralPath $guidePath -Raw
     $operations = Get-Content -LiteralPath $operationsPath -Raw
     $testing = Get-Content -LiteralPath $testingPath -Raw
+    $changelog = Get-Content -LiteralPath $changelogPath -Raw
+    $manifest = Import-PowerShellDataFile -LiteralPath $manifestPath
 }
 
 Describe 'Documentation contract' {
+    It 'keeps the v0.1.1 release metadata consistent' {
+        $manifest.ModuleVersion | Should -Be '0.1.1'
+        $readme | Should -Match 'Aktuelle Version:\s*\*\*0\.1\.1\*\*'
+        $changelog | Should -Match '## \[0\.1\.1\] - 2026-09-12'
+        $changelog | Should -Match '\[Unreleased\]:.+compare/v0\.1\.1\.\.\.HEAD'
+    }
+
     It 'derives every documented public selector from the executable command' {
         foreach ($parameter in @(
                 'File', 'Update', 'CreateNewUsers', 'DisableUsers', 'UpdateUsers',
