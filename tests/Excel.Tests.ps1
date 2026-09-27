@@ -39,6 +39,18 @@ Describe 'Student workbook adapter' {
                 Should -Throw '*.xlsx*'
         }
 
+        It 'names the selected workbook type when a file is locked' {
+            $copy = Join-Path $TestDrive 'Locked.xlsx'
+            Copy-Item $script:ExcelTestFixture $copy
+            $handle = [IO.File]::Open($copy, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            try {
+                { Assert-WorkbookSafeForPasswordWrite -Path $copy -Kind Teacher -SkipGitSafetyCheck } |
+                    Should -Throw '*Lehrerdatei ist gesperrt*'
+                { Assert-WorkbookSafeForPasswordWrite -Path $copy -SkipGitSafetyCheck } |
+                    Should -Throw '*Schülerdatei ist gesperrt*'
+            } finally { $handle.Dispose() }
+        }
+
         It 'rejects a partially filled mandatory student row before mutation' {
             $copy = Join-Path $TestDrive 'Teilweise.xlsx'
             Copy-Item $script:ExcelTestFixture $copy

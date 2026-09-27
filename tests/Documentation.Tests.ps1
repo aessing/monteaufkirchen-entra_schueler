@@ -1,14 +1,17 @@
 BeforeAll {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     $entryPoint = Join-Path $repoRoot 'Sync-SchuelerEntra.ps1'
+    $personnelEntryPoint = Join-Path $repoRoot 'Sync-LehrerEntra.ps1'
     $readmePath = Join-Path $repoRoot 'README.md'
     $guidePath = Join-Path $repoRoot 'docs/ENTRA-SCHUELER-SYNC.md'
+    $personnelGuidePath = Join-Path $repoRoot 'docs/ENTRA-LEHRER-SYNC.md'
     $operationsPath = Join-Path $repoRoot 'docs/BETRIEB.md'
     $testingPath = Join-Path $repoRoot 'docs/TESTING.md'
     $changelogPath = Join-Path $repoRoot 'CHANGELOG.md'
     $manifestPath = Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1'
     $heroPath = Join-Path $repoRoot 'docs/assets/entra-schueler-sync-hero.png'
     $command = Get-Command $entryPoint -ErrorAction Stop
+    $personnelCommand = Get-Command $personnelEntryPoint -ErrorAction Stop
     $readme = Get-Content -LiteralPath $readmePath -Raw
     $guide = Get-Content -LiteralPath $guidePath -Raw
     $operations = Get-Content -LiteralPath $operationsPath -Raw
@@ -18,11 +21,13 @@ BeforeAll {
 }
 
 Describe 'Documentation contract' {
-    It 'keeps the v0.1.1 release metadata consistent' {
-        $manifest.ModuleVersion | Should -Be '0.1.1'
-        $readme | Should -Match 'Aktuelle Version:\s*\*\*0\.1\.1\*\*'
+    It 'keeps the v0.2.0 release metadata consistent' {
+        $manifest.ModuleVersion | Should -Be '0.2.0'
+        $readme | Should -Match 'Aktuelle Version:\s*\*\*0\.2\.0\*\*'
+        $changelog | Should -Match '## \[0\.2\.0\] - 2026-09-27'
         $changelog | Should -Match '## \[0\.1\.1\] - 2026-09-12'
-        $changelog | Should -Match '\[Unreleased\]:.+compare/v0\.1\.1\.\.\.HEAD'
+        $changelog | Should -Match '\[0\.2\.0\]:.+compare/v0\.1\.1\.\.\.v0\.2\.0'
+        $changelog | Should -Not -Match '\[Unreleased\]'
     }
 
     It 'derives every documented public selector from the executable command' {
@@ -43,6 +48,7 @@ Describe 'Documentation contract' {
         Test-Path -LiteralPath $guidePath -PathType Leaf | Should -BeTrue
         Test-Path -LiteralPath $operationsPath -PathType Leaf | Should -BeTrue
         Test-Path -LiteralPath $testingPath -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath $personnelGuidePath -PathType Leaf | Should -BeTrue
     }
 
     It 'keeps the README examples aligned with the command surface' {
@@ -60,6 +66,20 @@ Describe 'Documentation contract' {
         $readme | Should -Match ([regex]::Escape('-OutputFile'))
         $readme | Should -Match ([regex]::Escape('-Add'))
         $readme | Should -Match ([regex]::Escape('-Remove'))
+    }
+
+    It 'documents and exposes the personnel command and password distinction' {
+        foreach ($parameter in @('File','Update','CreateNewUsers','UpdateUsers','DisableUsers','RevokeSessions',
+                'Add','Vorname','Nachname','Job','EntraObjectId','Remove','ConfigureExchangeOnlineOnly','Mail','WhatIf')) {
+            $personnelCommand.Parameters.Keys | Should -Contain $parameter
+        }
+        $personnelCommand.Parameters['Mail'].Aliases | Should -Contain 'UPN'
+        $readme | Should -Match ([regex]::Escape('.\Sync-LehrerEntra.ps1'))
+        $personnelGuide = Get-Content -LiteralPath $personnelGuidePath -Raw
+        $personnelGuide | Should -Match 'Pädagogisches Team'
+        $personnelGuide | Should -Match 'Ganztag'
+        $personnelGuide | Should -Match 'ForceChangePasswordNextSignIn = true'
+        $personnelGuide | Should -Match 'zwölf'
     }
 
     It 'keeps the recommended report directory out of Git' {

@@ -8,6 +8,10 @@ $ErrorActionPreference = 'Stop'
 if (Get-Module SchuelerSync) {
     throw 'Die Discovery-Prüfung muss in einer frischen PowerShell-Sitzung ohne SchuelerSync starten.'
 }
+# Pester benötigt diese Kernmodule bereits beim Import. Ihre expliziten Pfade
+# verhindern die Suche in einem für den Testprozess gesperrten Benutzermodulordner.
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Management/Microsoft.PowerShell.Management.psd1') -ErrorAction Stop
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 Import-Module $PesterManifest -ErrorAction Stop
 $configuration = New-PesterConfiguration
 $configuration.Run.Path = $TestPath

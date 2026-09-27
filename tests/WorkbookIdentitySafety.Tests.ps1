@@ -1,4 +1,4 @@
-BeforeDiscovery {
+﻿BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
@@ -6,6 +6,7 @@ BeforeDiscovery {
 Describe 'Version-bound workbook identity writes' {
     InModuleScope SchuelerSync {
         BeforeEach {
+            Mock Assert-CurrentStudentMembership { }
             $script:testDirectory = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -Path $script:testDirectory -ItemType Directory
             $script:workbookFixture = Join-Path $script:SchuelerSyncRepositoryRoot 'tests/fixtures/Schueler-Testdaten.xlsx'
@@ -266,7 +267,7 @@ Describe 'Version-bound workbook identity writes' {
             }
             Mock Get-EntraStudentCurrentIdentity { $script:currentUser }
             $result = @(Invoke-StudentUpdate -Entries @($entry) -Snapshot $snapshot -Config @{} -File $script:copy -WorkbookState $original -Confirm:$false)
-            $result[0].Status | Should -Be $(if ($AttributesFail) { 'Failed' } else { 'Succeeded' })
+            $result[0].Status | Should -Be $(if ($AttributesFail) { 'Failed' } else { 'Succeeded' }) -Because $result[0].Message
             $next = Read-StudentWorkbook -Path $script:copy
             $next.Students[0].StoredUpn | Should -Be 'mneu@monteaufkirchen.com'
             $next.Students[0].StoredMail | Should -Be 'alias.after@monteaufkirchen.com'

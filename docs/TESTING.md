@@ -1,11 +1,21 @@
 # Test- und Abnahmeplan für die Parallels-VM
 
+Für den Personalabgleich 0.2.0 die [Personalregeln](ENTRA-LEHRER-SYNC.md) zusätzlich prüfen. Benutze eine Arbeitskopie der synthetischen `tests/fixtures/Lehrer-Testdaten.xlsx` in einem isolierten Mandanten oder mit vollständig isolierten Personalrollen. Teste L, CO-L, PA und OGTS, den Wechsel zwischen Schul- und Ganztagsrolle, bestehende Direkt- und Gruppenlizenzen, die zwei Exchange-Profile und die Passwortregel mit genau zwölf Zeichen und erzwungenem Erstwechsel. Prüfe `-Remove` auf Deaktivierung und Sitzungswiderruf bei erhaltenem Konto, Postfach, Gruppen und Lizenzen. `-WhatIf` darf keine Mandanten- oder Excel-Mutation auslösen. Halte den Personaltest getrennt vom historischen Schülerprotokoll fest.
+
+Der [Check gesperrter Konten](GESPERRTE-KONTEN-VERWALTUNG.md) lädt zunächst nur lesend. Die Pester-Tests prüfen aktive Konten, die Aufnahme von freigegebenen und Ressourcenpostfächern sowie Konten ohne Exchange-Empfänger, die eindeutige Zuordnung über Objekt-IDs, den Abbruch bei einem Exchange-Bestandsfehler, `UserMailbox` und `RemoteUserMailbox`, Gäste, synchronisierte Konten, Verzeichnisrollen, fehlende Anmeldedaten, besessene Entra-Objekte mit Typ, Name und ID aus Graph-`AdditionalProperties` und den abgeschlossenen Fortschrittsbalken. Die TUI-Tests prüfen das Ausblenden von `SharedMailbox`, Pfeile, Markierung mit Leertaste für persönliche Benutzerpostfächer und eindeutig empfängerlose Konten, Nein und Esc ohne Aktion, Enter zum Löschen, `U` zum Entsperren, Ja nur für markierte Konten sowie `-WhatIf`. Bei mehreren ausgewählten Konten müssen Löschen und Entsperren jeden Schritt im Fortschrittsbalken anzeigen und den Balken auch nach `Skipped` oder `Failed` abschließen. Beide Schreibpfade müssen vor jeder Aktion Identität, Sperrstatus, Exchange-Zuordnung und Verzeichnisrollen erneut lesen. Vor der Aktion bei einem empfängerlosen Konto muss ein neuer vollständiger Exchange-Bestand ohne Treffer für seine Objekt-ID geladen werden. Eine inzwischen zugeordnete `SharedMailbox`, eine unklare Zuordnung oder ein Exchange-Fehler muss die Aktion überspringen. Der Löschpfad nennt bekannte Besitzobjekte in der Bestätigung, fragt sie unmittelbar vor dem Löschen erneut ab und warnt bei Treffern. Eigentümerkonten dürfen nach Bestätigung gelöscht werden. Fehler der erneuten Besitzabfrage führen weiterhin zu `Skipped`. Der Entsperrpfad aktiviert Eigentümerkonten, ohne eine Besitzabfrage zu benötigen. Aktive Konten und freigegebene Postfächer werden bei beiden Aktionen übersprungen. Prüfe bei einem synthetischen Skriptaufruf, dass die TUI nur in einem interaktiven Terminal startet und `-List` und `-PassThru` lesend bleiben. Für einen kontrollierten Mandantentest zuerst ausschließlich `-List` oder `-WhatIf` verwenden und die Tenant-ID prüfen. Das Skript kann weder eine 90-Tage-Frist noch eine echte Person automatisch belegen. Vor einer echten Löschung muss der Betreiber beides außerhalb der TUI anhand verlässlicher Daten prüfen.
+
+Für die Personalabnahme zuerst die Mitglieder beider Rollen und alle Abgänge im lesenden Vergleich kontrollieren. Prüfe die tatsächlichen SKUs der Lizenzgruppen und die Exchange-Richtlinien im Mandanten. Verwende für einen Test mit einer unvollständigen Personalliste ausschließlich `-Update -CreateNewUsers -UpdateUsers`. Vergleiche den Dateihash vor und nach `-WhatIf`. Führe den vollständigen Lebenszyklus erst mit vollständig isolierten Personalrollen aus und dokumentiere die Ergebnisse getrennt nach Graph, Exchange und Excel. Der lokale Testlauf ersetzt weder die Windows-Dateisperrprüfung noch den Mandantennachweis.
+
+Prüfe bei Schülern und Personal einen vollständigen `-Update`-Lauf mit einem bereits konformen und einem abweichenden bestehenden Postfach. Für das konforme Postfach darf keine Konfigurationsbestätigung erscheinen und das Ergebnis muss `Compliant` sein. Für die Abweichung muss die Bestätigung vor der Exchange-Änderung erhalten bleiben. Auch eine erst nach dem Vergleich entstandene Abweichung muss bei der erneuten Prüfung berücksichtigt werden.
+
+Prüfe zusätzlich `L, PA` und `PA, JAS` aus einer einzigen Excel-Zeile. Beide müssen mit dem Schulprofil verarbeitet werden, ohne ein zweites Konto oder eine zweite Standardlizenz anzulegen. `JAS` allein und eine Kombination aus Schul- und Ganztagsjob müssen vor jeder Mutation scheitern. Kontrolliere nach einer synthetischen Neuanlage die Rückschreibung von Passwort, Objekt-ID, UPN und Mail, während die Jobzelle erhalten bleibt.
+
 Die Tests verwenden ausschließlich erfundene Konten. Führe keine Live-Mutation mit echten Schülerdaten aus.
 
 Der aktuelle lokale Prüfstand und die auszufüllende Abnahme-Checkliste stehen in [ABNAHME.md](ABNAHME.md).
 
 > [!CAUTION]
-> Abgänge sind alle nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Testklasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Abgangsaktion muss die Excel-Datei die vollständige konfigurierte Schülerpopulation enthalten. Eine Testklasse in einer gemeinsam genutzten produktiven Rollengruppe ist nicht isoliert und kann reale Schüler als Abgänge markieren. Live-Tests mit `-Update`, `-DisableUsers` oder `-RevokeSessions` sind deshalb nur in einem vollständig isolierten Mandanten oder mit einer konfigurierten Schüler-Rollengruppe erlaubt, deren Mitglieder ausschließlich synthetische Konten sind.
+> Abgänge sind alle aktiven, nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Testklasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Abgangsaktion muss die Excel-Datei die vollständige konfigurierte Schülerpopulation enthalten. Eine Testklasse in einer gemeinsam genutzten produktiven Rollengruppe ist nicht isoliert und kann reale Schüler als Abgänge markieren. Live-Tests mit `-Update`, `-DisableUsers` oder `-RevokeSessions` sind deshalb nur in einem vollständig isolierten Mandanten oder mit einer konfigurierten Schüler-Rollengruppe erlaubt, deren Mitglieder ausschließlich synthetische Konten sind.
 
 ## Freigabekriterien
 
@@ -46,10 +56,13 @@ Invoke-Pester .\tests -Output Detailed
 
 $analyzerFindings = @(
   Invoke-ScriptAnalyzer -Path '.\Sync-SchuelerEntra.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
+  Invoke-ScriptAnalyzer -Path '.\Sync-LehrerEntra.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
+  Invoke-ScriptAnalyzer -Path '.\Verwalte-GesperrteEntraKonten.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
   Invoke-ScriptAnalyzer -Path '.\src' -Recurse -Settings '.\PSScriptAnalyzerSettings.psd1'
 )
 $analyzerFindings | Format-Table RuleName,Severity,ScriptName,Line,Message -Wrap
-if ($analyzerFindings) { throw 'PSScriptAnalyzer-Befunde gefunden.' }
+$unexpectedFindings = @($analyzerFindings | Where-Object RuleName -ne PSAvoidUsingWriteHost)
+if ($unexpectedFindings) { throw 'Ungeklärte PSScriptAnalyzer-Befunde gefunden.' }
 
 $parseErrors = foreach ($file in Get-ChildItem . -Recurse -File | Where-Object Extension -in '.ps1','.psm1','.psd1') {
   $tokens = $null
@@ -82,11 +95,11 @@ Erwartung:
 
 - `Schueler.xlsx` wird ignoriert
 - eigene Root- und Unterordner-Arbeitsmappen sowie konkrete Sicherungs- und temporäre Pfade werden ignoriert
-- unter Git liegt nur die synthetische Fixture `tests/fixtures/Schueler-Testdaten.xlsx`
+- unter Git liegen ausschließlich die synthetischen Fixtures `tests/fixtures/Schueler-Testdaten.xlsx` und `tests/fixtures/Lehrer-Testdaten.xlsx`
 - keine produktiven Namen, UPNs oder Passwörter sind versioniert
 - Quellcode-Treffer für Passwortlogik enthalten keine echten Geheimnisse
 
-Die Git-Regressionen verwenden temporäre Test-Repositories. Sie prüfen auch den Fehlerfall, dass nur die Quelle ignoriert ist. Dann darf weder eine vertrauliche Kopie noch eine Sicherung entstehen. Der Passworttest prüft das Format, die Einmaligkeit im Lauf und mindestens 24 Bit tatsächlich erreichbaren Auswahlraum.
+Die Git-Regressionen verwenden temporäre Test-Repositories. Sie prüfen auch den Fehlerfall, dass nur die Quelle ignoriert ist. Dann darf weder eine vertrauliche Kopie noch eine Sicherung entstehen. Der Passworttest prüft das Format, die Einmaligkeit im Lauf und mehr als 64 Bit tatsächlich erreichbaren Auswahlraum.
 
 ## 4. Synthetische Testdaten
 
@@ -147,7 +160,7 @@ Erwartung:
 
 - Excel-Hash bleibt identisch
 - keine neuen Konten, Attribute, Manager oder Gruppen
-- keine Passworterzeugung und kein Backup
+- keine Passworterzeugung, kein Backup und keine Berichtsdatei, auch mit `-OutputFile`
 - keine Exchange-Schreiboperation
 - keine 60-Sekunden-Wartezeit
 - geplante Phasen tragen Status `WhatIf`
@@ -183,7 +196,7 @@ Get-MgUserMemberOfAsGroup -UserId $user.Id -All | Select-Object Id,DisplayName
 Erwartung:
 
 - Passwortlänge genau 12
-- zwei CamelCase-Wörter mit zusammen zehn ASCII-Buchstaben und zwei Ziffern
+- zwölf zufällige, gut unterscheidbare ASCII-Buchstaben und Ziffern mit mindestens einem Zeichen jeder Klasse
 - `ForceChangePasswordNextSignIn = false`, über das erstellte PasswordProfile oder einen kontrollierten Anmeldetest bestätigt
 - Name bleibt mit Umlauten korrekt, UPN ist normalisiert
 - Konto erst nach erfolgreicher Excel-Rückschreibung aktiviert
@@ -249,13 +262,12 @@ Erwartung:
 
 ## 10. Abgang testen
 
-Entferne nur die erfundene Abgangszeile aus der Testarbeitsmappe. Prüfe zuerst Compare und WhatIf, danach getrennt die Aktionen:
+Entferne nur die erfundene Abgangszeile aus der Testarbeitsmappe. Mindestens eine andere gültige Zeile muss verbleiben, eine leere Schülerliste wird abgewiesen. Prüfe zuerst Compare und WhatIf, danach Sperren und Sitzungswiderruf im selben Lauf:
 
 ```powershell
 .\Sync-SchuelerEntra.ps1 -File $testFile
-.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers -WhatIf
-.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers
-.\Sync-SchuelerEntra.ps1 -File $testFile -Update -RevokeSessions
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers -RevokeSessions -WhatIf
+.\Sync-SchuelerEntra.ps1 -File $testFile -Update -DisableUsers -RevokeSessions
 ```
 
 Erwartung:
@@ -263,7 +275,7 @@ Erwartung:
 - Konto ist deaktiviert
 - Sitzungswiderruf wurde von Graph bestätigt
 - Konto, Lizenz und Gruppen wurden nicht gelöscht
-- ein erneuter Vergleich zeigt den weiterhin in der Schüler-Rollengruppe vorhandenen deaktivierten Abgang
+- ein erneuter Vergleich zeigt das deaktivierte Konto ohne Excel-Zeile nicht mehr als Abgang, auch wenn es weiterhin Mitglied der Schüler-Rollengruppe ist
 - ein erneuter lesender Lauf führt keine Mutation aus
 
 ### Manuellen Remove-Modus testen
@@ -316,7 +328,7 @@ $result.Comparison.ChangedStudents.Count
 $before.Hash -eq $after.Hash
 ```
 
-Erwartung: keine Änderungen für aktive, vollständig konforme Schüler und identischer Excel-Hash. Ein deaktivierter Abgang darf weiterhin als Abgang erscheinen, solange er Mitglied der Schüler-Rollengruppe bleibt.
+Erwartung: keine Änderungen für aktive, vollständig konforme Schüler und identischer Excel-Hash. Ein deaktiviertes Konto ohne Excel-Zeile darf nicht erneut als Abgang erscheinen. Ein deaktiviertes Konto mit eindeutig passender Excel-Zeile muss dagegen als Reaktivierung unter Änderungen erscheinen.
 
 ## 13. Aufräumen
 
@@ -347,3 +359,16 @@ Halte fest:
 - Ergebnis jeder Sektion 1 bis 13
 - IDs ausschließlich der erfundenen Testobjekte
 - offene Abweichungen und verantwortliche Freigabe
+
+## Lokale Gesamtprüfung und CI
+
+```powershell
+./tests/Test-PesterDiscovery.ps1
+./tests/Invoke-LocalVerification.ps1
+```
+
+Der gemeinsame Prüflauf parst die PowerShell-Quelldateien, prüft sie mit PSScriptAnalyzer und führt Pester aus. Nur die bewusst eingesetzten farbigen Überschriften (`PSAvoidUsingWriteHost`) sind als Analyzer-Ausnahme zugelassen. Jeder andere Analyzer-Befund und jeder fehlgeschlagene Test lässt den Lauf scheitern.
+
+`.github/workflows/powershell-tests.yml` führt Discovery und Gesamtprüfung auf Windows und macOS aus. Die Modulversionen sind festgelegt. Der Workflow hat ausschließlich Leserechte auf Repository-Inhalte und benötigt keine Mandantenzugangsdaten. Er wird lokal vorbereitet, ein erfolgreicher lokaler Lauf belegt keinen ausgeführten GitHub-Workflow.
+
+Die Audit-Regressionen prüfen leere Imports, einen fremden oder mehrdeutigen Exchange-Mandanten, erneute Mandantenprüfung vor der TUI-Aktion, nicht mehr gültige Rollenmitgliedschaften, nachträglich lizenzierende Rollen, gesperrte Wiederanlaufkonten, fehlgeschlagene Excel-Sicherung, abgelehnte Lehrerupdates, manuelles Add ohne falsche Abgänge und vertrauliche Berichtspfade. Der Berichtsschutz wird auch gegen bereits vorhandene Dateien und nicht existierende Unterverzeichnisse in temporären Git-Repositories geprüft.

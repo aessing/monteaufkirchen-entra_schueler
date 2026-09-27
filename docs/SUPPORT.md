@@ -1,5 +1,15 @@
 # Support Information
 
+## Operating guides and troubleshooting
+
+- [Student synchronization](ENTRA-SCHUELER-SYNC.md)
+- [Personnel synchronization](ENTRA-LEHRER-SYNC.md)
+- [Disabled-account management](GESPERRTE-KONTEN-VERWALTUNG.md)
+- [Operations and recovery](BETRIEB.md)
+- [Testing](TESTING.md) and [recorded acceptance results](ABNAHME.md)
+
+For a bug report, include the script version, PowerShell and module versions, selected mode, anonymized error text and a reproduction with synthetic accounts. Remove real names, UPNs, account IDs, passwords and tokens from screenshots and logs. Report security vulnerabilities through the private process in [SECURITY.md](SECURITY.md).
+
 ## :cop: Code of conduct
 
 My [Code of Conduct](CODE_OF_CONDUCT.md) outlines expectations for participation in the community, as well as steps for reporting unacceptable behavior. I am committed to provide a welcoming and inspiring community for all. People violating this code of conduct may be banned from the community and the repository.

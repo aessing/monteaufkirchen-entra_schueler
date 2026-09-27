@@ -266,6 +266,7 @@ function Invoke-StudentUpdate {
             continue
         }
         try {
+            Assert-CurrentStudentMembership -UserId $userId
             Assert-StudentWorkbookVersion -Path $File -ExpectedSourceHash $WorkbookState.SourceHash
             $renamesUpn = Test-StudentUpnRename -Entry $entry
             if ($renamesUpn) {
@@ -300,6 +301,11 @@ function Invoke-StudentUpdate {
                 $groupParameters = Get-StudentGroupParameter -Entry $entry -Snapshot $Snapshot -Config $Config
                 $groups = Sync-EntraStudentGroup -UserId $userId @groupParameters -CurrentDirectGroups @(Get-UserDirectGroup -Snapshot $Snapshot -UserId $userId) -Confirm:$false
                 if (-not $groups.Verified) { throw 'Pflichtgruppen wurden nicht verifiziert.' }
+            }
+            if ((Get-ComparisonPropertyValue -InputObject $entry.User -Name AccountEnabled) -eq $false) {
+                $phase = 'Enable'
+                $enabled = Enable-EntraStudent -UserId $userId -WorkbookVerified -GroupsVerified -ManagerVerified -AttributesVerified -Confirm:$false
+                if (-not $enabled.Verified) { throw 'Aktivierung wurde nicht verifiziert.' }
             }
             New-StudentActionResult -UserId $userId -UserPrincipalName $upn -Phase Update -Status Succeeded
         } catch {
@@ -336,6 +342,7 @@ function Invoke-StudentDeparture {
                 continue
             }
             try {
+                Assert-CurrentStudentMembership -UserId $id
                 if ($phase -eq 'Disable') {
                     $result = Disable-EntraStudent -UserId $id -Confirm:$false
                     if (-not $result.Verified) { throw 'Deaktivierung wurde nicht verifiziert.' }

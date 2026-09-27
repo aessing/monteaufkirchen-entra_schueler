@@ -85,6 +85,9 @@ Describe 'Public orchestration' {
             $report | Should -Match 'Bestehende \(1\)'
             $report | Should -Match 'Warnungen und Fehler \(\d+\)'
             $report | Should -Match 'Aktionsergebnisse \(0\)'
+            $report | Should -Match '(?s)Neuzugänge \(1\).*?\r?\n\r?\nAbgänge \(1\)'
+            $report | Should -Match '(?s)Warnungen und Fehler \(\d+\).*?\r?\n\r?\nAktionsergebnisse \(0\)'
+            $report | Should -Not -Match "`e\["
             $report | Should -Not -Match 'NeverReport12|"Password"'
         }
         It 'uses the repository workbook default and PowerShell-relative custom paths' {
@@ -414,6 +417,7 @@ Describe 'Fail-safe new account batching' {
 Describe 'Existing students and departures' {
     InModuleScope SchuelerSync {
         BeforeEach {
+            Mock Assert-CurrentStudentMembership { }
             $script:entry = [pscustomobject]@{
                 User = [pscustomobject]@{ Id = 'existing'; UserPrincipalName = 'existing@monteaufkirchen.com'; AccountEnabled = $true }
                 DesiredState = [pscustomobject]@{ UserPrincipalName = 'existing@monteaufkirchen.com' }

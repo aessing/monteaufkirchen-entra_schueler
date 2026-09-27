@@ -60,6 +60,17 @@ Once you have filed an issue and discussed your proposed feature/fix, it is time
 4. Create a [Draft Pull Request](https://github.blog/2019-02-14-introducing-draft-pull-requests/).
 5. Work on your changes.
 
+### Local verification and test data
+
+Run the following from PowerShell 7 in the repository root before requesting review:
+
+```powershell
+./tests/Test-PesterDiscovery.ps1
+./tests/Invoke-LocalVerification.ps1
+```
+
+Use only synthetic identities and the two fixtures under `tests/fixtures/`. Never commit production workbooks, reports, backups, passwords or tokens. Tests mock Graph and Exchange operations and must not modify a production tenant. The [test guide](TESTING.md) documents dependencies, offline checks and the separate controlled Windows and tenant acceptance steps. Record actual test results and keep README, operator documentation and the changelog consistent with behavior changes.
+
 ### 🤓 Code Review
 
 When you would like me to look, (even if the work is not yet fully complete), mark the Pull Request as 'Ready for Review' so that I can review your work and provide comments, suggestions, and request changes. I would like to encourage you to use the Pull Request as tool to start a conversation around your ideas and recruit people to help if necessary. It may take several cycles, but the result will be solid, testable, conformant code that is safe to merge.

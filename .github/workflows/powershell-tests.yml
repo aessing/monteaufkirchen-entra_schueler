@@ -1,0 +1,48 @@
+name: PowerShell tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install pinned test dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $modules = @{
+            Pester = '5.7.1'
+            PSScriptAnalyzer = '1.23.0'
+            ImportExcel = '7.8.10'
+            'Microsoft.Graph.Authentication' = '2.31.0'
+            'Microsoft.Graph.Users' = '2.31.0'
+            'Microsoft.Graph.Users.Actions' = '2.31.0'
+            'Microsoft.Graph.Groups' = '2.31.0'
+          }
+          $modulePath = Join-Path $env:RUNNER_TEMP 'test-modules'
+          $null = New-Item $modulePath -ItemType Directory -Force
+          foreach ($module in $modules.GetEnumerator()) {
+            Save-Module $module.Key -RequiredVersion $module.Value -Path $modulePath -Force -Repository PSGallery
+          }
+          # Keep preinstalled runner modules out of the test process.
+          $searchPath = $modulePath + [IO.Path]::PathSeparator + (Join-Path $PSHOME 'Modules')
+          "PSModulePath=$searchPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Discover tests in a fresh session
+        run: ./tests/Test-PesterDiscovery.ps1
+      - name: Check syntax, analyzer and tests
+        run: ./tests/Invoke-LocalVerification.ps1

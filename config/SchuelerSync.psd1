@@ -1,4 +1,4 @@
-@{
+﻿@{
     Domain = 'monteaufkirchen.com'
     ExpectedTenantId = $null
     CompanyName = 'Montessori Schule Aufkirchen'

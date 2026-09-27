@@ -1,4 +1,4 @@
-BeforeDiscovery {
+﻿BeforeDiscovery {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
 
@@ -335,7 +335,7 @@ Describe 'Stateful student synchronization' {
         }
         Mock Set-EntraStudentAttribute -ModuleName SchuelerSync {
             $user = $global:IntegrationState.Users[$UserId]
-            foreach ($difference in @($Differences | Where-Object { $_.Area -eq 'Entra' -and $_.Action -eq 'Set' })) {
+            foreach ($difference in @($Differences | Where-Object { $_.Area -eq 'Entra' -and $_.Action -eq 'Set' -and $_.Field -ne 'AccountEnabled' })) {
                 $user.($difference.Field) = $Desired.($difference.Field)
             }
             $global:IntegrationState.Events.Add("attributes-set:$UserId")
@@ -478,8 +478,8 @@ Describe 'Stateful student synchronization' {
         [Array]::IndexOf($events, 'group-read:new-id:2') | Should -BeLessThan ([Array]::IndexOf($events, 'excel-write'))
         [Array]::IndexOf($events, 'excel-write') | Should -BeLessThan ([Array]::IndexOf($events, 'enable:new-id'))
         $classAdd = [Array]::IndexOf($events, 'group-add:changed-id:SEC-A-CLS-JK4-6m2_4')
-        $changedGroupVerification = [Array]::IndexOf($events, 'group-read:changed-id:1')
-        $changedFinalVerification = [Array]::IndexOf($events, 'group-read:changed-id:2')
+        $changedGroupVerification = [Array]::IndexOf($events, 'group-read:changed-id:2')
+        $changedFinalVerification = [Array]::IndexOf($events, 'group-read:changed-id:3')
         $classRemove = [Array]::IndexOf($events, 'group-remove:changed-id:SEC-A-CLS-JK1-3g1_1')
         $roleRemove = [Array]::IndexOf($events, 'group-remove:changed-id:SEC-A-ROL-Schule_PädagogischesTeam')
         $classAdd | Should -BeGreaterOrEqual 0
@@ -503,13 +503,19 @@ Describe 'Stateful student synchronization' {
         $changedClasses | Should -Contain $global:IntegrationGroupIds.ClassM2
         Should -Invoke New-MgGroupMemberByRef -ModuleName SchuelerSync -Times 4 -Exactly
         Should -Invoke Remove-MgGroupMemberDirectoryObjectByRef -ModuleName SchuelerSync -Times 2 -Exactly
-        Should -Invoke Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync -Times 4 -Exactly
+        Should -Invoke Get-MgUserMemberOfAsGroup -ModuleName SchuelerSync -Times 7 -Exactly
         [Array]::IndexOf($events, 'disable:departure-id') | Should -BeLessThan ([Array]::IndexOf($events, 'revoke:departure-id'))
         [Array]::IndexOf($events, 'revoke:departure-id') | Should -BeLessThan ([Array]::IndexOf($events, 'exchange-configure:mmuster@monteaufkirchen.com'))
         foreach ($upn in 'mmuster@monteaufkirchen.com', 'bbeispiel@monteaufkirchen.com', 'cbestand@monteaufkirchen.com') {
             $global:IntegrationState.Mailboxes[$upn].Configured | Should -BeTrue
-            $global:IntegrationState.CasMailboxes[$upn].Configured | Should -BeTrue
+            if ($upn -ne 'cbestand@monteaufkirchen.com') {
+                $global:IntegrationState.CasMailboxes[$upn].Configured | Should -BeTrue
+            }
         }
+        @($events | Where-Object { $_ -eq 'exchange-configure:cbestand@monteaufkirchen.com' }).Count | Should -Be 0
+        @($first.Actions | Where-Object {
+            $_.Phase -eq 'Exchange' -and $_.UserPrincipalName -eq 'cbestand@monteaufkirchen.com' -and $_.Status -eq 'Compliant'
+        }) | Should -HaveCount 1
         @($first.Actions | Where-Object { $_.Phase -eq 'Create' -and $_.Status -eq 'Succeeded' }) | Should -HaveCount 1
         @($first.Actions | Where-Object { $_.Phase -eq 'Update' -and $_.Status -eq 'Succeeded' }) | Should -HaveCount 1
         @($first.Actions | Where-Object { $_.Phase -eq 'Disable' -and $_.Status -eq 'Succeeded' }) | Should -HaveCount 1
@@ -523,14 +529,29 @@ Describe 'Stateful student synchronization' {
         $second.Comparison.NewStudents | Should -BeNullOrEmpty
         $second.Comparison.ChangedStudents | Should -BeNullOrEmpty
         $second.Comparison.ExistingStudents | Should -HaveCount 3
-        $second.Comparison.Departures | Should -HaveCount 1
-        $second.Comparison.Departures[0].UserId | Should -Be 'departure-id'
-        $second.Comparison.Departures[0].AccountEnabled | Should -BeFalse
+        $second.Comparison.Departures | Should -BeNullOrEmpty
         $second.Actions | Should -BeNullOrEmpty
         $global:IntegrationState.Events.Count | Should -Be $writesBeforeSecondComparison
         $global:IntegrationState.WorkbookWrites | Should -Be 2
         $global:IntegrationState.SourceHash | Should -Be 'source-3'
         $global:IntegrationState.SessionRevocations | Should -Be 1
+    }
+
+    It 'reactivates a listed disabled student without processing unrelated departures' {
+        $global:IntegrationState.Users['existing-id'].AccountEnabled = $false
+
+        $preview = Invoke-SchuelerSync -File $global:IntegrationState.CopyPath
+        $preview.HasErrors | Should -BeFalse
+        @($preview.Comparison.ChangedStudents | Where-Object UserId -eq 'existing-id') | Should -HaveCount 1
+        $preview.Comparison.Departures | Should -HaveCount 1
+
+        $result = Invoke-SchuelerSync -File $global:IntegrationState.CopyPath -Update -UpdateUsers -Confirm:$false
+        $result.HasErrors | Should -BeFalse
+        $global:IntegrationState.Users['existing-id'].AccountEnabled | Should -BeTrue
+        $global:IntegrationState.Users['departure-id'].AccountEnabled | Should -BeTrue
+        @($result.Actions | Where-Object { $_.Phase -eq 'Update' -and $_.UserId -eq 'existing-id' -and $_.Status -eq 'Succeeded' }) | Should -HaveCount 1
+        Should -Invoke Enable-EntraStudent -ModuleName SchuelerSync -Times 1 -Exactly -ParameterFilter { $UserId -eq 'existing-id' }
+        Should -Invoke Disable-EntraStudent -ModuleName SchuelerSync -Times 0 -Exactly
     }
 
     It 'keeps Update WhatIf free of writes waits and password generation' {

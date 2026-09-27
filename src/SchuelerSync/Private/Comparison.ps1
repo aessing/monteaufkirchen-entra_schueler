@@ -354,7 +354,10 @@ function Compare-StudentDirectory {
     $existingStudents = [Collections.Generic.List[object]]::new()
     $records = [Collections.Generic.List[object]]::new()
     $invalidIndices = [Collections.Generic.HashSet[int]]::new()
-    $hasIdentityAmbiguity = $false
+    $hasIdentityAmbiguity = $Students.Count -eq 0
+    if ($hasIdentityAmbiguity) {
+        $errors.Add((New-ComparisonIssue -Severity Error -Area Input -Field Students -Message 'Leere Schülerliste ist kein gültiger Abgleich.'))
+    }
 
     $reservedAddresses = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $addressOwners = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
@@ -583,6 +586,9 @@ function Compare-StudentDirectory {
             $difference = New-StateDifference -Area Entra -Field $field -Current (Get-ComparisonPropertyValue -InputObject $user -Name $field) -Desired (Get-ComparisonPropertyValue -InputObject $desired -Name $field)
             if ($null -ne $difference) { $differences.Add($difference) }
         }
+        if ((Get-ComparisonPropertyValue -InputObject $user -Name AccountEnabled) -eq $false) {
+            $differences.Add((New-StateDifference -Area Entra -Field AccountEnabled -Current $false -Desired $true))
+        }
         if ([string]::IsNullOrWhiteSpace([string](Get-ComparisonPropertyValue -InputObject $user -Name Mail))) {
             $warnings.Add((New-ComparisonIssue -Severity Warning -Area Entra -Field Mail -Current $null -Desired $desired.Mail -Message 'Das Entra-Attribut mail fehlt.' -Student $student -User $user))
         }
@@ -660,6 +666,7 @@ function Compare-StudentDirectory {
                 $errors.Add((New-ComparisonIssue -Severity Error -Area Identity -Field Departure -Current $memberId -Desired 'vorhandener Entra-Benutzer' -Message "Das direkte Schüler-Rollenmitglied '$memberId' fehlt im Benutzer-Snapshot."))
                 continue
             }
+            if ((Get-ComparisonPropertyValue -InputObject $user -Name AccountEnabled) -eq $false) { continue }
             $departures.Add([pscustomobject]@{
                     Student = $null
                     User = $user

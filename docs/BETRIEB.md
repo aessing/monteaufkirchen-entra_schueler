@@ -1,5 +1,13 @@
 # Betrieb und Wiederanlauf
 
+Der Personalabgleich hat einen eigenen Einstiegspunkt und ein rollenabhängiges Exchange-Profil. Bedienung, Lizenzbestandsschutz und Wiederanlauf stehen in [ENTRA-LEHRER-SYNC.md](ENTRA-LEHRER-SYNC.md). Ein vollständiger Personal-Update-Lauf benötigt beide Personalrollen vollständig in der Arbeitsmappe. `-Remove` deaktiviert und widerruft Sitzungen, ohne Konto oder Lizenz zu löschen.
+
+Für eine Bestandsaufnahme aller gesperrten Entra-Konten gibt es [Verwalte-GesperrteEntraKonten.ps1](GESPERRTE-KONTEN-VERWALTUNG.md). `-List` zeigt die lesende Ausgabe einschließlich freigegebener Postfächer. Ohne Schalter öffnet eine TUI mit Markierung, Enter zur Löschbestätigung und `U` zur Entsperrbestätigung. `SharedMailbox` wird in der TUI ausgeblendet. Konten ohne Exchange-Empfänger sind auswählbar, wenn die Inventarzuordnung eindeutig fehlt. Ressourcenpostfächer und unklare Empfänger bleiben nur zur Prüfung sichtbar. Besitzobjekte erscheinen mit Typ, Name und ID. Kann der Exchange-Bestand insgesamt nicht geladen werden, bricht der Check ab. Ein Sperrdatum und die 90-Tage-Frist werden weiterhin nicht automatisch geprüft.
+
+Besitzobjekte blockieren weder Entsperren noch eine bestätigte Löschung. Die Löschbestätigung nennt die Objekte und warnt vor möglicherweise besitzerlosen Gruppen oder Anwendungen. Unmittelbar vor dem Löschen fragt das Skript den Besitz erneut ab und warnt bei Treffern. Kann es den Besitz nicht prüfen, überspringt es das Konto.
+
+Nach der Ja-Bestätigung zeigen Löschen und Entsperren den Fortschritt je ausgewähltem Konto an. Übersprungene Konten und Fehler erscheinen anschließend einzeln in den Aktionsergebnissen.
+
 Diese Anleitung gilt für PowerShell 7 auf Windows und macOS. Für Windows-spezifische Dateisperren und kontrollierte Mandantentests ist die Windows-Parallels-VM vorgesehen. Die fachlichen Regeln stehen in [ENTRA-SCHUELER-SYNC.md](ENTRA-SCHUELER-SYNC.md). Verwende in Tests ausschließlich erfundene Schüler.
 
 ## 1. Arbeitsumgebung vorbereiten
@@ -18,6 +26,10 @@ Get-Module -ListAvailable Microsoft.Graph.Authentication,Microsoft.Graph.Users,M
 ```
 
 Schließe die Arbeitsmappe in Excel vor einem Update. Kontrolliere die erwartete Tenant-ID in `config/SchuelerSync.psd1`. Ist `ExpectedTenantId = $null`, musst du die vom Skript ausgegebene Tenant-ID vor jeder Änderung manuell prüfen.
+
+Graph und Exchange müssen bei kombinierten Läufen denselben Mandanten verwenden. Prüfe aktive Exchange-Verbindungen mit `Get-ConnectionInformation`. Bei mehreren Verbindungen oder einem falschen Mandanten die Verbindungen bewusst korrigieren und den Vergleich neu starten. Das Skript wechselt keine bestehende Sitzung stillschweigend. Die verwendete Tenant-ID wird von [Get-ConnectionInformation](https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-connectioninformation?view=exchange-ps) bereitgestellt.
+
+Berichte benötigen neue `.txt`-Dateien. Innerhalb eines Git-Repositories muss das Ziel ignoriert sein. Nutze etwa `-OutputFile "./Berichte/Abgleich-$(Get-Date -Format yyyyMMdd-HHmmss).txt"`. Vorhandene Dateien und symbolische Links werden nicht überschrieben. Für die Pfadprüfung muss Git verfügbar sein.
 
 ## 2. Arbeitsmappe prüfen
 
@@ -64,7 +76,7 @@ Ein Eintrag unter `Fehler` blockiert den schreibenden Lauf. Korrigiere zuerst Ex
 .\Sync-SchuelerEntra.ps1 -File 'C:\GeschuetzteDaten\Schueler-2026.xlsx' -Update -WhatIf
 ```
 
-`-WhatIf` erzeugt keine Passwörter, schreibt weder Excel noch Graph oder Exchange und wartet nicht auf Postfächer. Es zeigt die geplanten Phasen als `WhatIf`.
+`-WhatIf` erzeugt keine Passwörter, schreibt weder Excel noch Berichte, Graph oder Exchange und wartet nicht auf Postfächer. Es zeigt die geplanten Phasen als `WhatIf`.
 
 Für eine Teilaktion:
 
@@ -77,7 +89,7 @@ Für eine Teilaktion:
 ## 5. Autorisierten Lauf starten
 
 > [!CAUTION]
-> Abgänge sind alle nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Klasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Aktion mit `-DisableUsers` oder `-RevokeSessions` muss die Excel-Datei deshalb die vollständige konfigurierte Schülerpopulation enthalten. Eine einzelne Testklasse ist in einer gemeinsam genutzten produktiven Rollengruppe nicht isoliert. Verwende für destruktive Tests einen vollständig isolierten Mandanten oder eine Rollengruppe, deren Mitglieder ausschließlich synthetische Testkonten sind.
+> Abgänge sind alle aktiven, nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Klasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Aktion mit `-DisableUsers` oder `-RevokeSessions` muss die Excel-Datei deshalb die vollständige konfigurierte Schülerpopulation enthalten. Eine einzelne Testklasse ist in einer gemeinsam genutzten produktiven Rollengruppe nicht isoliert. Verwende für destruktive Tests einen vollständig isolierten Mandanten oder eine Rollengruppe, deren Mitglieder ausschließlich synthetische Testkonten sind.
 
 Vollständiger Lauf:
 
@@ -176,7 +188,7 @@ Vorprüfung ohne Schreiben und ohne Wartezeit:
 .\Sync-SchuelerEntra.ps1 -ConfigureExchangeOnlineOnly -Mail $upns -WhatIf
 ```
 
-Der Exchange-Modus akzeptiert auch `-UPN` und `-UserPrincipalName`. Er liest keine Excel-Datei und ändert weder Entra-Attribute noch Gruppen.
+Der Schüler-Exchange-Modus akzeptiert auch `-UPN` und `-UserPrincipalName`. Er liest keine Excel-Datei und benötigt keine Graph-Verbindung. Er prüft genau eine aktive Exchange-Verbindung mit bekannter Tenant-ID und gegebenenfalls `ExpectedTenantId`. Er ändert weder Entra-Attribute noch Gruppen. Der Lehrer-Exchange-Modus liest zusätzlich Graph, um das Personalprofil zu bestimmen, und verlangt deshalb übereinstimmende Graph- und Exchange-Mandanten.
 
 ## Wiederanlauf nach Fehlern
 
@@ -237,3 +249,11 @@ Diese Fehler werden nicht wiederholt. Prüfe den exakten Cmdlet-Fehler, Exchange
 Disconnect-MgGraph
 Disconnect-ExchangeOnline -Confirm:$false
 ```
+
+## Änderungen nach der Codeprüfung vom 27.09.2026
+
+Leere Schülerdateien werden vor Graph-/Exchange-Zugriffen abgewiesen. Die direkte Schülerrolle wird vor Bestandsänderungen und Abgangsaktionen erneut geprüft. Im Lehrerabgleich werden Rollenmitgliedschaften und die aktuellen Lizenzzuweisungen der verwalteten Rollen vor Änderungen gelesen.
+
+Bei Lehrer-Neuanlagen speichert Excel die Zugangsdaten und Objekt-ID direkt nach der gesperrten Anlage. Wiederanlauf mit bereits gesicherter Zeile und der Sonderfall einer fehlgeschlagenen Excel-Sicherung sind in der [Personalanleitung](ENTRA-LEHRER-SYNC.md#sicherheitsprüfungen-und-wiederanlauf) beschrieben. Abgelehnte Lehrerupdates lösen keine Identitätsrückschreibung aus.
+
+Neue Schülerpasswörter bestehen aus zwölf zufälligen, gut lesbaren Buchstaben und Ziffern. Die bisherigen Zweiwortpasswörter werden nicht geändert. Schüler müssen ihr Passwort weiterhin nicht bei der ersten Anmeldung wechseln.

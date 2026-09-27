@@ -27,21 +27,30 @@
     return $isExchangeOnline -and [string]::Equals($state, 'Connected', [StringComparison]::OrdinalIgnoreCase)
 }
 
-function Connect-SchuelerExchangeOnline {
+function Assert-ExchangeTenant {
     [CmdletBinding()]
-    param()
+    param([string] $TenantId, [object[]] $Connections)
 
-    $connections = @(Get-ConnectionInformation -ErrorAction Stop)
-    $active = @($connections | Where-Object { Test-ExchangeOnlineConnectionActive -Connection $_ } | Select-Object -First 1)
-    if ($active.Count -eq 1) { return $active[0] }
-
-    Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop
-    $connections = @(Get-ConnectionInformation -ErrorAction Stop)
-    $active = @($connections | Where-Object { Test-ExchangeOnlineConnectionActive -Connection $_ } | Select-Object -First 1)
-    if ($active.Count -ne 1) {
-        throw 'Nach Connect-ExchangeOnline wurde keine aktive Exchange-Online-Verbindung gefunden.'
+    if (-not $PSBoundParameters.ContainsKey('Connections')) { $Connections = @(Get-ConnectionInformation -ErrorAction Stop) }
+    $active = @($Connections | Where-Object { Test-ExchangeOnlineConnectionActive -Connection $_ })
+    if ($active.Count -ne 1) { throw 'Es muss genau eine aktive Exchange-Online-Verbindung bestehen.' }
+    $exchangeTenant = [string](Get-ComparisonPropertyValue $active[0] TenantID)
+    if (-not $exchangeTenant -or ($TenantId -and $exchangeTenant -ine $TenantId)) {
+        throw "Exchange-Tenant '$exchangeTenant' stimmt nicht mit Graph-Tenant '$TenantId' überein. Verbindung korrigieren und erneut starten."
     }
     return $active[0]
+}
+
+function Connect-SchuelerExchangeOnline {
+    [CmdletBinding()]
+    param([string] $TenantId)
+
+    $active = @(Get-ConnectionInformation -ErrorAction Stop | Where-Object { Test-ExchangeOnlineConnectionActive -Connection $_ })
+    if ($active.Count -eq 0) {
+        Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop
+        return Assert-ExchangeTenant -TenantId $TenantId
+    }
+    return Assert-ExchangeTenant -TenantId $TenantId -Connections $active
 }
 
 function Add-ExchangeRecipientAddress {
@@ -490,7 +499,10 @@ function Wait-StudentMailbox {
 
             $configuration = $null
             if ($Configure) {
-                if ($WhatIfPreference) {
+                if ($null -ne $state.PSObject.Properties['Differences'] -and @($state.Differences).Count -eq 0) {
+                    $configuration = New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Compliant -Changed:$false `
+                        -Differences @() -RemainingDifferences @() -ErrorMessage $null
+                } elseif ($WhatIfPreference) {
                     $configuration = Set-StudentMailboxConfiguration `
                         -UserPrincipalName $upn -Config $Config -MailboxState $state -WhatIf
                 } elseif ($PSCmdlet.ShouldProcess($upn, 'Configure Exchange Online student mailbox')) {
