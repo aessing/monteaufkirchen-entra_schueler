@@ -55,7 +55,8 @@ Describe 'Stable student identity and directory comparison' {
                     [AllowNull()][string] $Mail = '__USE_UPN__',
                     [string] $Department = 'JK1-3g2_1',
                     [string] $OfficeLocation = 'G2',
-                    [string] $ManagerId = 'teacher-id'
+                    [string] $ManagerId = 'teacher-id',
+                    [bool] $AccountEnabled = $true
                 )
                 [pscustomobject]@{
                     Id = $Id
@@ -74,7 +75,7 @@ Describe 'Stable student identity and directory comparison' {
                     AgeGroup = 'Minor'
                     ConsentProvidedForMinor = 'Granted'
                     LegalAgeGroupClassification = 'MinorWithParentalConsent'
-                    AccountEnabled = $true
+                    AccountEnabled = $AccountEnabled
                     UserType = 'Member'
                     TestManagerId = $ManagerId
                 }
@@ -670,6 +671,41 @@ Describe 'Stable student identity and directory comparison' {
                 $result.ChangedStudents.User.Id | Should -Be changed-id
                 $result.ExistingStudents.User.Id | Should -Be existing-id
                 ($categoryIds | Select-Object -Unique).Count | Should -Be $categoryIds.Count
+            }
+
+            It 'omits an already disabled student role member without an Excel row from departures' {
+                $active = New-TestUser -Id active-id -GivenName Alina -Surname Aktiv -UserPrincipalName aaktiv@monteaufkirchen.com
+                $disabled = New-TestUser -Id disabled-id -GivenName David -Surname Deaktiviert `
+                    -UserPrincipalName ddeaktiviert@monteaufkirchen.com -AccountEnabled:$false
+                $present = New-TestUser -Id present-id
+                $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $groups = @(Get-RequiredTestGroups)
+                $snapshot = New-TestSnapshot -Users @($active, $disabled, $present, $teacher) -RoleMemberIds @('active-id', 'disabled-id', 'present-id') -Groups $groups -DirectGroups @{ 'present-id' = @($groups) }
+
+                $result = Compare-StudentDirectory -Students @((New-TestStudent -EntraObjectId present-id)) -Snapshot $snapshot -Config $script:ComparisonTestConfig
+
+                $result.Departures | Should -HaveCount 1
+                $result.Departures[0].User.Id | Should -Be 'active-id'
+                $result.Errors | Should -BeNullOrEmpty
+            }
+
+            It 'plans reactivation when a disabled student role member has a matching Excel row' {
+                $groups = @(Get-RequiredTestGroups)
+                $disabled = New-TestUser -Id disabled-id -AccountEnabled:$false
+                $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($disabled, $teacher) -RoleMemberIds @('disabled-id') -Groups $groups `
+                    -DirectGroups @{ 'disabled-id' = @($groups) }
+
+                $result = Compare-StudentDirectory -Students @((New-TestStudent -EntraObjectId disabled-id)) `
+                    -Snapshot $snapshot -Config $script:ComparisonTestConfig
+
+                $result.Errors | Should -BeNullOrEmpty
+                $result.Departures | Should -BeNullOrEmpty
+                $result.ExistingStudents | Should -BeNullOrEmpty
+                $result.ChangedStudents | Should -HaveCount 1
+                @($result.ChangedStudents[0].Differences | Where-Object {
+                    $_.Field -eq 'AccountEnabled' -and $_.Current -eq $false -and $_.Desired -eq $true
+                }) | Should -HaveCount 1
             }
         }
 

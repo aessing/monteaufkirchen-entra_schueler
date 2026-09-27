@@ -39,6 +39,7 @@ function Invoke-SchuelerSync {
     $reportHeader = [Collections.Generic.List[string]]::new()
     if ($PSBoundParameters.ContainsKey('OutputFile')) {
         $OutputFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFile)
+        Assert-ComparisonReportPath -Path $OutputFile
     }
     try {
     $config = Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/SchuelerSync.psd1')
@@ -57,7 +58,7 @@ function Invoke-SchuelerSync {
             [void]$targets.Add($normalized)
         }
         try {
-            $null = Connect-SchuelerExchangeOnline
+            $null = Connect-SchuelerExchangeOnline -TenantId $config.ExpectedTenantId
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe und konfiguriere Exchange-Postfächer ...' -PercentComplete 35
             $batch = Wait-StudentMailbox -UserPrincipalName @($targets) -Config $config.Exchange -Configure `
                 -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
@@ -79,7 +80,7 @@ function Invoke-SchuelerSync {
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Lade Entra-Benutzer, Gruppen und Schülerrolle ...' -PercentComplete 20
             $snapshot = Get-EntraSnapshot -Config $config
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Exchange Online ...' -PercentComplete 30
-            $null = Connect-SchuelerExchangeOnline
+            $null = Connect-SchuelerExchangeOnline -TenantId $tenantId
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe verfügbare E-Mail-Adressen ...' -PercentComplete 35
             $recipients = Get-ExchangeRecipientAddress
 
@@ -194,6 +195,7 @@ function Invoke-SchuelerSync {
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Lese Excel-Datei ...' -PercentComplete 5
             $File = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($File)
             $workbook = Read-StudentWorkbook -Path $File
+            if (@($workbook.Students).Count -eq 0) { throw 'Leere Schülerliste ist kein gültiger Abgleich.' }
             foreach ($student in $workbook.Students) {
                 $password = [string](Get-ComparisonPropertyValue $student Password)
                 if ($password) { [void]$secrets.Add($password) }
@@ -209,7 +211,7 @@ function Invoke-SchuelerSync {
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Lade Entra-Benutzer, Gruppen und Schülerrolle ...' -PercentComplete 15
             $snapshot = Get-EntraSnapshot -Config $config
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Exchange Online ...' -PercentComplete 30
-            $null = Connect-SchuelerExchangeOnline
+            $null = Connect-SchuelerExchangeOnline -TenantId $tenantId
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Lade Exchange-Empfängeradressen ...' -PercentComplete 35
             $recipients = Get-ExchangeRecipientAddress
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Vergleiche Schülerdaten ...' -PercentComplete 40
@@ -337,4 +339,4 @@ function Invoke-SchuelerSync {
     }
 }
 
-Export-ModuleMember -Function Invoke-SchuelerSync
+Export-ModuleMember -Function Invoke-SchuelerSync, Invoke-LehrerSync, Invoke-DisabledAccountCheck, Invoke-DisabledAccountTui

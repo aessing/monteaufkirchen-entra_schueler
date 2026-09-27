@@ -76,6 +76,7 @@ $RECYCLE.BIN/
 # Custom workbooks can also live in subdirectories or use uppercase extensions.
 *.[xX][lL][sS][xX]
 !tests/fixtures/Schueler-Testdaten.xlsx
+!tests/fixtures/Lehrer-Testdaten.xlsx
 # Recommended destination for reports containing personal student data.
 /Berichte/
 # Common root-level report name used during manual comparisons.

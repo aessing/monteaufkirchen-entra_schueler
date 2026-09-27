@@ -186,7 +186,7 @@ Describe 'Exchange Online student mailbox adapter' {
             It 'reuses an active Exchange Online connection' {
                 [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
                     Name = 'ExchangeOnline'
-                    State = 'Connected'
+                    State = 'Connected'; TenantID = 'tenant-test'
                 })
 
                 $connection = Connect-SchuelerExchangeOnline
@@ -199,7 +199,7 @@ Describe 'Exchange Online student mailbox adapter' {
                 [void]$global:ExchangeTestState.Connections.Enqueue(@())
                 [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
                     Name = 'ExchangeOnline'
-                    State = 'Connected'
+                    State = 'Connected'; TenantID = 'tenant-test'
                 })
 
                 Connect-SchuelerExchangeOnline | Should -Not -BeNullOrEmpty
@@ -213,13 +213,13 @@ Describe 'Exchange Online student mailbox adapter' {
             It 'does not reuse an Exchange Online Protection compliance session' {
                 [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
                     Name = 'ExchangeOnline'
-                    State = 'Connected'
+                    State = 'Connected'; TenantID = 'tenant-test'
                     IsEopSession = $true
                     ConnectionUri = 'https://ps.compliance.protection.outlook.com/powershell-liveid/'
                 })
                 [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
                     Name = 'ExchangeOnline'
-                    State = 'Connected'
+                    State = 'Connected'; TenantID = 'tenant-test'
                     IsEopSession = $false
                     ConnectionUri = 'https://outlook.office365.com/powershell-liveid/'
                 })
@@ -685,6 +685,18 @@ Describe 'Exchange Online student mailbox adapter' {
                 Should -Invoke Get-StudentMailboxState -Times 2 -Exactly
             }
 
+            It 'does not configure an existing student mailbox without Exchange differences' {
+                $upn = 'ready@school.example'
+                $global:ExchangeTestState.AvailabilityAt[$upn] = 1
+                Mock Set-StudentMailboxConfiguration -ModuleName SchuelerSync { throw 'No Exchange change is required.' }
+
+                $result = Wait-StudentMailbox -UserPrincipalName $upn -Config $global:ExchangeTestConfig -Configure -Confirm:$false
+
+                $result.Ready.Count | Should -Be 1
+                $result.Ready[0].Configuration.Status | Should -Be 'Compliant'
+                Should -Invoke Set-StudentMailboxConfiguration -Times 0 -Exactly
+            }
+
             It 'stops after one immediate attempt plus five retries' {
                 $upn = 'missing@school.example'
                 $global:ExchangeTestState.AvailabilityAt[$upn] = 99
@@ -724,6 +736,10 @@ Describe 'Exchange Online student mailbox adapter' {
             It 'reports a configuration failure without retrying it as mailbox availability' {
                 $upn = 'ready@school.example'
                 $global:ExchangeTestState.AvailabilityAt[$upn] = 1
+                Mock Get-StudentMailboxState -ModuleName SchuelerSync {
+                    [pscustomobject]@{ UserPrincipalName = $UserPrincipalName; Exists = $true; Status = 'Ready'
+                        Differences = @([pscustomobject]@{ Field = 'RetentionPolicy' }) }
+                }
                 Mock Set-StudentMailboxConfiguration -ModuleName SchuelerSync {
                     [pscustomobject]@{
                         UserPrincipalName = $UserPrincipalName

@@ -7,6 +7,7 @@
 )
 
 $script:ManagedStudentHeaders = @('Passwort', 'EntraObjectId', 'UPN', 'Mail')
+$script:MandatoryTeacherHeaders = @('Name mit Rufname', 'Vorname', 'Nachname', 'Job')
 
 function ConvertTo-WorkbookCellText {
     param([AllowNull()][object] $Value)
@@ -36,10 +37,10 @@ function Resolve-StudentWorkbookPath {
     param([Parameter(Mandatory)][string] $Path)
 
     if ([IO.Path]::GetExtension($Path) -ine '.xlsx') {
-        throw "Die Schülerdatei muss die Erweiterung .xlsx haben: '$Path'."
+        throw "Die Excel-Datei muss die Erweiterung .xlsx haben: '$Path'."
     }
     if (-not [IO.File]::Exists($Path)) {
-        throw "Die Schülerdatei existiert nicht oder ist keine Datei: '$Path'."
+        throw "Die Excel-Datei existiert nicht oder ist keine Datei: '$Path'."
     }
 
     return [IO.Path]::GetFullPath($Path)
@@ -61,18 +62,32 @@ function Open-StudentWorkbookPackage {
 }
 
 function Read-StudentWorkbook {
-    param([Parameter(Mandatory)][string] $Path)
+    param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student')
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
+    $teacherConfig = if ($Kind -eq 'Teacher') {
+        Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/LehrerSync.psd1')
+    } else { $null }
     $sourceHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256 -ErrorAction Stop).Hash
     $package = $null
     try {
         $package = Open-StudentWorkbookPackage -Path $resolvedPath
         $candidates = @()
+        $mandatoryHeaders = if ($Kind -eq 'Teacher') { $script:MandatoryTeacherHeaders } else { $script:MandatoryStudentHeaders }
         foreach ($worksheet in $package.Workbook.Worksheets) {
             $headers = Get-WorksheetHeaderMap -Worksheet $worksheet
+            if ($Kind -eq 'Teacher' -and $null -ne $worksheet.Dimension) {
+                foreach ($mandatory in $mandatoryHeaders) {
+                    $count = 0
+                    for ($column = 1; $column -le $worksheet.Dimension.End.Column; $column++) {
+                        if ([string]::Equals((ConvertTo-WorkbookCellText $worksheet.Cells[1, $column].Value), $mandatory,
+                                [StringComparison]::OrdinalIgnoreCase)) { $count++ }
+                    }
+                    if ($count -gt 1) { throw "Doppelte Pflichtüberschrift '$mandatory' in Arbeitsblatt '$($worksheet.Name)'." }
+                }
+            }
             $hasRequiredHeaders = $true
-            foreach ($requiredHeader in $script:MandatoryStudentHeaders) {
+            foreach ($requiredHeader in $mandatoryHeaders) {
                 if (-not $headers.ContainsKey($requiredHeader)) {
                     $hasRequiredHeaders = $false
                     break
@@ -87,10 +102,12 @@ function Read-StudentWorkbook {
         }
 
         if ($candidates.Count -eq 0) {
-            throw 'Keine Arbeitsmappe enthält alle fünf Pflichtspalten für Schülerdaten.'
+            if ($Kind -eq 'Student') { throw 'Keine Arbeitsmappe enthält alle fünf Pflichtspalten für Schülerdaten.' }
+            throw 'Kein Arbeitsblatt enthält alle vier Pflichtspalten für Personaldaten.'
         }
         if ($candidates.Count -gt 1) {
-            throw 'Mehrere Arbeitsblätter enthalten alle fünf Pflichtspalten für Schülerdaten.'
+            if ($Kind -eq 'Student') { throw 'Mehrere Arbeitsblätter enthalten alle fünf Pflichtspalten für Schülerdaten.' }
+            throw 'Mehrere Arbeitsblätter enthalten alle vier Pflichtspalten für Personaldaten.'
         }
 
         $candidate = $candidates[0]
@@ -100,18 +117,24 @@ function Read-StudentWorkbook {
         $lastRow = if ($null -eq $worksheet.Dimension) { 1 } else { $worksheet.Dimension.End.Row }
         for ($row = 2; $row -le $lastRow; $row++) {
             $values = @{}
-            foreach ($requiredHeader in $script:MandatoryStudentHeaders) {
+            foreach ($requiredHeader in $mandatoryHeaders) {
                 $values[$requiredHeader] = ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers[$requiredHeader]].Value
             }
             $filledCount = @($values.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
             if ($filledCount -eq 0) {
                 continue
             }
-            if ($filledCount -ne $script:MandatoryStudentHeaders.Count) {
-                throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
+            if ($filledCount -ne $mandatoryHeaders.Count) {
+                if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
+                throw "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
             }
 
-            $students += [pscustomobject]@{
+            if ($Kind -eq 'Teacher') {
+                try { $job = (Get-LehrerProfile -Job $values['Job'] -Config $teacherConfig).Job }
+                catch { throw "Ungültiger Job '$($values['Job'])' in Zeile $row. $($_.Exception.Message)" }
+            }
+
+            $record = [ordered]@{
                 RowNumber = $row
                 NameMitRufname = $values['Name mit Rufname']
                 GivenName = $values['Vorname']
@@ -131,6 +154,8 @@ function Read-StudentWorkbook {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Mail']].Value
                 } else { '' }
             }
+            if ($Kind -eq 'Teacher') { $record.Job = $job }
+            $students += [pscustomobject]$record
         }
 
         Assert-StudentWorkbookVersion -Path $resolvedPath -ExpectedSourceHash $sourceHash
@@ -155,7 +180,7 @@ function Assert-StudentWorkbookVersion {
     )
     $currentHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash
     if ($currentHash -cne $ExpectedSourceHash) {
-        throw 'Die Schülerdatei wurde seit der Vorprüfung verändert. Abbruch ohne Rückschreibung. Vergleich erneut starten.'
+        throw 'Die Excel-Datei wurde seit der Vorprüfung verändert. Abbruch ohne Rückschreibung. Vergleich erneut starten.'
     }
 }
 
@@ -167,6 +192,8 @@ function Get-WorkbookGitRoot {
     }
 
     $directory = Split-Path -Parent $Path
+    while ($directory -and -not (Test-Path -LiteralPath $directory -PathType Container)) { $directory = Split-Path -Parent $directory }
+    if (-not $directory) { throw 'Zielverzeichnis konnte nicht geprüft werden.' }
     $gitRoot = & git -C $directory rev-parse --show-toplevel 2>$null
     if ($LASTEXITCODE -ne 0) {
         return $null
@@ -177,7 +204,8 @@ function Get-WorkbookGitRoot {
 function Assert-WorkbookSafeForPasswordWrite {
     param(
         [Parameter(Mandatory)][string] $Path,
-        [switch] $SkipGitSafetyCheck
+        [switch] $SkipGitSafetyCheck,
+        [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student'
     )
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
@@ -190,7 +218,8 @@ function Assert-WorkbookSafeForPasswordWrite {
             [IO.FileShare]::None
         )
     } catch {
-        throw "Die Schülerdatei ist gesperrt oder nicht schreibbar: '$resolvedPath'."
+        $label = if ($Kind -eq 'Teacher') { 'Lehrerdatei' } else { 'Schülerdatei' }
+        throw "Die $label ist gesperrt oder nicht schreibbar: '$resolvedPath'."
     } finally {
         if ($null -ne $lockHandle) {
             $lockHandle.Dispose()
@@ -202,7 +231,7 @@ function Assert-WorkbookSafeForPasswordWrite {
 }
 
 function Assert-WorkbookArtifactGitSafety {
-    param([Parameter(Mandatory)][string] $Path)
+    param([Parameter(Mandatory)][string] $Path, [string] $Label = 'vertrauliche Excel-Datei')
 
     # Generated paths do not exist yet. Check each concrete destination rather
     # than assuming the source file's ignore rule also covers its sibling files.
@@ -220,14 +249,14 @@ function Assert-WorkbookArtifactGitSafety {
 
     $null = & git --literal-pathspecs -C $gitRoot ls-files --error-unmatch -- $relativePath 2>$null
     if ($LASTEXITCODE -eq 0) {
-        throw "Die vertrauliche Excel-Datei innerhalb des Git-Worktrees darf nicht versioniert sein: '$relativePath'."
+        throw "Die $Label innerhalb des Git-Worktrees darf nicht versioniert sein: '$relativePath'."
     }
     if ($LASTEXITCODE -ne 1) {
-        throw "Git konnte den Versionsstatus der vertraulichen Excel-Datei nicht prüfen: '$relativePath'."
+        throw "Git konnte den Versionsstatus der Datei nicht prüfen: '$relativePath'."
     }
     & git -C $gitRoot check-ignore -q -- $relativePath
     if ($LASTEXITCODE -ne 0) {
-        throw "Die vertrauliche Excel-Datei innerhalb des Git-Worktrees muss ignoriert sein: '$relativePath'."
+        throw "Die $Label innerhalb des Git-Worktrees muss ignoriert sein: '$relativePath'."
     }
 }
 
@@ -263,11 +292,12 @@ function Write-StudentWorkbookUpdate {
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][object[]] $Updates,
         [string] $ExpectedSourceHash,
-        [switch] $SkipGitSafetyCheck
+        [switch] $SkipGitSafetyCheck,
+        [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student'
     )
 
-    if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and safely commit student workbook updates')) { return }
-    $context = Read-StudentWorkbook -Path $Path
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and safely commit workbook updates')) { return }
+    $context = Read-StudentWorkbook -Path $Path -Kind $Kind
     if ([string]::IsNullOrWhiteSpace($ExpectedSourceHash)) { $ExpectedSourceHash = $context.SourceHash }
     Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
     $updatesByRow = @{}
@@ -281,7 +311,7 @@ function Write-StudentWorkbookUpdate {
             throw "Mehrere Excel-Rückschreibungen für Zeile $rowNumber sind nicht zulässig."
         }
         if ($null -eq ($context.Students | Where-Object RowNumber -eq $rowNumber)) {
-            throw "Excel-Rückschreibung verweist auf keine gültige Schülerzeile: $rowNumber."
+            throw "Excel-Rückschreibung verweist auf keine gültige Datenzeile: $rowNumber."
         }
         $updatesByRow[$rowNumber] = [pscustomobject]@{
             RowNumber = $rowNumber
@@ -294,7 +324,7 @@ function Write-StudentWorkbookUpdate {
         }
     }
 
-    Assert-WorkbookSafeForPasswordWrite -Path $context.Path -SkipGitSafetyCheck:$SkipGitSafetyCheck
+    Assert-WorkbookSafeForPasswordWrite -Path $context.Path -SkipGitSafetyCheck:$SkipGitSafetyCheck -Kind $Kind
 
     $directory = Split-Path -Parent $context.Path
     $baseName = [IO.Path]::GetFileNameWithoutExtension($context.Path)
@@ -351,7 +381,7 @@ function Write-StudentWorkbookUpdate {
             $verificationHeaders = Get-WorksheetHeaderMap -Worksheet $verificationWorksheet
             foreach ($managedHeader in $script:ManagedStudentHeaders) {
                 if (-not $verificationHeaders.ContainsKey($managedHeader)) {
-                    throw "Temporäre Schülerdatei enthält die verwaltete Spalte '$managedHeader' nicht."
+                    throw "Temporäre Excel-Datei enthält die verwaltete Spalte '$managedHeader' nicht."
                 }
             }
             foreach ($update in $updatesByRow.Values) {
@@ -359,12 +389,12 @@ function Write-StudentWorkbookUpdate {
                 $storedUpn = ConvertTo-WorkbookCellText $verificationWorksheet.Cells[$update.RowNumber, $verificationHeaders['UPN']].Value
                 $storedMail = ConvertTo-WorkbookCellText $verificationWorksheet.Cells[$update.RowNumber, $verificationHeaders['Mail']].Value
                 if ($storedObjectId -ne $update.EntraObjectId -or $storedUpn -ne $update.UPN -or $storedMail -ne $update.Mail) {
-                    throw "Temporäre Schülerdatei konnte die Entra-Daten für Zeile $($update.RowNumber) nicht verifizieren."
+                    throw "Temporäre Excel-Datei konnte die Entra-Daten für Zeile $($update.RowNumber) nicht verifizieren."
                 }
                 if (-not [string]::IsNullOrWhiteSpace($update.Password)) {
                     $storedPassword = ConvertTo-WorkbookCellText $verificationWorksheet.Cells[$update.RowNumber, $verificationHeaders['Passwort']].Value
                     if ($storedPassword -ne $update.Password) {
-                        throw "Temporäre Schülerdatei konnte das Passwort für Zeile $($update.RowNumber) nicht verifizieren."
+                        throw "Temporäre Excel-Datei konnte das Passwort für Zeile $($update.RowNumber) nicht verifizieren."
                     }
                 }
             }

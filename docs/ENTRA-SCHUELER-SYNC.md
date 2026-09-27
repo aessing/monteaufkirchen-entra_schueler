@@ -1,5 +1,7 @@
 # Entra-Schülersynchronisation
 
+Für den Personalabgleich ab Version 0.2.0 siehe [ENTRA-LEHRER-SYNC.md](ENTRA-LEHRER-SYNC.md).
+
 Diese Dokumentation beschreibt den fachlichen Vertrag und die tatsächlich implementierte Kommandozeile. [BETRIEB.md](BETRIEB.md) führt durch einen sicheren Lauf. [TESTING.md](TESTING.md) enthält die Abnahme in der Windows-Parallels-VM.
 
 ## Zweck und Grenzen
@@ -12,7 +14,7 @@ Der reine Exchange-Modus liest keine Excel-Datei und ändert weder Entra-Benutze
 
 Unterstützt wird PowerShell 7.0 oder neuer auf Windows und macOS. Das Modulmanifest fordert mindestens PowerShell 7.0. Die automatisierte Suite kann auf beiden Plattformen laufen. Windows-spezifisches Dateisperrverhalten und produktive Mandantenschreibläufe werden zusätzlich in einer Windows-Parallels-VM abgenommen.
 
-Die Abhängigkeiten sind nicht auf feste Versionen gepinnt. Installiere aktuelle, vom jeweiligen Hersteller unterstützte Versionen und dokumentiere die tatsächlich getesteten Versionen vor dem produktiven Einsatz.
+Die produktiven Laufzeitmodule sind nicht auf feste Versionen gepinnt. Dokumentiere die tatsächlich getesteten Versionen vor dem produktiven Einsatz. Der CI-Workflow legt die Versionen seiner Testabhängigkeiten ausdrücklich fest, siehe [TESTING.md](TESTING.md#lokale-gesamtprüfung-und-ci). Git muss für die Prüfung vertraulicher Berichtspfade verfügbar sein.
 
 | Zweck | Modul |
 |---|---|
@@ -97,7 +99,7 @@ Für jede nicht vollständig leere Datenzeile müssen alle fünf Pflichtfelder g
 
 ### Git- und Dateischutz
 
-Die Root-`.gitignore` enthält `/*.xlsx` und zusätzlich `*.[xX][lL][sS][xX]` für Root und Unterordner, unabhängig von der Großschreibung der Dateiendung. Nur `tests/fixtures/Schueler-Testdaten.xlsx` ist als synthetische Fixture ausgenommen. Sicherungen und temporäre XLSX-Dateien bleiben durch zusätzliche Muster ausgeschlossen. Der empfohlene Ordner `Berichte` und der häufig verwendete Rootbericht `output.txt` sind ebenfalls ausgeschlossen.
+Die Root-`.gitignore` enthält `/*.xlsx` und zusätzlich `*.[xX][lL][sS][xX]` für Root und Unterordner, unabhängig von der Großschreibung der Dateiendung. Nur `tests/fixtures/Schueler-Testdaten.xlsx` und `tests/fixtures/Lehrer-Testdaten.xlsx` sind als synthetische Fixtures ausgenommen. Sicherungen und temporäre XLSX-Dateien bleiben durch zusätzliche Muster ausgeschlossen. Der empfohlene Ordner `Berichte` und der häufig verwendete Rootbericht `output.txt` sind ebenfalls ausgeschlossen.
 
 Vor einer Rückschreibung prüft das Skript die Schreibbarkeit und eine exklusive Dateisperre. Innerhalb eines Git-Worktrees müssen die Quelldatei, der konkret gewählte Sicherungspfad und der temporäre Zielpfad jeweils ignoriert und unverfolgt sein. Alle drei Prüfungen erfolgen vor der ersten vertraulichen Kopie. Eine Ignore-Regel nur für die Quelle reicht nicht aus, auch in einem fremden Repository mit eigener `.gitignore`. Das gilt ebenso für eine mit `-File` gewählte Datei in einem Unterordner. Dateien außerhalb eines Git-Repositories benötigen diese Git-Prüfung nicht, müssen aber sicher gespeichert werden.
 
@@ -197,9 +199,9 @@ Fehlende Zielgruppen werden zuerst hinzugefügt und nachgelesen. Erst nach diese
 
 ## Initialpasswörter
 
-Ein Initialpasswort entsteht ausschließlich für einen Neuzugang. Es besteht aus zwei kindgerechten CamelCase-Wörtern mit zusammen genau zehn ASCII-Buchstaben und zwei kryptografisch zufälligen Ziffern von `10` bis `99`. Damit ist es exakt 12 Zeichen lang und enthält Großbuchstaben, Kleinbuchstaben und Ziffern. Umlaute und Sonderzeichen kommen nicht vor. Passwörter wiederholen sich innerhalb eines Laufs nicht.
+Ein Initialpasswort entsteht ausschließlich für einen Neuzugang. Es enthält genau zwölf kryptografisch zufällige Zeichen aus `ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789`. Verwechselbare Zeichen wie `I`, `O`, `l`, `0` und `1` fehlen. Jedes Passwort enthält Großbuchstaben, Kleinbuchstaben und Ziffern. Umlaute und Sonderzeichen kommen nicht vor. Passwörter wiederholen sich innerhalb eines Laufs nicht.
 
-Der kuratierte Wortschatz enthält 847 vertraute Wörter und einfache Wortformen. Daraus entstehen 220.505 verschiedene Zweiwort-Präfixe mit zehn Buchstaben. Zusammen mit 90 Zahlenwerten ergibt das vor der ersten Reservierung genau 19.845.450 mögliche Passwörter, entsprechend rund 24,24 Bit Auswahlentropie. Beide Zufallsentscheidungen verwenden `RandomNumberGenerator.GetInt32`, jedes Präfix ist gleich wahrscheinlich. Der Regressionstest berechnet den erreichbaren Raum aus den tatsächlich verwendeten Präfixen und verlangt mindestens 24 Bit. Das merkbare Format ist keine Folge aus zwölf unabhängig zufälligen Zeichen und bietet nicht deren Entropie.
+Die Auswahl verwendet für jede Position `RandomNumberGenerator.GetInt32`. Kandidaten ohne alle drei Zeichenklassen werden verworfen. Der verbleibende Auswahlraum bietet mehr als 64 Bit statt der rund 24,24 Bit des früheren Zweiwortformats. Der Regressionstest berechnet den Raum aus dem tatsächlich verwendeten Zeichensatz. Bestehende Passwörter werden nicht umgestellt.
 
 Das Passwortprofil setzt `ForceChangePasswordNextSignIn = false`. Lehnt Entra das Passwort eindeutig wegen der Passwort-Richtlinie ab, werden höchstens fünf neue Passwörter versucht. Einschließlich Erstversuch sind das maximal sechs Versuche. Andere Graph-Fehler werden nicht als Passwortfehler wiederholt.
 
@@ -207,18 +209,32 @@ Im Excel-basierten Modus erscheinen Passwörter nicht in der Ausgabe, also weder
 
 Im manuellen `-Add`-Modus gibt es keine Excel-Rückschreibung. Bei einer echten Neuanlage zeigt das Skript das Startpasswort genau einmal im Terminal an. Im Erfolgsfall geschieht dies nach verifizierter Aktivierung. Scheitert ein Schritt nach der Kontoerstellung, wird das Passwort für den sicheren Wiederanlauf ebenfalls einmal angezeigt und der Kontostatus ausdrücklich als unbekannt gemeldet. Das Passwort erscheint nicht im Ergebnisobjekt und nicht in `-OutputFile`. Bei einem bereits vorhandenen Schüler wird kein Passwort erzeugt oder angezeigt. Verwende für eine manuelle Neuanlage kein PowerShell-Transcript und kopiere das Passwort unmittelbar in einen geeigneten geschützten Kanal.
 
+## Schutz vor unbeabsichtigten Änderungen
+
+Eine leere Schülerliste wird vor dem Verbindungsaufbau abgewiesen. Der Vergleich erzeugt daraus keine Abgänge. Auch nichtleere Teillisten eignen sich nicht für einen vollständigen Update-Lauf, da fehlende aktive Schüler weiterhin als Abgänge gelten.
+
+Vor Änderungen an Bestandskonten und vor jeder Abgangsaktion liest das Skript die direkte Schülerrollenmitgliedschaft erneut. Fehlt sie inzwischen, wird die Aktion als Fehler gemeldet. Die Exchange-Verbindung muss bei kombinierten Läufen zum Graph-Mandanten gehören. Der reine Schüler-Exchange-Reparaturmodus benötigt weiterhin keine Graph-Verbindung, prüft aber die eindeutige Exchange-Verbindung und gegebenenfalls `ExpectedTenantId`.
+
+`-OutputFile` benötigt eine neue `.txt`-Datei. Bereits vorhandene Ziele, Links und innerhalb eines Git-Repositories nicht ignorierte Pfade werden vor Kontoaktionen abgewiesen. Unter `-WhatIf` wird keine Berichtsdatei geschrieben. Für neue Berichte empfiehlt sich ein Zeitstempel im Dateinamen unter `Berichte/`.
+
 ## Vergleichsausgabe
+
+Im Terminal stehen Leerzeilen zwischen den Bereichen. Die Überschriften sind farbig. Ein Bericht mit `-OutputFile` enthält dieselben Abstände ohne Farbcodes.
 
 Jeder Lauf erzeugt diese Bereiche:
 
 - `Neuzugänge`, nur in Excel
-- `Abgänge`, nur in der Schüler-Rollengruppe
+- `Abgänge`, aktive Mitglieder der Schüler-Rollengruppe ohne Excel-Zeile
 - `Änderungen`, in beiden Quellen und mit feldgenauer Abweichung
 - `Bestehende`, in beiden Quellen und ohne Abweichung
 - `Warnungen und Fehler`, etwa Kollisionen, Manager-, Gruppen- oder Postfachprobleme
 - `Aktionsergebnisse`, nur relevant für Update und Exchange-Reparatur
 
 Ein fehlendes Postfach wird im Vergleich nur einmal geprüft. Es erscheint als `EXO-Konfiguration ausstehend`. Der reine Vergleich wartet nicht und schreibt nichts.
+
+Bei einem vollständigen `-Update` prüft das Skript Exchange für bestehende Schüler erneut. Ein bereits konformes Postfach wird ohne Bestätigungsfrage als `Compliant` gemeldet. Eine Bestätigung erscheint nur, wenn die aktuelle Prüfung eine Abweichung findet.
+
+Bereits deaktivierte Schülerkonten ohne Excel-Zeile erscheinen nicht erneut als Abgänge. Passt ein deaktiviertes Konto eindeutig zu einer Excel-Zeile, zeigt der Vergleich `AccountEnabled: False → True` unter „Änderungen“. Ein autorisierter Lauf mit `-UpdateUsers` aktiviert es erst nach erfolgreicher Prüfung von Datei, Attributen, Manager und Gruppen. Es wird kein neues Konto und kein neues Passwort angelegt.
 
 ## Parameter und Modi
 
@@ -239,7 +255,7 @@ Ein fehlendes Postfach wird im Vergleich nur einmal geprüft. Es erscheint als `
 `-Update` ohne Selektor führt in dieser Reihenfolge aus:
 
 1. Neuzugänge erstellen
-2. Änderungen aktiver Schüler anwenden
+2. Änderungen und nötige Reaktivierungen gelisteter Schüler anwenden
 3. Abgänge deaktivieren
 4. Sitzungen der Abgänge widerrufen
 5. Gruppen aktiver Schüler normalisieren
@@ -294,13 +310,13 @@ Sobald mindestens einer der folgenden Schalter angegeben wird, führt das Skript
 
 `-Remove` akzeptiert genau einen UPN und liest keine Excel-Datei. Der gefundene Benutzer muss direktes Mitglied von `SEC-A-ROL-Schule_Schüler` sein. Das Skript deaktiviert ausschließlich dieses Konto und widerruft anschließend dessen Sitzungen. Es löscht den Benutzer nicht und entfernt weder Gruppen noch Lizenzen. Auch wenn die Deaktivierung fehlschlägt, versucht es den Sitzungswiderruf und meldet beide Ergebnisse getrennt.
 
-`-OutputFile <Pfad>` schreibt den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Relative Pfade beziehen sich auf das aktuelle PowerShell-Arbeitsverzeichnis. Fehlende Unterordner werden angelegt und eine vorhandene Datei wird für jeden Lauf ersetzt. Der Parameter funktioniert im Vergleichs-, Update-, Add-, Remove- und Exchange-Only-Modus. Die laufend aktualisierte Fortschrittsanzeige bleibt ausschließlich im Terminal. Verwende bevorzugt den per `.gitignore` ausgeschlossenen Ordner `Berichte`, da der Bericht personenbezogene Schülerdaten enthält.
+`-OutputFile <Pfad>` schreibt den vollständigen, passwortfreien Laufbericht zusätzlich als UTF-8-Textdatei. Relative Pfade beziehen sich auf das aktuelle PowerShell-Arbeitsverzeichnis. Das Ziel muss eine neue `.txt`-Datei sein. Fehlende Unterordner werden erst beim autorisierten Schreiben angelegt. Bestehende Dateien sowie symbolische Links im Ziel oder seinen Elternordnern werden abgewiesen. Innerhalb eines Git-Repositories muss das Ziel ignoriert und unverfolgt sein. Git wird für diese Prüfung benötigt. Unter `-WhatIf` entsteht keine Berichtsdatei. Der Parameter funktioniert im Vergleichs-, Update-, Add-, Remove- und Exchange-Only-Modus. Die laufend aktualisierte Fortschrittsanzeige bleibt ausschließlich im Terminal. Verwende bevorzugt den per `.gitignore` ausgeschlossenen Ordner `Berichte`, da der Bericht personenbezogene Schülerdaten enthält.
 
 Bestehende Entra-Benutzer behalten ihren aktuellen UPN auch dann, wenn sich Vorname oder Nachname in Excel ändern. Mail und `mailNickname` werden für den Sollvergleich aus diesem bestehenden UPN abgeleitet. Nur bei Neuzugängen erzeugt das Skript einen neuen kollisionsfreien UPN.
 
 ### Gemeinsame PowerShell-Schalter
 
-`-WhatIf` führt keine Graph-, Excel- oder Exchange-Schreiboperation aus. Für Exchange erfolgt nur die sofortige Verfügbarkeitsprüfung, ohne Wartezeit. `-Confirm` aktiviert die üblichen PowerShell-Rückfragen. `-Verbose` aktiviert die üblichen ausführlichen Meldungen.
+`-WhatIf` führt keine Graph-, Excel- oder Exchange-Schreiboperation aus und schreibt keinen Bericht. Für Exchange erfolgt nur die sofortige Verfügbarkeitsprüfung, ohne Wartezeit. `-Confirm` aktiviert die üblichen PowerShell-Rückfragen. `-Verbose` aktiviert die üblichen ausführlichen Meldungen.
 
 ## Fail-safe-Lebenszyklus eines Neuzugangs
 
@@ -375,7 +391,7 @@ Bleibt ein Postfach ausstehend, enthält das Ergebnis einen Wiederanlaufbefehl:
 
 - Verwende nur erfundene Personen in Repository-Tests.
 - Speichere produktive Arbeitsmappen nur in einem geschützten lokalen Ordner.
-- Versioniere keine produktive XLSX-Datei, auch nicht aus Unterordnern. Nur die benannte synthetische Fixture ist von den XLSX-Ignore-Regeln ausgenommen.
+- Versioniere keine produktive XLSX-Datei, auch nicht aus Unterordnern. Nur die beiden benannten synthetischen Fixtures sind von den XLSX-Ignore-Regeln ausgenommen.
 - Sichere Arbeitsmappen und Backups nach denselben Regeln wie Passwörter.
 - Aktiviere für diesen Lauf kein Transcript, wenn dessen Zugriffsschutz nicht geprüft ist.
 - Das Skript redigiert bekannte Passwortwerte aus öffentlichen Ergebnissen. Behandle Fehlermeldungen trotzdem als personenbezogene Betriebsdaten.
