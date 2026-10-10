@@ -1,5 +1,20 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Personaländerungen trotz geschützter Adminzeilen, 10. Oktober 2026
+
+Ein Gesamtexport konnte im lesenden Vergleich viele zulässige Änderungen anzeigen, beim Update jedoch vor allen Mutationen an `Externe Admins` abbrechen. Ursache war die strikt abgewiesene Adminjob-Zeile vor dem eigentlichen Update. Eindeutig anhand von Objekt-ID oder UPN identifizierte Konten mit bestätigter geschützter Gruppen- oder Verzeichnisrollenmitgliedschaft werden jetzt auch bei Update einschließlich WhatIf als `Workbook.Review` übersprungen. Die Bestätigung verwendet Entra-Mitgliedschaften und den vollständigen Schutzkontext. Gültige Personaländerungen werden anschließend verarbeitet, Adminkonten bleiben unverändert. Ein Adminjob allein, unbekannte oder widersprüchliche Identitäten begründen keine Ausnahme. Reine Gast-/Adminkonto-Dateien erzeugen keine Abgänge interner Konten.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Drei Updatefälle mit Adminidentität über Objekt-ID, UPN und beide Werte vor Umsetzung fehlgeschlagen. Nach Korrektur bestanden die Updatefälle. Insgesamt elf gezielte Admin-/Update-Regressionen bestanden |
+| Synthetisches Update | Graph-Schreibparameter für den Jobtitel des zulässigen Kontos geprüft, Adminkonto ohne Mutation. Anschließender Vergleich zeigt keine erneute Änderung des zulässigen Kontos |
+| Native Excel und Identität | ExterneAdmins, GlobalAdministrators und Verzeichnisrollen geprüft. Ungeschützte Konten mit Adminjob sowie unbekannte oder widersprüchliche Identitäten behalten die strikte Validierung, Quelldateihashes bleiben unverändert |
+| Tatsächlicher Skriptaufruf | Export mit zulässigem Konto und externem Admin, anschließender Compare und Update-WhatIf mit eingeplanter Jobtiteländerung und übersprungener Adminzeile geprüft. Gesamtexport mit zusätzlich unvollständigem rollenlosem Konto bleibt bei Update gesperrt |
+| Gesamtprüfung | 691 Tests erkannt, 690 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Ein erster Gesamtlauf scheiterte an einer alten Erwartung für den Adminhinweistext. Er lieferte 689 bestandene Tests, einen fehlgeschlagenen Test und einen übersprungenen Windows-Test. Der Hinweistext wird jetzt als übersprungenes Administratorkonto geprüft, der erneut ausgeführte betroffene CLI-Test bestand. Alle Fernbefehle wurden synthetisch ersetzt. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
 ## Ergänzung 0.3.0: Gäste ohne Pflichtdatenwarnungen im Personalabgleich, 10. Oktober 2026
 
 Der Personalabgleich erkennt Gäste vor der Excel-Pflichtdatenprüfung anhand des Entra-Kontotyps `Guest` und einer eindeutigen Objekt-ID oder UPN. Sind beide Werte angegeben, müssen sie dasselbe Konto identifizieren. Compare und Update einschließlich WhatIf überspringen diese Zeilen ohne Warnung oder Fehler zu unvollständigen Namen und Jobs. Gäste bleiben in Liste und Export enthalten, erhalten keine Import-Prüfwarnung und erzeugen keine Profiländerungen, Neuanlagen oder Abgänge. Eine Datei ausschließlich mit Gastzeilen löst keine Abgänge interner Konten aus. Interne, unbekannte und widersprüchliche Identitäten behalten die Datenprüfung. Gastaktionen und ihre Schutzprüfungen in der TUI sowie der Ausschluss aus der Einzelpflege bleiben erhalten.

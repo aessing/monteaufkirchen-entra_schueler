@@ -504,6 +504,51 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             Should -Invoke New-MgUser -Exactly 0
             Should -Invoke Remove-MgUser -Exactly 0
         }
+        It 'updates valid personnel while skipping protected admins identified by <Identity>' -ForEach @(
+            @{Identity='Id'},@{Identity='Upn'},@{Identity='Both'}
+        ) {
+            $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            $script:PersonalUsers[$id].JobTitle='Schule_Sekretariat'
+            $admin=New-PersonalSyntheticUser -Id 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            $admin.GivenName='Eva'; $admin.Surname='Adminwald'; $admin.DisplayName='Eva Adminwald'
+            $admin.UserPrincipalName='admin@example.invalid'; $admin.JobTitle='ExterneAdmins'
+            $script:PersonalUsers[$admin.Id]=$admin
+            $script:PersonalMemberships[$admin.Id]=@($script:PersonalConfig.Roles.ExterneAdmins.Id)
+            $adminPerson=New-PersonalSyntheticPerson -Job 'Externe Admins' -Id $admin.Id
+            $adminPerson.GivenName='Eva'; $adminPerson.Surname='Adminwald'; $adminPerson.NameMitRufname='Adminwald, Eva'
+            $adminPerson.EntraObjectId=if ($Identity -eq 'Upn') { '' } else { $admin.Id }
+            $adminPerson.StoredUpn=if ($Identity -eq 'Id') { '' } else { $admin.UserPrincipalName.ToUpperInvariant() }
+            $script:PersonalPeople+= $adminPerson
+            $result=Invoke-PersonalSync -File 'synthetic.xlsx' -Update -Confirm:$false
+            $result.HasErrors | Should -BeFalse -Because ($result | ConvertTo-Json -Depth 5 -Compress)
+            @($result.Comparison.ChangedPeople).Count | Should -Be 1
+            $result.Comparison.ChangedPeople[0].UserId | Should -BeExactly $id
+            @($result.Comparison.Warnings).Count | Should -Be 1
+            $result.Comparison.Warnings[0].Code | Should -BeExactly 'Workbook.Review'
+            $result.Actions | Where-Object Phase -eq Update | Select-Object -ExpandProperty Status | Should -BeExactly Succeeded
+            Should -Invoke Update-MgUser -Exactly 1 -ParameterFilter {$UserId -eq $id -and $BodyParameter.JobTitle -ceq 'Schule Sekretariat'}
+            Should -Invoke Update-MgUser -Exactly 0 -ParameterFilter {$UserId -eq $admin.Id}
+            $admin.JobTitle | Should -BeExactly ExterneAdmins
+            $script:PersonalUsers[$id].JobTitle | Should -BeExactly 'Schule Sekretariat'
+            $comparison=Compare-LehrerDirectory -People $script:PersonalPeople -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig -ReviewOnlyPersonnel
+            $comparison.Errors | Should -BeNullOrEmpty
+            $comparison.ChangedPeople | Should -BeNullOrEmpty
+            $comparison.ExistingPeople.Count | Should -Be 1
+        }
+        It 'does not derive member departures from a workbook containing only protected admins' {
+            $admin=New-PersonalSyntheticUser -Id 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            $admin.UserPrincipalName='admin@example.invalid'
+            $script:PersonalUsers[$admin.Id]=$admin
+            $script:PersonalMemberships[$admin.Id]=@($script:PersonalConfig.Roles.ExterneAdmins.Id)
+            $script:PersonalPeople=@(New-PersonalSyntheticPerson -Job 'Externe Admins' -Id $admin.Id)
+            $result=Invoke-PersonalSync -File 'synthetic.xlsx' -Update -DisableUsers -RevokeSessions -Confirm:$false
+            $result.HasErrors | Should -BeFalse
+            $result.Comparison.Departures | Should -BeNullOrEmpty
+            $result.Actions | Should -BeNullOrEmpty
+            $result.Comparison.Warnings.Count | Should -Be 1
+            Should -Invoke Update-MgUser -Exactly 0
+            Should -Invoke Revoke-EntraStudentSession -Exactly 0
+        }
         It 'does not report an explicitly identified review row as a departure' {
             $snapshot=Get-PersonalSyntheticSnapshot
             $person=New-PersonalSyntheticPerson
@@ -1071,6 +1116,26 @@ Describe 'Personal 0.3.0: actual isolated CLI processes' {
         $exportOutput | Should -Not -Match 'Exportzeile benötigt'
         (Get-FileHash $path).Hash | Should -Be $hash
     }
+    It 'previews real personnel updates despite a protected admin in the actual exported workbook' {
+        $path=Join-Path $TestDrive 'ProtectedAdmin.xlsx'
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -ProtectedFixture 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        $hash=(Get-FileHash $path).Hash
+        foreach ($mode in @('Compare','Update')) {
+            $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode $mode -File $path -ProtectedFixture 2>&1
+            $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+            $output -join "`n" | Should -Match '"HasErrors": false'
+            $output -join "`n" | Should -Match 'Geschütztes Administratorkonto, nicht abgeglichen'
+            $output -join "`n" | Should -Match 'JobTitle'
+            $output -join "`n" | Should -Not -Match 'Ungültiger Job|Remote operation forbidden'
+            if ($mode -eq 'Update') {
+                $output -join "`n" | Should -Match '"Phase": "Update"'
+                $output -join "`n" | Should -Match '"Status": "WhatIf"'
+                [regex]::Matches(($output -join "`n"),'"Phase": "Update"').Count | Should -Be 1
+            }
+        }
+        (Get-FileHash $path).Hash | Should -Be $hash
+    }
     It 'compares a complete personnel export containing protected, roleless and guest rows without aborting' {
         $path=Join-Path $TestDrive 'ReviewExport.xlsx'
         $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -ReviewFixture 2>&1
@@ -1082,7 +1147,7 @@ Describe 'Personal 0.3.0: actual isolated CLI processes' {
         $output -join "`n" | Should -Match 'Workbook.Review|Workbook.*Review'
         $output -join "`n" | Should -Match 'Bestehende \(1\)'
         [regex]::Matches(($output -join "`n"),'"Code": "Workbook.Review"').Count | Should -Be 2
-        $output -join "`n" | Should -Match 'ExterneAdmins|geschützter Personaljob'
+        $output -join "`n" | Should -Match 'Geschütztes Administratorkonto, nicht abgeglichen'
         $output -join "`n" | Should -Not -Match 'Remote operation forbidden'
         $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Update -File $path -ReviewFixture 2>&1
         $LASTEXITCODE | Should -Be 1
@@ -1268,6 +1333,35 @@ Describe 'Personal 0.3.0: real Excel export and ABP omission' {
                 }
             }
             {Read-StudentWorkbook -Path $path -Kind Teacher -PersonnelSnapshot $snapshot} | Should -Throw '*Personal*'
+            (Get-FileHash $path).Hash | Should -Be $hash
+        }
+        It 'skips only confirmed protected accounts in workbook validation for <Case>' -ForEach @(
+            @{Case='ExterneRole';Protected=$true},@{Case='GlobalAdmin';Protected=$true},@{Case='DirectoryRole';Protected=$true},
+            @{Case='Unprotected';Protected=$false},@{Case='UnknownId';Protected=$false},@{Case='Conflict';Protected=$false}
+        ) {
+            $admin=[pscustomobject]@{Id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';UserPrincipalName='admin@example.invalid';UserType='Member'}
+            $member=[pscustomobject]@{Id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';UserPrincipalName='member@example.invalid';UserType='Member'}
+            $config=Get-PersonalConfig
+            $groupId=if ($Case -eq 'ExterneRole') { $config.Roles.ExterneAdmins.Id } else { 'cccccccc-cccc-cccc-cccc-cccccccccccc' }
+            $context=[pscustomobject]@{Complete=$true;ProtectedIds=@($config.Roles.ExterneAdmins.Id,'cccccccc-cccc-cccc-cccc-cccccccccccc')}
+            $snapshot=[pscustomobject]@{UsersById=@{$admin.Id=$admin;$member.Id=$member};UsersByUpn=@{$admin.UserPrincipalName=$admin;$member.UserPrincipalName=$member};PersonalContext=$context}
+            $script:WorkbookAdminMembership=if ($Case -eq 'Unprotected') { @() } else {
+                @([pscustomobject]@{Id=$groupId;OdataType=$(if ($Case -eq 'DirectoryRole') { '#microsoft.graph.directoryRole' } else { '#microsoft.graph.group' })})
+            }
+            Mock Get-MgUserTransitiveMemberOf { $script:WorkbookAdminMembership }
+            $account=[pscustomobject]@{DisplayName='Synthetic admin';GivenName='Eva';Surname='Adminwald';Job='ExterneAdmins';UserId=$admin.Id;UPN=$admin.UserPrincipalName;Mail=''}
+            if ($Case -eq 'UnknownId') { $account.UserId='dddddddd-dddd-dddd-dddd-dddddddddddd' }
+            if ($Case -eq 'Conflict') { $account.UPN=$member.UserPrincipalName }
+            $path=Join-Path $TestDrive "Protected-$Case.xlsx"
+            $null=Export-PersonalWorkbook -Inventory ([pscustomobject]@{Accounts=@($account)}) -Path $path -Confirm:$false
+            $hash=(Get-FileHash $path).Hash
+            if ($Protected) {
+                $data=Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot
+                $data.Students.Count | Should -Be 1
+                $data.Students[0].Job | Should -BeExactly ExterneAdmins
+            } else {
+                {Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot} | Should -Throw '*geschützter Personaljob*'
+            }
             (Get-FileHash $path).Hash | Should -Be $hash
         }
         It 'reads canonical personnel jobs with the shared adapter' {

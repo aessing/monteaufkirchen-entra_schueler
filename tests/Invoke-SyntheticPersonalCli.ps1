@@ -6,7 +6,8 @@ param(
     [switch] $Preview,
     [switch] $DisabledFixture,
     [switch] $GuestFixture,
-    [switch] $ReviewFixture
+    [switch] $ReviewFixture,
+    [switch] $ProtectedFixture
 )
 # This standalone process substitutes every remote command. Connectors and writes
 # throw so an incomplete fixture cannot fall through to a real tenant.
@@ -36,14 +37,18 @@ if ($GuestFixture) { $global:PersonalCliUser.UserType='Guest'; $global:PersonalC
 $global:PersonalCliRoleIds = @($global:PersonalCliConfig.Roles.Schule_Sekretariat.Id)
 $global:PersonalCliUsers = @($global:PersonalCliUser)
 $global:PersonalCliReviewMemberships = $null
-if ($ReviewFixture) {
-    if ($Population -ne 'Personnel') { throw 'ReviewFixture ist nur für Personal vorgesehen.' }
+if ($ReviewFixture -or $ProtectedFixture) {
+    if ($Population -ne 'Personnel') { throw 'Admin-/Review-Fixtures sind nur für Personal vorgesehen.' }
+    if ($ProtectedFixture) { $global:PersonalCliUser.JobTitle='Schule_Sekretariat' }
     $global:PersonalCliReviewMemberships = @{$global:PersonalCliUser.Id=$global:PersonalCliRoleIds}
-    foreach ($definition in @(
-        @{Id='11111111-1111-1111-1111-111111111111';GivenName='Eva';Surname='Adminwald';Job='ExterneAdmins';Type='Member'},
-        @{Id='22222222-2222-2222-2222-222222222222';GivenName='';Surname='';Job='';Type='Member'},
-        @{Id='33333333-3333-3333-3333-333333333333';GivenName='';Surname='';Job='ExterneBenutzer';Type='Guest'}
-    )) {
+    $reviewDefinitions=@(@{Id='11111111-1111-1111-1111-111111111111';GivenName='Eva';Surname='Adminwald';Job='ExterneAdmins';Type='Member'})
+    if ($ReviewFixture) {
+        $reviewDefinitions+=@(
+            @{Id='22222222-2222-2222-2222-222222222222';GivenName='';Surname='';Job='';Type='Member'},
+            @{Id='33333333-3333-3333-3333-333333333333';GivenName='';Surname='';Job='ExterneBenutzer';Type='Guest'}
+        )
+    }
+    foreach ($definition in $reviewDefinitions) {
         $copy=$global:PersonalCliUser | Select-Object *
         $copy.Id=$definition.Id; $copy.GivenName=$definition.GivenName; $copy.Surname=$definition.Surname
         $copy.DisplayName="Synthetic $($definition.Id.Substring(0,4))"

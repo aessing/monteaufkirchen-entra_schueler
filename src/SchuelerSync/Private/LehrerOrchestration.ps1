@@ -243,7 +243,7 @@ function Invoke-PersonnelSyncCore {
             $snapshot | Add-Member -NotePropertyMembers @{ PersonalContext = $config.SafetyContext; ManagedRoleIds = $managedRoleIds; RecipientIndex = $recipientIndex }
         }
         if ($Personnel -and $mode -in @('Compare','Update')) {
-            Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe Excel-Datei und Gastkonten ...' -PercentComplete 25
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe Excel-Datei und geschützte Konten ...' -PercentComplete 25
             $workbook = Read-StudentWorkbook -Path $File -Kind $kind -PersonnelSnapshot $snapshot -AllowPersonnelReviewRows:($mode -eq 'Compare')
             if ($Update -and @($workbook.Students).Count -eq 0) { throw 'Leere Personalliste darf keinen Update-Lauf auslösen.' }
         }
@@ -286,7 +286,8 @@ function Invoke-PersonnelSyncCore {
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Vergleiche Personaldaten ...' -PercentComplete 40
             $comparison = Compare-LehrerDirectory -People $people -Snapshot $snapshot -Config $config `
                 -ExchangeAddressOwners $recipients.AddressOwners -Recovery:($mode -eq 'Add' -and [bool]$EntraObjectId) `
-                -ReviewOnlyPersonnel:($Personnel -and $mode -eq 'Compare') -SkipPersonnelGuests:($Personnel -and $mode -in @('Compare','Update'))
+                -ReviewOnlyPersonnel:($Personnel -and $mode -eq 'Compare') -SkipPersonnelGuests:($Personnel -and $mode -in @('Compare','Update')) `
+                -SkipProtectedPersonnel:($Personnel -and $mode -in @('Compare','Update'))
             if ($mode -eq 'Add') { $comparison.Departures = @() }
             $mailboxEntries = @($comparison.ChangedPeople) + @($comparison.ExistingPeople)
             $mailboxIndex = 0

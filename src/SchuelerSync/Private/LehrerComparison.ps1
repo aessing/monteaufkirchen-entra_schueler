@@ -250,7 +250,8 @@ function Resolve-LehrerIdentity {
 
 function Compare-LehrerDirectory {
     param([object[]] $People, [object] $Snapshot, [System.Collections.IDictionary] $Config,
-        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel, [switch] $SkipPersonnelGuests)
+        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel, [switch] $SkipPersonnelGuests, [switch] $SkipProtectedPersonnel)
+    if ($SkipProtectedPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Adminausnahme ist ausschließlich im Personalabgleich zulässig.' }
     if ($SkipPersonnelGuests -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Gastausnahme ist ausschließlich im Personalabgleich zulässig.' }
     if ($ReviewOnlyPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
     $result = [pscustomobject]@{
@@ -272,7 +273,7 @@ function Compare-LehrerDirectory {
     }
     $detailActivity = if ($Config.ContainsKey('PersonnelMode')) { 'Personaldetails prüfen' } else { 'Lehrerdetails prüfen' }
     $personIndex = 0
-    $skippedGuestCount = 0
+    $skippedNonSyncCount = 0
     foreach ($person in $People) {
         $personIndex++
         $personPercent = if ($People.Count -eq 0) { 0 } else { [int](100 * $personIndex / $People.Count) }
@@ -280,7 +281,14 @@ function Compare-LehrerDirectory {
             -Status "Prüfe Person $personIndex von $($People.Count): $($person.NameMitRufname)" -PercentComplete $personPercent
         try {
             if (($SkipPersonnelGuests -or $ReviewOnlyPersonnel) -and (Test-PersonalWorkbookGuest -Person $person -Snapshot $Snapshot)) {
-                $skippedGuestCount++
+                $skippedNonSyncCount++
+                continue
+            }
+            if (($SkipProtectedPersonnel -or $ReviewOnlyPersonnel) -and (Test-PersonalWorkbookProtectedAccount -Person $person -Snapshot $Snapshot)) {
+                $protectedUser = Resolve-PersonalWorkbookIdentity -Person $person -Snapshot $Snapshot
+                [void]$claimedIds.Add([string]$protectedUser.Id)
+                $skippedNonSyncCount++
+                $result.Warnings += New-LehrerIssue -Area Workbook -Field Review -Message "Zeile $($person.RowNumber) ($($protectedUser.UserPrincipalName)): Geschütztes Administratorkonto, nicht abgeglichen." -Person $person
                 continue
             }
             if ($ReviewOnlyPersonnel) {
@@ -387,8 +395,8 @@ function Compare-LehrerDirectory {
     Write-Progress -Id 2 -ParentId 1 -Activity $detailActivity -Completed
     if ($result.Errors.Count -gt 0) {
         $result.NewPeople = @(); $result.Departures = @()
-    } elseif (-not $Recovery -and ($People.Count -eq 0 -or $skippedGuestCount -lt $People.Count)) {
-        # A workbook containing only ignored guests is not a source for member departures.
+    } elseif (-not $Recovery -and ($People.Count -eq 0 -or $skippedNonSyncCount -lt $People.Count)) {
+        # A workbook containing only guests or protected admins is not a source for member departures.
         foreach ($id in $Snapshot.PersonnelMemberIds) {
             if ($claimedIds.Contains($id)) { continue }
             $user = $Snapshot.UsersById[$id]

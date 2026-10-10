@@ -61,7 +61,7 @@ function Open-StudentWorkbookPackage {
     return Open-ExcelPackage -Path $resolvedPath -ErrorAction Stop
 }
 
-function Test-PersonalWorkbookGuest {
+function Resolve-PersonalWorkbookIdentity {
     param([object] $Person, [object] $Snapshot)
 
     $objectId = ([string](Get-ComparisonPropertyValue $Person EntraObjectId)).Trim()
@@ -69,14 +69,37 @@ function Test-PersonalWorkbookGuest {
     $user = $null
     if ($objectId) {
         $user = $Snapshot.UsersById[$objectId]
-        if ($null -eq $user) { return $false }
+        if ($null -eq $user) { return $null }
     }
     if ($upn) {
         $byUpn = $Snapshot.UsersByUpn[$upn]
-        if ($null -eq $byUpn -or ($null -ne $user -and $byUpn.Id -ine $user.Id)) { return $false }
+        if ($null -eq $byUpn -or ($null -ne $user -and $byUpn.Id -ine $user.Id)) { return $null }
         $user = $byUpn
     }
+    return $user
+}
+
+function Test-PersonalWorkbookGuest {
+    param([object] $Person, [object] $Snapshot)
+
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
     return $null -ne $user -and (Get-ComparisonPropertyValue $user UserType) -eq 'Guest'
+}
+
+function Test-PersonalWorkbookProtectedAccount {
+    param([object] $Person, [object] $Snapshot)
+
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    $context = Get-ComparisonPropertyValue $Snapshot PersonalContext
+    if ($null -eq $user -or $null -eq $context -or -not $context.Complete) { return $false }
+    $memberships = @(Get-MgUserTransitiveMemberOf -UserId $user.Id -All -ErrorAction Stop)
+    foreach ($membership in $memberships) {
+        $type = [string](Get-DisabledAccountMemberValue -Member $membership -Name '@odata.type')
+        $id = [string](Get-DisabledAccountMemberValue -Member $membership -Name id)
+        if ($id -and ($type -eq '#microsoft.graph.directoryRole' -or
+                ($type -eq '#microsoft.graph.group' -and $id -in $context.ProtectedIds))) { return $true }
+    }
+    return $false
 }
 
 function Read-StudentWorkbook {
@@ -147,12 +170,13 @@ function Read-StudentWorkbook {
                 StoredUpn = if ($headers.ContainsKey('UPN')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value } else { '' }
             }
             $isGuest = $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookGuest -Person $identity -Snapshot $PersonnelSnapshot)
+            $isProtected = -not $isGuest -and $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookProtectedAccount -Person $identity -Snapshot $PersonnelSnapshot)
             $filledCount = @($values.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
-            if ($filledCount -eq 0 -and -not $isGuest) {
+            if ($filledCount -eq 0 -and -not $isGuest -and -not $isProtected) {
                 continue
             }
             $reviewReason = ''
-            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest) {
+            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest -and -not $isProtected) {
                 if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
                 $reviewReason = "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
                 if (-not $AllowPersonnelReviewRows) { throw $reviewReason }
@@ -160,7 +184,10 @@ function Read-StudentWorkbook {
 
             if ($Kind -in @('Teacher', 'Personnel')) {
                 $job = $values['Job']
-                if (-not $isGuest -and (-not $AllowPersonnelReviewRows -or $job)) {
+                if ($isProtected -and $job) {
+                    try { $job = Resolve-PersonalJob -Job $job -Config $teacherConfig } catch { $job = $values['Job'] }
+                }
+                if (-not $isGuest -and -not $isProtected -and (-not $AllowPersonnelReviewRows -or $job)) {
                     try {
                         # Review rows retain their canonical identity even when the profile is protected.
                         if ($Kind -eq 'Personnel') {
