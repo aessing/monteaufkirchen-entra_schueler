@@ -250,7 +250,9 @@ function Resolve-LehrerIdentity {
 
 function Compare-LehrerDirectory {
     param([object[]] $People, [object] $Snapshot, [System.Collections.IDictionary] $Config,
-        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel, [switch] $SkipPersonnelGuests, [switch] $SkipProtectedPersonnel)
+        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel, [switch] $SkipPersonnelGuests, [switch] $SkipProtectedPersonnel,
+        [switch] $SkipUnassignedPersonnel)
+    if ($SkipUnassignedPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Ausnahme für rollenlose Konten ist ausschließlich im Personalabgleich zulässig.' }
     if ($SkipProtectedPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Adminausnahme ist ausschließlich im Personalabgleich zulässig.' }
     if ($SkipPersonnelGuests -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Gastausnahme ist ausschließlich im Personalabgleich zulässig.' }
     if ($ReviewOnlyPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
@@ -289,6 +291,13 @@ function Compare-LehrerDirectory {
                 [void]$claimedIds.Add([string]$protectedUser.Id)
                 $skippedNonSyncCount++
                 $result.Warnings += New-LehrerIssue -Area Workbook -Field Review -Message "Zeile $($person.RowNumber) ($($protectedUser.UserPrincipalName)): Geschütztes Administratorkonto, nicht abgeglichen." -Person $person
+                continue
+            }
+            if (($SkipUnassignedPersonnel -or $ReviewOnlyPersonnel) -and (Test-PersonalWorkbookUnassignedAccount -Person $person -Snapshot $Snapshot)) {
+                $unassignedUser = Resolve-PersonalWorkbookIdentity -Person $person -Snapshot $Snapshot
+                [void]$claimedIds.Add([string]$unassignedUser.Id)
+                $skippedNonSyncCount++
+                $result.Warnings += New-LehrerIssue -Area Workbook -Field Review -Message "Zeile $($person.RowNumber) ($($unassignedUser.UserPrincipalName)): Keine Personalrolle und kein Job, nicht abgeglichen." -Person $person
                 continue
             }
             if ($ReviewOnlyPersonnel) {
@@ -396,7 +405,7 @@ function Compare-LehrerDirectory {
     if ($result.Errors.Count -gt 0) {
         $result.NewPeople = @(); $result.Departures = @()
     } elseif (-not $Recovery -and ($People.Count -eq 0 -or $skippedNonSyncCount -lt $People.Count)) {
-        # A workbook containing only guests or protected admins is not a source for member departures.
+        # A workbook containing only skipped accounts is not a source for member departures.
         foreach ($id in $Snapshot.PersonnelMemberIds) {
             if ($claimedIds.Contains($id)) { continue }
             $user = $Snapshot.UsersById[$id]

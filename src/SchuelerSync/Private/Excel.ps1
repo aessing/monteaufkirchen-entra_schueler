@@ -102,6 +102,23 @@ function Test-PersonalWorkbookProtectedAccount {
     return $false
 }
 
+function Test-PersonalWorkbookUnassignedAccount {
+    param([object] $Person, [object] $Snapshot)
+
+    if (-not [string]::IsNullOrWhiteSpace([string](Get-ComparisonPropertyValue $Person Job))) { return $false }
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    $context = Get-ComparisonPropertyValue $Snapshot PersonalContext
+    if ($null -eq $user -or $user.UserType -ne 'Member' -or $null -eq $context -or
+            -not $context.Complete -or @($context.ManagedRoleIds).Count -eq 0) { return $false }
+    # A blank export job exempts only confirmed accounts outside the managed population.
+    $memberships = @(Get-MgUserTransitiveMemberOf -UserId $user.Id -All -ErrorAction Stop)
+    $safety = Get-PersonalMembershipSafety -Memberships $memberships -Context $context
+    if ($safety.Excluded -or $safety.Reasons.Count -gt 0) { return $false }
+    return @($memberships | Where-Object {
+        (Get-DisabledAccountMemberValue -Member $_ -Name id) -in $context.ManagedRoleIds
+    }).Count -eq 0
+}
+
 function Read-StudentWorkbook {
     param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student',
         [switch] $AllowPersonnelReviewRows, [object] $PersonnelSnapshot)
@@ -168,15 +185,18 @@ function Read-StudentWorkbook {
             $identity = [pscustomobject]@{
                 EntraObjectId = if ($headers.ContainsKey('EntraObjectId')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['EntraObjectId']].Value } else { '' }
                 StoredUpn = if ($headers.ContainsKey('UPN')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value } else { '' }
+                Job = $values['Job']
             }
             $isGuest = $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookGuest -Person $identity -Snapshot $PersonnelSnapshot)
             $isProtected = -not $isGuest -and $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookProtectedAccount -Person $identity -Snapshot $PersonnelSnapshot)
+            $isUnassigned = -not $isGuest -and -not $isProtected -and $null -ne $PersonnelSnapshot -and
+                (Test-PersonalWorkbookUnassignedAccount -Person $identity -Snapshot $PersonnelSnapshot)
             $filledCount = @($values.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
-            if ($filledCount -eq 0 -and -not $isGuest -and -not $isProtected) {
+            if ($filledCount -eq 0 -and -not $isGuest -and -not $isProtected -and -not $isUnassigned) {
                 continue
             }
             $reviewReason = ''
-            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest -and -not $isProtected) {
+            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest -and -not $isProtected -and -not $isUnassigned) {
                 if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
                 $reviewReason = "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
                 if (-not $AllowPersonnelReviewRows) { throw $reviewReason }
@@ -187,7 +207,7 @@ function Read-StudentWorkbook {
                 if ($isProtected -and $job) {
                     try { $job = Resolve-PersonalJob -Job $job -Config $teacherConfig } catch { $job = $values['Job'] }
                 }
-                if (-not $isGuest -and -not $isProtected -and (-not $AllowPersonnelReviewRows -or $job)) {
+                if (-not $isGuest -and -not $isProtected -and -not $isUnassigned -and (-not $AllowPersonnelReviewRows -or $job)) {
                     try {
                         # Review rows retain their canonical identity even when the profile is protected.
                         if ($Kind -eq 'Personnel') {

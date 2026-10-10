@@ -18,6 +18,7 @@ Stand: 10. Oktober 2026. Grundlage: [Spezifikation](PERSONAL-0.3.0-SPEC.md) und 
 - [x] Lesbare Personaljobs im Export, in Bestandsliste und Vergleich sowie im tatsächlichen Entra-`JobTitle` geprüft. Kinderhauspräfix nur aus dem Entra-Jobtitel entfernt, Firma und eindeutige Excel-Jobnamen erhalten. Rückzuordnung und Kompatibilität bisheriger Schreibweisen erhalten.
 - [x] Eindeutig identifizierte Entra-Gäste aus Pflichtdatenwarnungen und Fehlern in Compare und Update ausgenommen. Interne Datenprüfung sowie Gastschutz und TUI-Aktionen erhalten.
 - [x] Bestätigte geschützte Adminkonten bei Compare und Update mit Hinweis übersprungen. Gültige Personaländerungen trotz Adminzeilen angewandt, Schutzprüfungen und strikte Validierung übriger Zeilen erhalten.
+- [x] Eindeutig erkannte Mitgliedskonten ohne Job und ohne Personalrolle bei Compare und Update mit Hinweis übersprungen. Gültige Änderungen trotz fehlender Namen dieser Exportzeilen verarbeitet. Pflichtdatenprüfung verwalteter Konten und unbekannter Identitäten sowie Schutz vor Abgängen bei ausschließlich übersprungenen Zeilen geprüft.
 - [x] Bedienungsanleitung, bestehende Dokumentation, README, Changelog und Abnahme aktualisiert.
 - [ ] Separate Windows- und kontrollierte Mandantenabnahme (nicht Bestandteil der lokalen Umsetzung).
 

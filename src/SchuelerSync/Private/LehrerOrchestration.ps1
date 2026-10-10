@@ -287,7 +287,8 @@ function Invoke-PersonnelSyncCore {
             $comparison = Compare-LehrerDirectory -People $people -Snapshot $snapshot -Config $config `
                 -ExchangeAddressOwners $recipients.AddressOwners -Recovery:($mode -eq 'Add' -and [bool]$EntraObjectId) `
                 -ReviewOnlyPersonnel:($Personnel -and $mode -eq 'Compare') -SkipPersonnelGuests:($Personnel -and $mode -in @('Compare','Update')) `
-                -SkipProtectedPersonnel:($Personnel -and $mode -in @('Compare','Update'))
+                -SkipProtectedPersonnel:($Personnel -and $mode -in @('Compare','Update')) `
+                -SkipUnassignedPersonnel:($Personnel -and $mode -in @('Compare','Update'))
             if ($mode -eq 'Add') { $comparison.Departures = @() }
             $mailboxEntries = @($comparison.ChangedPeople) + @($comparison.ExistingPeople)
             $mailboxIndex = 0

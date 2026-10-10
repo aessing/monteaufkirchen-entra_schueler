@@ -567,6 +567,39 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             $person.EntraObjectId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
             (Resolve-LehrerIdentity -Person $person -Snapshot $snapshot -Config $script:PersonalConfig).Id | Should -Be $person.EntraObjectId
         }
+        It 'updates valid personnel while skipping an incomplete roleless row identified by <Identity>' -ForEach @(
+            @{Identity='Id'},@{Identity='Upn'},@{Identity='Both'}
+        ) {
+            $roleless=New-PersonalSyntheticUser -Id 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            $roleless.UserPrincipalName='device@example.invalid'; $roleless.GivenName=''; $roleless.Surname=''; $roleless.JobTitle=''
+            $script:PersonalUsers[$roleless.Id]=$roleless
+            $script:PersonalMemberships[$roleless.Id]=@()
+            $person=New-PersonalSyntheticPerson -Job '' -Id $roleless.Id
+            $person.RowNumber=18; $person.GivenName=''; $person.Surname=''
+            $person.StoredUpn=if ($Identity -eq 'Id') {''} else {$roleless.UserPrincipalName}
+            if ($Identity -eq 'Upn') {$person.EntraObjectId=''}
+            $script:PersonalUsers['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'].JobTitle='Schule_Sekretariat'
+            $script:PersonalPeople=@((New-PersonalSyntheticPerson),$person)
+            $result=Invoke-PersonalSync -File 'synthetic.xlsx' -Update -Confirm:$false
+            $result.HasErrors | Should -BeFalse
+            $result.Comparison.Warnings.Count | Should -Be 1
+            $result.Comparison.Warnings[0].Message | Should -Match 'Zeile 18.*Keine Personalrolle und kein Job'
+            Should -Invoke Update-MgUser -ParameterFilter {$UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $BodyParameter.JobTitle -eq 'Schule Sekretariat'} -Exactly 1
+            Should -Invoke Update-MgUser -ParameterFilter {$UserId -eq $roleless.Id} -Exactly 0
+            $roleless.JobTitle | Should -BeNullOrEmpty
+        }
+        It 'does not derive member departures from a workbook containing only a roleless row without a job' {
+            $roleless=New-PersonalSyntheticUser -Id 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            $roleless.UserPrincipalName='device@example.invalid'
+            $script:PersonalUsers[$roleless.Id]=$roleless; $script:PersonalMemberships[$roleless.Id]=@()
+            $script:PersonalPeople=@(New-PersonalSyntheticPerson -Job '' -Id $roleless.Id)
+            $result=Invoke-PersonalSync -File 'synthetic.xlsx' -Update -DisableUsers -RevokeSessions -Confirm:$false
+            $result.HasErrors | Should -BeFalse
+            $result.Comparison.Departures | Should -BeNullOrEmpty
+            $result.Actions | Should -BeNullOrEmpty
+            Should -Invoke Update-MgUser -Exactly 0
+            Should -Invoke Revoke-EntraStudentSession -Exactly 0
+        }
         It 'preserves a disabled account during comparison and single maintenance' {
             $script:PersonalUsers['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'].AccountEnabled=$false
             $result=Invoke-PersonalSync -Add -Vorname Lea -Nachname Testwald -Job Schule_Sekretariat -EntraObjectId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Confirm:$false
@@ -1136,22 +1169,25 @@ Describe 'Personal 0.3.0: actual isolated CLI processes' {
         }
         (Get-FileHash $path).Hash | Should -Be $hash
     }
-    It 'compares a complete personnel export containing protected, roleless and guest rows without aborting' {
+    It 'updates a complete personnel export containing protected, roleless and guest rows without aborting' {
         $path=Join-Path $TestDrive 'ReviewExport.xlsx'
-        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -ReviewFixture 2>&1
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -ReviewFixture -ProtectedFixture 2>&1
         $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
         $hash=(Get-FileHash $path).Hash
-        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Compare -File $path -ReviewFixture 2>&1
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Compare -File $path -ReviewFixture -ProtectedFixture 2>&1
         $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
         $output -join "`n" | Should -Match '"HasErrors": false'
         $output -join "`n" | Should -Match 'Workbook.Review|Workbook.*Review'
-        $output -join "`n" | Should -Match 'Bestehende \(1\)'
+        $output -join "`n" | Should -Match 'Änderungen \(1\)'
         [regex]::Matches(($output -join "`n"),'"Code": "Workbook.Review"').Count | Should -Be 2
         $output -join "`n" | Should -Match 'Geschütztes Administratorkonto, nicht abgeglichen'
         $output -join "`n" | Should -Not -Match 'Remote operation forbidden'
-        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Update -File $path -ReviewFixture 2>&1
-        $LASTEXITCODE | Should -Be 1
-        $output -join "`n" | Should -Match 'geschützter Personaljob|Unvollständige Personaldaten'
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Update -File $path -ReviewFixture -ProtectedFixture 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        $output -join "`n" | Should -Match '"HasErrors": false'
+        $output -join "`n" | Should -Match 'Keine Personalrolle und kein Job, nicht abgeglichen'
+        $output -join "`n" | Should -Not -Match 'Unvollständige Personaldaten'
+        [regex]::Matches(($output -join "`n"),'"Phase": "Update"').Count | Should -Be 1
         $output -join "`n" | Should -Not -Match 'Remote operation forbidden'
         (Get-FileHash $path).Hash | Should -Be $hash
     }
@@ -1361,6 +1397,45 @@ Describe 'Personal 0.3.0: real Excel export and ABP omission' {
                 $data.Students[0].Job | Should -BeExactly ExterneAdmins
             } else {
                 {Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot} | Should -Throw '*geschützter Personaljob*'
+            }
+            (Get-FileHash $path).Hash | Should -Be $hash
+        }
+        It 'skips only confirmed roleless blank-job workbook rows for <Case>' -ForEach @(
+            @{Case='Id';Skip=$true},@{Case='Upn';Skip=$true},@{Case='Both';Skip=$true},@{Case='AllBlank';Skip=$true},
+            @{Case='Managed';Skip=$false},@{Case='IncompleteContext';Skip=$false},@{Case='InvalidMembership';Skip=$false},
+            @{Case='UnknownId';Skip=$false},@{Case='Conflict';Skip=$false},@{Case='New';Skip=$false},
+            @{Case='AssignedJob';Skip=$false},@{Case='UnknownType';Skip=$false}
+        ) {
+            $user=[pscustomobject]@{Id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';UserPrincipalName='device@example.invalid';UserType='Member'}
+            $other=[pscustomobject]@{Id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';UserPrincipalName='other@example.invalid';UserType='Member'}
+            $config=Get-PersonalConfig
+            $context=[pscustomobject]@{Complete=$true;ManagedRoleIds=@($config.Roles.Schule_Sekretariat.Id);ProtectedIds=@();ProtectedNames=@();ExcludedIds=@()}
+            $snapshot=[pscustomobject]@{UsersById=@{$user.Id=$user;$other.Id=$other};UsersByUpn=@{$user.UserPrincipalName=$user;$other.UserPrincipalName=$other};PersonalContext=$context}
+            $account=[pscustomobject]@{DisplayName='Synthetic device';GivenName='';Surname='';Job='';UserId=$user.Id;UPN=$user.UserPrincipalName;Mail=''}
+            $script:WorkbookRolelessMembership=@()
+            switch ($Case) {
+                Id {$account.UPN=''}
+                Upn {$account.UserId=''}
+                AllBlank {$account.DisplayName=''}
+                Managed {$script:WorkbookRolelessMembership=@([pscustomobject]@{Id=$config.Roles.Schule_Sekretariat.Id;OdataType='#microsoft.graph.group';DisplayName='Schule_Sekretariat'})}
+                IncompleteContext {$context.Complete=$false}
+                InvalidMembership {$script:WorkbookRolelessMembership=@([pscustomobject]@{Id='cccccccc-cccc-cccc-cccc-cccccccccccc'})}
+                UnknownId {$account.UserId='dddddddd-dddd-dddd-dddd-dddddddddddd'}
+                Conflict {$account.UPN=$other.UserPrincipalName}
+                New {$account.UserId='';$account.UPN=''}
+                AssignedJob {$account.Job='Schule Sekretariat'}
+                UnknownType {$user.UserType=''}
+            }
+            Mock Get-MgUserTransitiveMemberOf { $script:WorkbookRolelessMembership }
+            $path=Join-Path $TestDrive "Roleless-$Case.xlsx"
+            $null=Export-PersonalWorkbook -Inventory ([pscustomobject]@{Accounts=@($account)}) -Path $path -Confirm:$false
+            $hash=(Get-FileHash $path).Hash
+            if ($Skip) {
+                $data=Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot
+                $data.Students.Count | Should -Be 1
+                $data.Students[0].Job | Should -BeNullOrEmpty
+            } else {
+                {Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot} | Should -Throw '*Unvollständige Personaldaten*'
             }
             (Get-FileHash $path).Hash | Should -Be $hash
         }

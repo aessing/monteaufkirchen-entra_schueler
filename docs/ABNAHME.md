@@ -1,5 +1,19 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Personaländerungen trotz unvollständiger rollenloser Exportzeilen, 10. Oktober 2026
+
+Nach der Admin-Korrektur stoppte ein Update weiterhin mit `Preflight.Inventory`, weil eine Exportzeile keine Vornamen-, Nachnamen- oder Jobwerte enthielt. Der lesende Vergleich konnte dieselbe Zeile bereits zur Prüfung anzeigen. Compare und Update einschließlich WhatIf überspringen nun eindeutig erkannte Mitgliedskonten mit leerem Job, wenn der vollständige Schutzkontext und vollständig lesbare aktuelle transitive Entra-Mitgliedschaften bestätigen, dass keine verwaltete Personalrolle vorliegt. Der Hinweis lautet `Workbook.Review: Keine Personalrolle und kein Job, nicht abgeglichen.` Gültige Personaländerungen werden verarbeitet. Eine Datei ausschließlich mit übersprungenen Konten erzeugt keine Abgänge. Die ausdrückliche Übernahme eines zulässigen rollenlosen Kontos mit Objekt-ID und freigegebenem Job bleibt möglich.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Drei gemischte Updatefälle, ein Schutzfall gegen Abgänge bei ausschließlich rollenloser Zeile und der tatsächliche isolierte Gesamtexport-/Update-Aufruf vor Umsetzung fehlgeschlagen. Nach Korrektur 18 gezielte Prüfungen bestanden |
+| Identität und Pflichtdaten | Objekt-ID, UPN, kombinierte Identität und vollständig leere Pflichtzellen geprüft. Verwaltete Personalrollen, unvollständiger Schutzkontext, unlesbare Mitgliedschaften, unbekannter Kontotyp, unbekannte oder widersprüchliche Identität sowie ein ausdrücklich eingetragener Job behalten die strikte Validierung |
+| Synthetisches Update und CLI | Graph-Schreibparameter für den lesbaren Jobtitel des zulässigen Kontos geprüft, rollenloses Konto ohne Mutation. Native Exportdatei mit gültigem Personalkonto, Admin, rollenlosem Konto und Gast anschließend mit Compare und Update-WhatIf geprüft. Genau eine Jobtiteländerung eingeplant, Dateihash unverändert |
+| Gesamtprüfung | 707 Tests erkannt, 706 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Alle Fernbefehle wurden für die Prüfungen synthetisch ersetzt. Kein produktiver Update-Lauf ausgeführt und keine Benutzerarbeitsmappe verändert. Die frühere Abnahme unten beschreibt den damaligen Stand, bei dem unvollständige rollenlose Zeilen Update noch blockierten.
+
 ## Ergänzung 0.3.0: Personaländerungen trotz geschützter Adminzeilen, 10. Oktober 2026
 
 Ein Gesamtexport konnte im lesenden Vergleich viele zulässige Änderungen anzeigen, beim Update jedoch vor allen Mutationen an `Externe Admins` abbrechen. Ursache war die strikt abgewiesene Adminjob-Zeile vor dem eigentlichen Update. Eindeutig anhand von Objekt-ID oder UPN identifizierte Konten mit bestätigter geschützter Gruppen- oder Verzeichnisrollenmitgliedschaft werden jetzt auch bei Update einschließlich WhatIf als `Workbook.Review` übersprungen. Die Bestätigung verwendet Entra-Mitgliedschaften und den vollständigen Schutzkontext. Gültige Personaländerungen werden anschließend verarbeitet, Adminkonten bleiben unverändert. Ein Adminjob allein, unbekannte oder widersprüchliche Identitäten begründen keine Ausnahme. Reine Gast-/Adminkonto-Dateien erzeugen keine Abgänge interner Konten.
