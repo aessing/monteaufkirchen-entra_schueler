@@ -7,7 +7,8 @@ param(
     [switch] $DisabledFixture,
     [switch] $GuestFixture,
     [switch] $ReviewFixture,
-    [switch] $ProtectedFixture
+    [switch] $ProtectedFixture,
+    [switch] $IncompleteNameFixture
 )
 # This standalone process substitutes every remote command. Connectors and writes
 # throw so an incomplete fixture cannot fall through to a real tenant.
@@ -37,7 +38,7 @@ if ($GuestFixture) { $global:PersonalCliUser.UserType='Guest'; $global:PersonalC
 $global:PersonalCliRoleIds = @($global:PersonalCliConfig.Roles.Schule_Sekretariat.Id)
 $global:PersonalCliUsers = @($global:PersonalCliUser)
 $global:PersonalCliReviewMemberships = $null
-if ($ReviewFixture -or $ProtectedFixture) {
+if ($ReviewFixture -or $ProtectedFixture -or $IncompleteNameFixture) {
     if ($Population -ne 'Personnel') { throw 'Admin-/Review-Fixtures sind nur für Personal vorgesehen.' }
     if ($ProtectedFixture) { $global:PersonalCliUser.JobTitle='Schule_Sekretariat' }
     $global:PersonalCliReviewMemberships = @{$global:PersonalCliUser.Id=$global:PersonalCliRoleIds}
@@ -47,6 +48,12 @@ if ($ReviewFixture -or $ProtectedFixture) {
             @{Id='22222222-2222-2222-2222-222222222222';GivenName='';Surname='';Job='';Type='Member'},
             @{Id='33333333-3333-3333-3333-333333333333';GivenName='';Surname='';Job='ExterneBenutzer';Type='Guest'}
         )
+    }
+    if ($IncompleteNameFixture) {
+        foreach ($number in 4..9) {
+            $digit=[string]$number
+            $reviewDefinitions+=@{Id=(($digit*8)+'-'+($digit*4)+'-'+($digit*4)+'-'+($digit*4)+'-'+($digit*12));GivenName='';Surname='';Job='Kinderhaus_PädagogischesTeam';Type='Member'}
+        }
     }
     foreach ($definition in $reviewDefinitions) {
         $copy=$global:PersonalCliUser | Select-Object *

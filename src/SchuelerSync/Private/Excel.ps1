@@ -119,6 +119,28 @@ function Test-PersonalWorkbookUnassignedAccount {
     }).Count -eq 0
 }
 
+function Test-PersonalWorkbookIncompleteAccount {
+    param([object] $Person, [object] $Snapshot, [System.Collections.IDictionary] $Config)
+
+    $missingNames = @('NameMitRufname','GivenName','Surname' | Where-Object {
+        [string]::IsNullOrWhiteSpace([string](Get-ComparisonPropertyValue $Person $_))
+    })
+    if ($missingNames.Count -eq 0) { return $false }
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    $context = Get-ComparisonPropertyValue $Snapshot PersonalContext
+    if ($null -eq $user -or (Get-ComparisonPropertyValue $user UserType) -ne 'Member' -or
+            $null -eq $context -or -not $context.Complete) { return $false }
+    try { $null = Get-LehrerProfile -Job ([string](Get-ComparisonPropertyValue $Person Job)) -Config $Config }
+    catch { return $false }
+    # Skip existing personnel with missing names instead of guessing names or changing their profile.
+    $memberships = @(Get-MgUserTransitiveMemberOf -UserId $user.Id -All -ErrorAction Stop)
+    $safety = Get-PersonalMembershipSafety -Memberships $memberships -Context $context
+    if ($safety.Excluded -or $safety.Reasons.Count -gt 0) { return $false }
+    return @($memberships | Where-Object {
+        (Get-DisabledAccountMemberValue -Member $_ -Name id) -in $context.ManagedRoleIds
+    }).Count -eq 1
+}
+
 function Read-StudentWorkbook {
     param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student',
         [switch] $AllowPersonnelReviewRows, [object] $PersonnelSnapshot)
@@ -186,17 +208,22 @@ function Read-StudentWorkbook {
                 EntraObjectId = if ($headers.ContainsKey('EntraObjectId')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['EntraObjectId']].Value } else { '' }
                 StoredUpn = if ($headers.ContainsKey('UPN')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value } else { '' }
                 Job = $values['Job']
+                NameMitRufname = $values['Name mit Rufname']
+                GivenName = $values['Vorname']
+                Surname = $values['Nachname']
             }
             $isGuest = $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookGuest -Person $identity -Snapshot $PersonnelSnapshot)
             $isProtected = -not $isGuest -and $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookProtectedAccount -Person $identity -Snapshot $PersonnelSnapshot)
             $isUnassigned = -not $isGuest -and -not $isProtected -and $null -ne $PersonnelSnapshot -and
                 (Test-PersonalWorkbookUnassignedAccount -Person $identity -Snapshot $PersonnelSnapshot)
+            $isIncompleteAccount = -not $isGuest -and -not $isProtected -and -not $isUnassigned -and $null -ne $PersonnelSnapshot -and
+                (Test-PersonalWorkbookIncompleteAccount -Person $identity -Snapshot $PersonnelSnapshot -Config $teacherConfig)
             $filledCount = @($values.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
             if ($filledCount -eq 0 -and -not $isGuest -and -not $isProtected -and -not $isUnassigned) {
                 continue
             }
             $reviewReason = ''
-            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest -and -not $isProtected -and -not $isUnassigned) {
+            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest -and -not $isProtected -and -not $isUnassigned -and -not $isIncompleteAccount) {
                 if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
                 $reviewReason = "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
                 if (-not $AllowPersonnelReviewRows) { throw $reviewReason }

@@ -251,7 +251,8 @@ function Resolve-LehrerIdentity {
 function Compare-LehrerDirectory {
     param([object[]] $People, [object] $Snapshot, [System.Collections.IDictionary] $Config,
         [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel, [switch] $SkipPersonnelGuests, [switch] $SkipProtectedPersonnel,
-        [switch] $SkipUnassignedPersonnel)
+        [switch] $SkipUnassignedPersonnel, [switch] $SkipIncompletePersonnel)
+    if ($SkipIncompletePersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Ausnahme für unvollständige Bestandskonten ist ausschließlich im Personalabgleich zulässig.' }
     if ($SkipUnassignedPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Ausnahme für rollenlose Konten ist ausschließlich im Personalabgleich zulässig.' }
     if ($SkipProtectedPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Adminausnahme ist ausschließlich im Personalabgleich zulässig.' }
     if ($SkipPersonnelGuests -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Gastausnahme ist ausschließlich im Personalabgleich zulässig.' }
@@ -298,6 +299,13 @@ function Compare-LehrerDirectory {
                 [void]$claimedIds.Add([string]$unassignedUser.Id)
                 $skippedNonSyncCount++
                 $result.Warnings += New-LehrerIssue -Area Workbook -Field Review -Message "Zeile $($person.RowNumber) ($($unassignedUser.UserPrincipalName)): Keine Personalrolle und kein Job, nicht abgeglichen." -Person $person
+                continue
+            }
+            if (($SkipIncompletePersonnel -or $ReviewOnlyPersonnel) -and (Test-PersonalWorkbookIncompleteAccount -Person $person -Snapshot $Snapshot -Config $Config)) {
+                $incompleteUser = Resolve-PersonalWorkbookIdentity -Person $person -Snapshot $Snapshot
+                [void]$claimedIds.Add([string]$incompleteUser.Id)
+                $skippedNonSyncCount++
+                $result.Warnings += New-LehrerIssue -Area Workbook -Field Review -Message "Zeile $($person.RowNumber) ($($incompleteUser.UserPrincipalName)): Unvollständige Namensdaten, nicht abgeglichen." -Person $person
                 continue
             }
             if ($ReviewOnlyPersonnel) {

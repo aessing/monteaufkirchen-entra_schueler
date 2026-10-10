@@ -600,6 +600,44 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             Should -Invoke Update-MgUser -Exactly 0
             Should -Invoke Revoke-EntraStudentSession -Exactly 0
         }
+        It 'updates valid personnel while leaving known incomplete named accounts unchanged for <Identity>' -ForEach @(
+            @{Identity='Id'},@{Identity='Upn'},@{Identity='Both'}
+        ) {
+            $id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            $user=New-PersonalSyntheticUser -Id $id
+            $user.UserPrincipalName='team@example.invalid'; $user.GivenName=''; $user.Surname=''
+            $user.DisplayName='Synthetic team'; $user.JobTitle='Kinderhaus_PädagogischesTeam'
+            $script:PersonalUsers[$id]=$user
+            $script:PersonalMemberships[$id]=@($script:PersonalConfig.Roles.Kinderhaus_PädagogischesTeam.Id)
+            $person=New-PersonalSyntheticPerson -Job 'Kinderhaus Pädagogisches Team' -Id $id
+            $person.RowNumber=41; $person.NameMitRufname=$user.DisplayName; $person.GivenName=''; $person.Surname=''
+            $person.StoredUpn=if ($Identity -eq 'Id') {''} else {$user.UserPrincipalName}
+            if ($Identity -eq 'Upn') {$person.EntraObjectId=''}
+            $script:PersonalUsers['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'].JobTitle='Schule_Sekretariat'
+            $script:PersonalPeople=@((New-PersonalSyntheticPerson),$person)
+            $result=Invoke-PersonalSync -File 'synthetic.xlsx' -Update -Confirm:$false
+            $result.HasErrors | Should -BeFalse
+            $result.Comparison.Warnings.Count | Should -Be 1
+            $result.Comparison.Warnings[0].Message | Should -Match 'Zeile 41.*Unvollständige Namensdaten, nicht abgeglichen'
+            $result.Comparison.Departures | Should -BeNullOrEmpty
+            Should -Invoke Update-MgUser -ParameterFilter {$UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -and $BodyParameter.JobTitle -eq 'Schule Sekretariat'} -Exactly 1
+            Should -Invoke Update-MgUser -ParameterFilter {$UserId -eq 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'} -Exactly 0
+            $user.JobTitle | Should -BeExactly 'Kinderhaus_PädagogischesTeam'
+        }
+        It 'does not derive member departures when all workbook rows have known incomplete names' {
+            $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            $script:PersonalUsers[$id].GivenName=''; $script:PersonalUsers[$id].Surname=''
+            $person=New-PersonalSyntheticPerson
+            $person.GivenName=''; $person.Surname=''
+            $script:PersonalPeople=@($person)
+            $result=Invoke-PersonalSync -File 'synthetic.xlsx' -Update -DisableUsers -RevokeSessions -Confirm:$false
+            $result.HasErrors | Should -BeFalse
+            $result.Comparison.Departures | Should -BeNullOrEmpty
+            $result.Actions | Should -BeNullOrEmpty
+            $result.Comparison.Warnings.Count | Should -Be 1
+            Should -Invoke Update-MgUser -Exactly 0
+            Should -Invoke Revoke-EntraStudentSession -Exactly 0
+        }
         It 'preserves a disabled account during comparison and single maintenance' {
             $script:PersonalUsers['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'].AccountEnabled=$false
             $result=Invoke-PersonalSync -Add -Vorname Lea -Nachname Testwald -Job Schule_Sekretariat -EntraObjectId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Confirm:$false
@@ -1191,6 +1229,25 @@ Describe 'Personal 0.3.0: actual isolated CLI processes' {
         $output -join "`n" | Should -Not -Match 'Remote operation forbidden'
         (Get-FileHash $path).Hash | Should -Be $hash
     }
+    It 'updates a full export despite six known personnel accounts with missing names through the actual CLI' {
+        $path=Join-Path $TestDrive 'IncompleteNames.xlsx'
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -ReviewFixture -ProtectedFixture -IncompleteNameFixture 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        $hash=(Get-FileHash $path).Hash
+        foreach ($mode in @('Compare','Update')) {
+            $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode $mode -File $path -ReviewFixture -ProtectedFixture -IncompleteNameFixture 2>&1
+            $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+            $output -join "`n" | Should -Match '"HasErrors": false'
+            [regex]::Matches(($output -join "`n"),'"Code": "Workbook.Review"').Count | Should -Be 8
+            $output -join "`n" | Should -Match 'Änderungen \(1\)'
+            $output -join "`n" | Should -Not -Match 'Preflight.Inventory|Remote operation forbidden'
+            if ($mode -eq 'Update') {
+                [regex]::Matches(($output -join "`n"),'"Phase": "Update"').Count | Should -Be 1
+                $output -join "`n" | Should -Match 'Unvollständige Namensdaten, nicht abgeglichen'
+            }
+        }
+        (Get-FileHash $path).Hash | Should -Be $hash
+    }
     It 'executes Add, both UPN aliases and Exchange without remote mutations' {
         foreach($mode in @('Add','Remove','Exchange')) {
             $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode $mode 2>&1
@@ -1434,6 +1491,52 @@ Describe 'Personal 0.3.0: real Excel export and ABP omission' {
                 $data=Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot
                 $data.Students.Count | Should -Be 1
                 $data.Students[0].Job | Should -BeNullOrEmpty
+            } else {
+                {Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot} | Should -Throw '*Unvollständige Personaldaten*'
+            }
+            (Get-FileHash $path).Hash | Should -Be $hash
+        }
+        It 'skips missing-name workbook rows only for confirmed personnel with a valid job for <Case>' -ForEach @(
+            @{Case='Id';Skip=$true},@{Case='Upn';Skip=$true},@{Case='Both';Skip=$true},
+            @{Case='MissingGiven';Skip=$true},@{Case='MissingSurname';Skip=$true},@{Case='MissingDisplay';Skip=$true},
+            @{Case='UnknownId';Skip=$false},@{Case='Conflict';Skip=$false},@{Case='Unidentified';Skip=$false},
+            @{Case='UnknownJob';Skip=$false},@{Case='BlankJob';Skip=$false},@{Case='IncompleteContext';Skip=$false},
+            @{Case='InvalidMembership';Skip=$false},@{Case='Roleless';Skip=$false},@{Case='MultipleRoles';Skip=$false},
+            @{Case='UnknownType';Skip=$false}
+        ) {
+            $user=[pscustomobject]@{Id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';UserPrincipalName='team@example.invalid';UserType='Member'}
+            $other=[pscustomobject]@{Id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';UserPrincipalName='other@example.invalid';UserType='Member'}
+            $config=Get-PersonalConfig
+            $roleId=$config.Roles.Kinderhaus_PädagogischesTeam.Id
+            $context=[pscustomobject]@{Complete=$true;ManagedRoleIds=@($roleId,$config.Roles.Schule_Sekretariat.Id);ProtectedIds=@();ProtectedNames=@();ExcludedIds=@()}
+            $snapshot=[pscustomobject]@{UsersById=@{$user.Id=$user;$other.Id=$other};UsersByUpn=@{$user.UserPrincipalName=$user;$other.UserPrincipalName=$other};PersonalContext=$context}
+            $account=[pscustomobject]@{DisplayName='Synthetic team';GivenName='';Surname='';Job='Kinderhaus Pädagogisches Team';UserId=$user.Id;UPN=$user.UserPrincipalName;Mail=''}
+            $script:WorkbookIncompleteMembership=@([pscustomobject]@{Id=$roleId;OdataType='#microsoft.graph.group';DisplayName='Kinderhaus_PädagogischesTeam'})
+            switch ($Case) {
+                Id {$account.UPN=''}
+                Upn {$account.UserId=''}
+                MissingGiven {$account.Surname='Team'}
+                MissingSurname {$account.GivenName='Synthetic'}
+                MissingDisplay {$account.GivenName='Synthetic';$account.Surname='Team';$account.DisplayName=''}
+                UnknownId {$account.UserId='cccccccc-cccc-cccc-cccc-cccccccccccc'}
+                Conflict {$account.UPN=$other.UserPrincipalName}
+                Unidentified {$account.UserId='';$account.UPN=''}
+                UnknownJob {$account.Job='Unknown job'}
+                BlankJob {$account.Job=''}
+                IncompleteContext {$context.Complete=$false}
+                InvalidMembership {$script:WorkbookIncompleteMembership=@([pscustomobject]@{Id=$roleId})}
+                Roleless {$script:WorkbookIncompleteMembership=@()}
+                MultipleRoles {$script:WorkbookIncompleteMembership+=@([pscustomobject]@{Id=$config.Roles.Schule_Sekretariat.Id;OdataType='#microsoft.graph.group';DisplayName='Schule_Sekretariat'})}
+                UnknownType {$user.UserType=''}
+            }
+            Mock Get-MgUserTransitiveMemberOf { $script:WorkbookIncompleteMembership }
+            $path=Join-Path $TestDrive "IncompleteNames-$Case.xlsx"
+            $null=Export-PersonalWorkbook -Inventory ([pscustomobject]@{Accounts=@($account)}) -Path $path -Confirm:$false
+            $hash=(Get-FileHash $path).Hash
+            if ($Skip) {
+                $data=Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot
+                $data.Students.Count | Should -Be 1
+                $data.Students[0].Job | Should -BeExactly 'Kinderhaus_PädagogischesTeam'
             } else {
                 {Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot} | Should -Throw '*Unvollständige Personaldaten*'
             }

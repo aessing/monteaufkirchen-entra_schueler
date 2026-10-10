@@ -1,5 +1,21 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Personaländerungen trotz Bestandskonten ohne vollständige Namen, 10. Oktober 2026
+
+Der nächste gemeldete Update-Abbruch betraf Zeile 41 mit gültigem Job `Kinderhaus Pädagogisches Team`, aber ohne Vor- und Nachname. Die lokale Arbeitsmappe wurde ausschließlich gelesen. In den Zeilen 41 bis 46 fehlen dieselben Namensfelder, sämtliche 74 ausgefüllten Jobzellen lassen sich anhand der konfigurierten Werte zuordnen. Daraus wurde kein Entra-Kontotyp abgeleitet.
+
+Compare und Update einschließlich WhatIf überspringen nun eindeutig anhand von Objekt-ID oder UPN erkannte bestehende Mitgliedskonten mit gültigem Job und unvollständigen Namensdaten als `Workbook.Review: Unvollständige Namensdaten, nicht abgeglichen.` Vollständiger Schutzkontext und vollständig lesbare aktuelle transitive Entra-Mitgliedschaften müssen genau eine verwaltete Personalrolle bestätigen. Diese Konten bleiben unverändert, gültige Personaländerungen werden weiter verarbeitet. Unbekannte oder widersprüchliche Identitäten, unbekannte oder fehlende Jobs verwalteter Konten, rollenlose Übernahme ohne Namen, mehrere Personalrollen und unvollständige Schutzinformationen bleiben Fehler. Eine Datei ausschließlich mit übersprungenen Konten erzeugt keine Abgänge. Für einen regulären Abgleich der übersprungenen Konten sind die tatsächlichen Namensfelder erforderlich.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Drei gemischte Updatefälle, ein Schutzfall gegen Abgänge bei ausschließlich unvollständigen Bestandskonten und der tatsächliche isolierte Gesamtexport-/Update-Aufruf vor Umsetzung fehlgeschlagen. Nach Umsetzung 33 gezielte Prüfungen bestanden, einschließlich der bisherigen Ausnahme für rollenlose Konten |
+| Identität und Excel | Objekt-ID, UPN, kombinierte Identität und fehlender Vor-, Nach- oder Anzeigename geprüft. Unbekannte oder widersprüchliche Identitäten, ungültiger oder fehlender Job, fehlende oder mehrere Personalrollen, unlesbare Mitgliedschaften, unvollständiger Schutzkontext und unbekannter Kontotyp behalten die Pflichtdatenprüfung. Quelldateihashes unverändert |
+| Synthetisches Update und tatsächliche CLI | Graph-Schreibparameter für den lesbaren Jobtitel des vollständigen Kontos geprüft, unvollständige Konten ohne Mutation. Native Exportdatei mit gültigem Personalkonto, Admin, rollenlosem Konto, Gast und sechs bestehenden Personalkonten ohne Vor-/Nachnamen anschließend mit Compare und Update-WhatIf geprüft. Eine Jobtiteländerung und acht Prüfhinweise, Dateihash unverändert |
+| Gesamtprüfung | 728 Tests erkannt, 727 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Alle Fernbefehle wurden für die Tests synthetisch ersetzt. Kein produktiver Update-Lauf ausgeführt und keine Benutzerarbeitsmappe verändert. Frühere Nachweise unten beschreiben den Zustand vor dieser Korrektur.
+
 ## Ergänzung 0.3.0: Personaländerungen trotz unvollständiger rollenloser Exportzeilen, 10. Oktober 2026
 
 Nach der Admin-Korrektur stoppte ein Update weiterhin mit `Preflight.Inventory`, weil eine Exportzeile keine Vornamen-, Nachnamen- oder Jobwerte enthielt. Der lesende Vergleich konnte dieselbe Zeile bereits zur Prüfung anzeigen. Compare und Update einschließlich WhatIf überspringen nun eindeutig erkannte Mitgliedskonten mit leerem Job, wenn der vollständige Schutzkontext und vollständig lesbare aktuelle transitive Entra-Mitgliedschaften bestätigen, dass keine verwaltete Personalrolle vorliegt. Der Hinweis lautet `Workbook.Review: Keine Personalrolle und kein Job, nicht abgeglichen.` Gültige Personaländerungen werden verarbeitet. Eine Datei ausschließlich mit übersprungenen Konten erzeugt keine Abgänge. Die ausdrückliche Übernahme eines zulässigen rollenlosen Kontos mit Objekt-ID und freigegebenem Job bleibt möglich.
