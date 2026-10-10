@@ -348,11 +348,21 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             Should -Invoke Remove-MgUser -Exactly 0
             Should -Invoke Read-DisabledAccountTuiKey -Exactly 0
         }
-        It 'retains the writing-import review warning for a guest with a valid export job' {
+        It 'omits the writing-import review warning for a guest with a valid export job' {
             $script:PersonalUsers['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'].UserType='Guest'
             Mock Write-Warning { }
             $null=Invoke-PersonalSync -ListToExcel -File (Join-Path $TestDrive 'Personal-Guest.xlsx') -Confirm:$false
-            Should -Invoke Write-Warning -Exactly 1 -ParameterFilter {$Message -like '*Exportzeile benötigt vor einem schreibenden Import eine Prüfung*'}
+            Should -Invoke Write-Warning -Exactly 0 -ParameterFilter {$Message -like '*Exportzeile benötigt vor einem schreibenden Import eine Prüfung*'}
+        }
+        It 'retains export data warnings for roleless <Type> accounts as appropriate' -ForEach @(
+            @{Type='Guest';ExpectedWarnings=0},@{Type='Member';ExpectedWarnings=1}
+        ) {
+            $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            $script:PersonalUsers[$id].UserType=$Type
+            $script:PersonalMemberships[$id]=@()
+            Mock Write-Warning { }
+            $null=Invoke-PersonalSync -ListToExcel -File (Join-Path $TestDrive "Roleless-$Type.xlsx") -Confirm:$false
+            Should -Invoke Write-Warning -Exactly $ExpectedWarnings -ParameterFilter {$Message -like '*Exportzeile benötigt vor einem schreibenden Import eine Prüfung*'}
         }
         It 'preserves guest protections before <Operation> after <Change>' -ForEach @(
             @{Operation='Block';Change='Admin'},@{Operation='Delete';Change='Admin'},
@@ -430,11 +440,10 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             Should -Invoke Set-CASMailbox -Exactly 0
         }
         It 'marks non-writable personnel as review rows only in read-only comparison for <Reason>' -ForEach @(
-            @{Reason='Guest'},@{Reason='Admin'},@{Reason='OnPremises'},@{Reason='Shared'}
+            @{Reason='Admin'},@{Reason='OnPremises'},@{Reason='Shared'}
         ) {
             $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
             switch ($Reason) {
-                Guest {$script:PersonalUsers[$id].UserType='Guest'}
                 Admin {$script:PersonalMemberships[$id]+=$script:PersonalConfig.Roles.ExterneAdmins.Id}
                 OnPremises {$script:PersonalUsers[$id].OnPremisesSyncEnabled=$true}
                 Shared {$script:PersonalRecipients=@([pscustomobject]@{ExternalDirectoryObjectId=$id;RecipientTypeDetails='SharedMailbox'})}
@@ -450,6 +459,50 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             $result.ChangedPeople.Count | Should -Be 0
             $strict=Compare-LehrerDirectory -People $people -Snapshot $snapshot -Config $script:PersonalConfig
             $strict.Errors.Count | Should -Be 1
+        }
+        It 'ignores incomplete guest rows identified by <Identity> with OtherMember <OtherMember> without sync issues' -ForEach @(
+            @{Identity='Id';OtherMember=$false},@{Identity='Upn';OtherMember=$false},@{Identity='Both';OtherMember=$false},@{Identity='Both';OtherMember=$true}
+        ) {
+            $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            $user=$script:PersonalUsers[$id]
+            $user.UserType='Guest'; $user.GivenName=''; $user.Surname=''
+            $person=New-PersonalSyntheticPerson
+            $person.GivenName=''; $person.Surname=''; $person.Job=''
+            $person.EntraObjectId=if ($Identity -eq 'Upn') { '' } else { $id }
+            $person.StoredUpn=if ($Identity -eq 'Id') { '' } else { $user.UserPrincipalName.ToUpperInvariant() }
+            $person | Add-Member -NotePropertyName ReviewReason -NotePropertyValue 'Unvollständige Personaldaten'
+            if ($OtherMember) {
+                $member=New-PersonalSyntheticUser -Id 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+                $member.UserPrincipalName='member@example.invalid'
+                $script:PersonalUsers[$member.Id]=$member
+                $script:PersonalMemberships[$member.Id]=@($script:PersonalConfig.Roles.Schule_Sekretariat.Id)
+            }
+            $result=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig -ReviewOnlyPersonnel
+            $result.Warnings | Should -BeNullOrEmpty
+            $result.Errors | Should -BeNullOrEmpty
+            $result.NewPeople | Should -BeNullOrEmpty
+            $result.ChangedPeople | Should -BeNullOrEmpty
+            $result.ExistingPeople | Should -BeNullOrEmpty
+            $result.Departures | Should -BeNullOrEmpty
+        }
+        It 'updates members while skipping incomplete guests without guest mutations' {
+            $guest=New-PersonalSyntheticUser -Id 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            $guest.UserPrincipalName='guest@example.invalid'; $guest.UserType='Guest'; $guest.GivenName=''; $guest.Surname=''
+            $script:PersonalUsers[$guest.Id]=$guest
+            $script:PersonalMemberships[$guest.Id]=@($script:PersonalConfig.Roles.ExterneBenutzer.Id)
+            $guestPerson=New-PersonalSyntheticPerson -Id $guest.Id
+            $guestPerson.GivenName=''; $guestPerson.Surname=''; $guestPerson.Job=''
+            $script:PersonalPeople+= $guestPerson
+            Mock New-MgUser { throw 'Unexpected guest creation' }
+            $result=Invoke-PersonalSync -File (Join-Path $TestDrive 'Synthetic-Mixed.xlsx') -Update -WhatIf
+            $result.HasErrors | Should -BeFalse
+            $result.Comparison.Warnings | Should -BeNullOrEmpty
+            @($result.Comparison.ChangedPeople).Count | Should -Be 1
+            $result.Comparison.ChangedPeople[0].UserId | Should -BeExactly 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            @($result.Actions | Where-Object UserId -eq $guest.Id).Count | Should -Be 0
+            Should -Invoke Update-MgUser -Exactly 0
+            Should -Invoke New-MgUser -Exactly 0
+            Should -Invoke Remove-MgUser -Exactly 0
         }
         It 'does not report an explicitly identified review row as a departure' {
             $snapshot=Get-PersonalSyntheticSnapshot
@@ -1000,6 +1053,24 @@ Describe 'Personal 0.3.0: actual isolated CLI processes' {
         }
         (Get-FileHash $script:PersonalCliWorkbook).Hash | Should -Be $hash
     }
+    It 'ignores incomplete guests through the actual <Mode> CLI without changing the workbook' -ForEach @(
+        @{Mode='Compare'},@{Mode='Update'}
+    ) {
+        $path=Join-Path $TestDrive "Guest-$Mode.xlsx"
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -GuestFixture 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        $exportOutput=$output -join "`n"
+        $hash=(Get-FileHash $path).Hash
+        $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode $Mode -File $path -GuestFixture 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join "`n")
+        $output -join "`n" | Should -Match '"HasErrors": false'
+        $output -join "`n" | Should -Not -Match 'Unvollständige Personaldaten|Workbook.Review|Remote operation forbidden'
+        $output -join "`n" | Should -Match '"Warnings": \[\s*\]'
+        $output -join "`n" | Should -Match '"Errors": \[\s*\]'
+        $output -join "`n" | Should -Match '"Actions": \[\s*\]'
+        $exportOutput | Should -Not -Match 'Exportzeile benötigt'
+        (Get-FileHash $path).Hash | Should -Be $hash
+    }
     It 'compares a complete personnel export containing protected, roleless and guest rows without aborting' {
         $path=Join-Path $TestDrive 'ReviewExport.xlsx'
         $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Export -File $path -ReviewFixture 2>&1
@@ -1010,7 +1081,7 @@ Describe 'Personal 0.3.0: actual isolated CLI processes' {
         $output -join "`n" | Should -Match '"HasErrors": false'
         $output -join "`n" | Should -Match 'Workbook.Review|Workbook.*Review'
         $output -join "`n" | Should -Match 'Bestehende \(1\)'
-        [regex]::Matches(($output -join "`n"),'"Code": "Workbook.Review"').Count | Should -Be 3
+        [regex]::Matches(($output -join "`n"),'"Code": "Workbook.Review"').Count | Should -Be 2
         $output -join "`n" | Should -Match 'ExterneAdmins|geschützter Personaljob'
         $output -join "`n" | Should -Not -Match 'Remote operation forbidden'
         $output=& pwsh -NoLogo -NoProfile -NonInteractive -File $script:PersonalCliHarness -Mode Update -File $path -ReviewFixture 2>&1
@@ -1159,6 +1230,45 @@ Describe 'Personal 0.3.0: real Excel export and ABP omission' {
             $data.Students[2].StoredUpn | Should -Be device@example.invalid
             {Read-StudentWorkbook -Path $path -Kind Personnel} | Should -Throw '*geschützter Personaljob*'
             {Read-StudentWorkbook -Path $path -Kind Teacher -AllowPersonnelReviewRows} | Should -Throw '*lesenden Personalvergleich*'
+        }
+        It 'exempts only confirmed guests from workbook data validation for <Identity>' -ForEach @(
+            @{Identity='Id';RecognizedGuest=$true},@{Identity='Upn';RecognizedGuest=$true},
+            @{Identity='Both';RecognizedGuest=$true},@{Identity='AllBlank';RecognizedGuest=$true},
+            @{Identity='Member';RecognizedGuest=$false},@{Identity='UnknownId';RecognizedGuest=$false},
+            @{Identity='ConflictingUpn';RecognizedGuest=$false},@{Identity='UnknownUpn';RecognizedGuest=$false},
+            @{Identity='Unidentified';RecognizedGuest=$false}
+        ) {
+            $guest=[pscustomobject]@{Id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';UserPrincipalName='guest@example.invalid';UserType='Guest'}
+            $member=[pscustomobject]@{Id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';UserPrincipalName='member@example.invalid';UserType='Member'}
+            $snapshot=[pscustomobject]@{UsersById=@{$guest.Id=$guest;$member.Id=$member};UsersByUpn=@{$guest.UserPrincipalName=$guest;$member.UserPrincipalName=$member}}
+            $account=[pscustomobject]@{DisplayName='Synthetic guest';GivenName='';Surname='';Job='';UserId=$guest.Id;UPN=$guest.UserPrincipalName.ToUpperInvariant();Mail=''}
+            switch ($Identity) {
+                Id {$account.UPN=''}
+                Upn {$account.UserId=''}
+                AllBlank {$account.DisplayName=''}
+                Member {$account.UserId=$member.Id;$account.UPN=$member.UserPrincipalName}
+                UnknownId {$account.UserId='cccccccc-cccc-cccc-cccc-cccccccccccc'}
+                ConflictingUpn {$account.UPN=$member.UserPrincipalName}
+                UnknownUpn {$account.UPN='missing@example.invalid'}
+                Unidentified {$account.UserId='';$account.UPN=''}
+            }
+            $path=Join-Path $TestDrive "GuestValidation-$Identity.xlsx"
+            $null=Export-PersonalWorkbook -Inventory ([pscustomobject]@{Accounts=@($account)}) -Path $path -Confirm:$false
+            $hash=(Get-FileHash $path).Hash
+            foreach ($review in @($false,$true)) {
+                if ($RecognizedGuest -or $review) {
+                    $data=Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot -AllowPersonnelReviewRows:$review
+                    $data.Students.Count | Should -Be 1
+                    if ($review) {
+                        if ($RecognizedGuest) { $data.Students[0].ReviewReason | Should -BeNullOrEmpty }
+                        else { $data.Students[0].ReviewReason | Should -Match 'Unvollständige Personaldaten' }
+                    }
+                } else {
+                    {Read-StudentWorkbook -Path $path -Kind Personnel -PersonnelSnapshot $snapshot} | Should -Throw '*Unvollständige Personaldaten*'
+                }
+            }
+            {Read-StudentWorkbook -Path $path -Kind Teacher -PersonnelSnapshot $snapshot} | Should -Throw '*Personal*'
+            (Get-FileHash $path).Hash | Should -Be $hash
         }
         It 'reads canonical personnel jobs with the shared adapter' {
             $path=Join-Path $TestDrive 'ImportPersonal.xlsx'

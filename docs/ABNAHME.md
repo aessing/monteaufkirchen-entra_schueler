@@ -1,5 +1,19 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Gäste ohne Pflichtdatenwarnungen im Personalabgleich, 10. Oktober 2026
+
+Der Personalabgleich erkennt Gäste vor der Excel-Pflichtdatenprüfung anhand des Entra-Kontotyps `Guest` und einer eindeutigen Objekt-ID oder UPN. Sind beide Werte angegeben, müssen sie dasselbe Konto identifizieren. Compare und Update einschließlich WhatIf überspringen diese Zeilen ohne Warnung oder Fehler zu unvollständigen Namen und Jobs. Gäste bleiben in Liste und Export enthalten, erhalten keine Import-Prüfwarnung und erzeugen keine Profiländerungen, Neuanlagen oder Abgänge. Eine Datei ausschließlich mit Gastzeilen löst keine Abgänge interner Konten aus. Interne, unbekannte und widersprüchliche Identitäten behalten die Datenprüfung. Gastaktionen und ihre Schutzprüfungen in der TUI sowie der Ausschluss aus der Einzelpflege bleiben erhalten.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Zunächst fünf Gastfälle mit bisherigen Datenwarnungen beziehungsweise Update-Abbruch reproduziert. Ein weiterer Fall reproduzierte unerwünschte Abgänge interner Konten bei einer reinen Gastdatei. Nach Korrektur bestanden die gezielten Gastprüfungen |
+| Identität und Excel | Objekt-ID, UPN, kombinierte Identität und vollständig leere Pflichtzellen geprüft. Interne, unbekannte, widersprüchliche und nicht identifizierte Zeilen behalten die Pflichtdatenprüfung. Quelldateihashes bleiben unverändert |
+| Tatsächlicher Skriptaufruf | Gastexport, Compare und Update-WhatIf über isolierte CLI-Prozesse ohne Datenwarnungen, Fehler oder Aktionen geprüft. Ein Gesamtexport mit internem Konto, Admin, rollenlosem Konto und unvollständigem Gast erzeugt nur die zwei weiterhin erforderlichen Prüfzeilen |
+| Gesamtprüfung | 680 Tests erkannt, 679 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Ein Zwischenlauf des Tests für gemischte Listen scheiterte an einem fehlenden `New-MgUser`-Mock. Dieser Test-Dummy wurde ergänzt, der erneute gezielte Test bestand. Sämtliche Fernbefehle wurden synthetisch ersetzt. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
 ## Ergänzung 0.3.0: Kinderhauspräfix aus Entra-Jobtiteln entfernt, 10. Oktober 2026
 
 Die drei Kinderhausprofile erhalten bei Neuanlage und normaler Profilpflege die Entra-Jobtitel `Pädagogisches Team`, `Sekretariat` und `Vertretungskräfte`. `CompanyName` bleibt `Montessori Kinderhaus Erding`. Die Excel-Spalte `Job`, Bestandsliste und Profilzuordnung behalten die eindeutigen Jobnamen einschließlich `Kinderhaus`. Vorhandene technische oder lesbare Titel mit Kinderhauspräfix erscheinen im Vergleich als Änderung und werden erst beim gestarteten Update beziehungsweise bei Einzelpflege korrigiert. Lesende Aufrufe ändern keine Konten.

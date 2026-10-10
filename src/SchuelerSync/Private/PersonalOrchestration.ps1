@@ -64,7 +64,7 @@ function Invoke-PersonalSync {
         if ($ListToExcel) {
             $export = Export-PersonalWorkbook -Inventory $inventory -Path $File @common
             foreach ($warning in $inventory.Warnings) { Write-Warning $warning }
-            foreach ($account in $inventory.Accounts | Where-Object { -not $_.Job -or -not $_.MutationAllowed -or $_.UserType -ne 'Member' }) { Write-Warning "$($account.UPN): Exportzeile benötigt vor einem schreibenden Import eine Prüfung." }
+            foreach ($account in $inventory.Accounts | Where-Object { $_.UserType -ne 'Guest' -and (-not $_.Job -or -not $_.MutationAllowed -or $_.UserType -ne 'Member') }) { Write-Warning "$($account.UPN): Exportzeile benötigt vor einem schreibenden Import eine Prüfung." }
             if ($null -ne $export) { Write-Information "Personalexport: $($export.Count) Konten, $($export.Path)" -InformationAction Continue }
         }
         if ($PassThru) { $inventory.PSObject.Properties.Remove('Config'); return $inventory }

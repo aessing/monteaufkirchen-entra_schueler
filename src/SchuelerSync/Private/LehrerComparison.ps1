@@ -250,7 +250,8 @@ function Resolve-LehrerIdentity {
 
 function Compare-LehrerDirectory {
     param([object[]] $People, [object] $Snapshot, [System.Collections.IDictionary] $Config,
-        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel)
+        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel, [switch] $SkipPersonnelGuests)
+    if ($SkipPersonnelGuests -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Die Gastausnahme ist ausschließlich im Personalabgleich zulässig.' }
     if ($ReviewOnlyPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
     $result = [pscustomobject]@{
         NewPeople = @(); Departures = @(); ChangedPeople = @(); ExistingPeople = @(); Warnings = @(); Errors = @()
@@ -271,12 +272,17 @@ function Compare-LehrerDirectory {
     }
     $detailActivity = if ($Config.ContainsKey('PersonnelMode')) { 'Personaldetails prüfen' } else { 'Lehrerdetails prüfen' }
     $personIndex = 0
+    $skippedGuestCount = 0
     foreach ($person in $People) {
         $personIndex++
         $personPercent = if ($People.Count -eq 0) { 0 } else { [int](100 * $personIndex / $People.Count) }
         Write-Progress -Id 2 -ParentId 1 -Activity $detailActivity `
             -Status "Prüfe Person $personIndex von $($People.Count): $($person.NameMitRufname)" -PercentComplete $personPercent
         try {
+            if (($SkipPersonnelGuests -or $ReviewOnlyPersonnel) -and (Test-PersonalWorkbookGuest -Person $person -Snapshot $Snapshot)) {
+                $skippedGuestCount++
+                continue
+            }
             if ($ReviewOnlyPersonnel) {
                 $reviewReason = [string](Get-ComparisonPropertyValue $person ReviewReason)
                 $reviewUser = $Snapshot.UsersById[[string](Get-ComparisonPropertyValue $person EntraObjectId)]
@@ -381,10 +387,12 @@ function Compare-LehrerDirectory {
     Write-Progress -Id 2 -ParentId 1 -Activity $detailActivity -Completed
     if ($result.Errors.Count -gt 0) {
         $result.NewPeople = @(); $result.Departures = @()
-    } elseif (-not $Recovery) {
+    } elseif (-not $Recovery -and ($People.Count -eq 0 -or $skippedGuestCount -lt $People.Count)) {
+        # A workbook containing only ignored guests is not a source for member departures.
         foreach ($id in $Snapshot.PersonnelMemberIds) {
             if ($claimedIds.Contains($id)) { continue }
             $user = $Snapshot.UsersById[$id]
+            if ($Config.ContainsKey('PersonnelMode') -and (Get-ComparisonPropertyValue $user UserType) -eq 'Guest') { continue }
             if ($null -eq $user) {
                 $result.Errors += New-LehrerIssue -Area Preflight -Field Departure -Message "Personalrollenmitglied '$id' fehlt im Snapshot."
             } elseif ($null -eq (Get-ComparisonPropertyValue $user AccountEnabled)) {

@@ -32,7 +32,7 @@ $global:PersonalCliUser=[pscustomobject]@{
     LicenseAssignmentStates=@();SignInActivity=[pscustomobject]@{LastSuccessfulSignInDateTime='2026-01-02T12:30:00+02:00'}
 }
 if ($DisabledFixture) { $global:PersonalCliUser.AccountEnabled=$false }
-if ($GuestFixture) { $global:PersonalCliUser.UserType='Guest' }
+if ($GuestFixture) { $global:PersonalCliUser.UserType='Guest'; $global:PersonalCliUser.GivenName=''; $global:PersonalCliUser.Surname='' }
 $global:PersonalCliRoleIds = @($global:PersonalCliConfig.Roles.Schule_Sekretariat.Id)
 $global:PersonalCliUsers = @($global:PersonalCliUser)
 $global:PersonalCliReviewMemberships = $null
@@ -42,7 +42,7 @@ if ($ReviewFixture) {
     foreach ($definition in @(
         @{Id='11111111-1111-1111-1111-111111111111';GivenName='Eva';Surname='Adminwald';Job='ExterneAdmins';Type='Member'},
         @{Id='22222222-2222-2222-2222-222222222222';GivenName='';Surname='';Job='';Type='Member'},
-        @{Id='33333333-3333-3333-3333-333333333333';GivenName='Nora';Surname='Gastwald';Job='ExterneBenutzer';Type='Guest'}
+        @{Id='33333333-3333-3333-3333-333333333333';GivenName='';Surname='';Job='ExterneBenutzer';Type='Guest'}
     )) {
         $copy=$global:PersonalCliUser | Select-Object *
         $copy.Id=$definition.Id; $copy.GivenName=$definition.GivenName; $copy.Surname=$definition.Surname

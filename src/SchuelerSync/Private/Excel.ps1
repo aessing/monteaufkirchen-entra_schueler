@@ -61,10 +61,29 @@ function Open-StudentWorkbookPackage {
     return Open-ExcelPackage -Path $resolvedPath -ErrorAction Stop
 }
 
+function Test-PersonalWorkbookGuest {
+    param([object] $Person, [object] $Snapshot)
+
+    $objectId = ([string](Get-ComparisonPropertyValue $Person EntraObjectId)).Trim()
+    $upn = ([string](Get-ComparisonPropertyValue $Person StoredUpn)).Trim()
+    $user = $null
+    if ($objectId) {
+        $user = $Snapshot.UsersById[$objectId]
+        if ($null -eq $user) { return $false }
+    }
+    if ($upn) {
+        $byUpn = $Snapshot.UsersByUpn[$upn]
+        if ($null -eq $byUpn -or ($null -ne $user -and $byUpn.Id -ine $user.Id)) { return $false }
+        $user = $byUpn
+    }
+    return $null -ne $user -and (Get-ComparisonPropertyValue $user UserType) -eq 'Guest'
+}
+
 function Read-StudentWorkbook {
     param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student',
-        [switch] $AllowPersonnelReviewRows)
+        [switch] $AllowPersonnelReviewRows, [object] $PersonnelSnapshot)
 
+    if ($null -ne $PersonnelSnapshot -and $Kind -ne 'Personnel') { throw 'Die Gastprüfung ist ausschließlich für Personalimporte zulässig.' }
     if ($AllowPersonnelReviewRows -and $Kind -ne 'Personnel') { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
@@ -123,12 +142,17 @@ function Read-StudentWorkbook {
             foreach ($requiredHeader in $mandatoryHeaders) {
                 $values[$requiredHeader] = ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers[$requiredHeader]].Value
             }
+            $identity = [pscustomobject]@{
+                EntraObjectId = if ($headers.ContainsKey('EntraObjectId')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['EntraObjectId']].Value } else { '' }
+                StoredUpn = if ($headers.ContainsKey('UPN')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value } else { '' }
+            }
+            $isGuest = $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookGuest -Person $identity -Snapshot $PersonnelSnapshot)
             $filledCount = @($values.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
-            if ($filledCount -eq 0) {
+            if ($filledCount -eq 0 -and -not $isGuest) {
                 continue
             }
             $reviewReason = ''
-            if ($filledCount -ne $mandatoryHeaders.Count) {
+            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest) {
                 if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
                 $reviewReason = "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
                 if (-not $AllowPersonnelReviewRows) { throw $reviewReason }
@@ -136,7 +160,7 @@ function Read-StudentWorkbook {
 
             if ($Kind -in @('Teacher', 'Personnel')) {
                 $job = $values['Job']
-                if (-not $AllowPersonnelReviewRows -or $job) {
+                if (-not $isGuest -and (-not $AllowPersonnelReviewRows -or $job)) {
                     try {
                         # Review rows retain their canonical identity even when the profile is protected.
                         if ($Kind -eq 'Personnel') {
@@ -162,12 +186,8 @@ function Read-StudentWorkbook {
                 Password = if ($headers.ContainsKey('Passwort')) {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Passwort']].Value
                 } else { '' }
-                EntraObjectId = if ($headers.ContainsKey('EntraObjectId')) {
-                    ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['EntraObjectId']].Value
-                } else { '' }
-                StoredUpn = if ($headers.ContainsKey('UPN')) {
-                    ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value
-                } else { '' }
+                EntraObjectId = $identity.EntraObjectId
+                StoredUpn = $identity.StoredUpn
                 StoredMail = if ($headers.ContainsKey('Mail')) {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Mail']].Value
                 } else { '' }
