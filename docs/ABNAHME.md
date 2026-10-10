@@ -1,5 +1,18 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Kinderhauspräfix aus Entra-Jobtiteln entfernt, 10. Oktober 2026
+
+Die drei Kinderhausprofile erhalten bei Neuanlage und normaler Profilpflege die Entra-Jobtitel `Pädagogisches Team`, `Sekretariat` und `Vertretungskräfte`. `CompanyName` bleibt `Montessori Kinderhaus Erding`. Die Excel-Spalte `Job`, Bestandsliste und Profilzuordnung behalten die eindeutigen Jobnamen einschließlich `Kinderhaus`. Vorhandene technische oder lesbare Titel mit Kinderhauspräfix erscheinen im Vergleich als Änderung und werden erst beim gestarteten Update beziehungsweise bei Einzelpflege korrigiert. Lesende Aufrufe ändern keine Konten.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Vor Umsetzung die drei Kinderhausfälle fehlgeschlagen, vier andere Profile bestanden. Nach Umsetzung alle sieben fokussierten Fälle bestanden |
+| Personalregressionen | Neuanlage sowie Update technischer und bisher lesbarer Titel geprüft. Synthetische Graph-Schreibparameter, unveränderte Firma, Rollen und Adressen sowie zweiter Vergleich ohne Änderungen geprüft |
+| Gesamtprüfung | 663 Tests erkannt, 662 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Es wurden ausschließlich synthetische Konten und Fernbefehle geprüft. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
 ## Ergänzung 0.3.0: Lesbare Personal-Jobtitel in Entra und Berichten, 10. Oktober 2026
 
 Die vorherige Formatierung betraf die Jobzelle im Personalexport, das tatsächliche Entra-`JobTitle` erhielt weiterhin den technischen Profilwert. Neuanlage und normale Personal-Profilpflege schreiben jetzt den lesbaren Namen mit Leerzeichen statt Unterstrichen und CamelCase, etwa `Kinderhaus Pädagogisches Team` und `Externe Benutzer`. Technische Bestandstitel erscheinen im lesenden Vergleich als Änderung und werden erst beim gestarteten Update beziehungsweise bei Einzelpflege korrigiert. Bestandsliste und Vergleich zeigen ebenfalls lesbare Jobnamen. Interne Profilwerte, Rollen-IDs, Exchange-Profile und Lehrerjobkürzel bleiben erhalten. Bereits lesbare Titel erzeugen keine erneute Jobtiteländerung.

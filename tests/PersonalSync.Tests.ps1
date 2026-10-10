@@ -161,44 +161,49 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
                 $profile.Exchange.AddressBookPolicy | Should -BeExactly $script:PersonalConfig.Profiles[$Job].AddressBookPolicy
             }
         }
-        It 'uses readable <Label> for personnel JobTitle on creation and update' -ForEach @(
-            @{Job='Schule_Sekretariat';Label='Schule Sekretariat'},
-            @{Job='Schule_Vertretungskräfte';Label='Schule Vertretungskräfte'},
-            @{Job='Kinderhaus_PädagogischesTeam';Label='Kinderhaus Pädagogisches Team'},
-            @{Job='Kinderhaus_Sekretariat';Label='Kinderhaus Sekretariat'},
-            @{Job='Kinderhaus_Vertretungskräfte';Label='Kinderhaus Vertretungskräfte'},
-            @{Job='Unterstützung';Label='Unterstützung'},
-            @{Job='ExterneBenutzer';Label='Externe Benutzer'}
+        It 'uses <Title> for personnel JobTitle on creation and update' -ForEach @(
+            @{Job='Schule_Sekretariat';Label='Schule Sekretariat';Title='Schule Sekretariat'},
+            @{Job='Schule_Vertretungskräfte';Label='Schule Vertretungskräfte';Title='Schule Vertretungskräfte'},
+            @{Job='Kinderhaus_PädagogischesTeam';Label='Kinderhaus Pädagogisches Team';Title='Pädagogisches Team'},
+            @{Job='Kinderhaus_Sekretariat';Label='Kinderhaus Sekretariat';Title='Sekretariat'},
+            @{Job='Kinderhaus_Vertretungskräfte';Label='Kinderhaus Vertretungskräfte';Title='Vertretungskräfte'},
+            @{Job='Unterstützung';Label='Unterstützung';Title='Unterstützung'},
+            @{Job='ExterneBenutzer';Label='Externe Benutzer';Title='Externe Benutzer'}
         ) {
             $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
             $profile=Get-LehrerProfile -Job $Job -Config $script:PersonalConfig
             $user=$script:PersonalUsers[$id]
-            $user.JobTitle=$Job; $user.CompanyName=$profile.CompanyName; $user.EmployeeType=$profile.EmployeeType
+            $user.CompanyName=$profile.CompanyName; $user.EmployeeType=$profile.EmployeeType
             $script:PersonalMemberships[$id]=@($profile.Role.Id,'cccccccc-cccc-cccc-cccc-cccccccccccc')
             $person=New-PersonalSyntheticPerson -Job $Job
-            $comparison=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
-            $comparison.Errors | Should -BeNullOrEmpty
-            $entry=@($comparison.ChangedPeople)+@($comparison.ExistingPeople)
-            $entry.Count | Should -Be 1
-            $entry[0].DesiredState.JobTitle | Should -BeExactly $Label
-            $entry[0].DesiredState.Role.Id | Should -BeExactly $profile.Role.Id
-            @($entry[0].Differences | Where-Object Field -in @('UserPrincipalName','Mail','MailNickname')).Count | Should -Be 0
-            (Invoke-LehrerUpdate -Entry $entry[0] -Config $script:PersonalConfig -Confirm:$false).Status | Should -Be Succeeded
-            $user.JobTitle | Should -BeExactly $Label
-            $unchanged=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
-            $unchanged.Errors | Should -BeNullOrEmpty
-            $unchanged.ChangedPeople.Count | Should -Be 0
-            $unchanged.ExistingPeople.Count | Should -Be 1
+            foreach ($previousTitle in @($Job,$Label)) {
+                $user.JobTitle=$previousTitle
+                $comparison=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
+                $comparison.Errors | Should -BeNullOrEmpty
+                $entry=@($comparison.ChangedPeople)+@($comparison.ExistingPeople)
+                $entry.Count | Should -Be 1
+                $entry[0].DesiredState.JobTitle | Should -BeExactly $Title
+                $entry[0].DesiredState.CompanyName | Should -BeExactly $profile.CompanyName
+                $entry[0].DesiredState.Role.Id | Should -BeExactly $profile.Role.Id
+                @($entry[0].Differences | Where-Object Field -in @('UserPrincipalName','Mail','MailNickname')).Count | Should -Be 0
+                (Invoke-LehrerUpdate -Entry $entry[0] -Config $script:PersonalConfig -Confirm:$false).Status | Should -Be Succeeded
+                $user.JobTitle | Should -BeExactly $Title
+                $user.CompanyName | Should -BeExactly $profile.CompanyName
+                $unchanged=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
+                $unchanged.Errors | Should -BeNullOrEmpty
+                $unchanged.ChangedPeople.Count | Should -Be 0
+                $unchanged.ExistingPeople.Count | Should -Be 1
+            }
 
             $script:PersonalUsers=@{}; $script:PersonalMemberships=@{}
             $newPerson=New-PersonalSyntheticPerson -Job $Label -Id ''
             $newComparison=Compare-LehrerDirectory -People @($newPerson) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
             $newComparison.Errors | Should -BeNullOrEmpty
             $newComparison.NewPeople.Count | Should -Be 1
-            $newComparison.NewPeople[0].DesiredState.JobTitle | Should -BeExactly $Label
+            $newComparison.NewPeople[0].DesiredState.JobTitle | Should -BeExactly $Title
             Mock New-MgUser { [pscustomobject]@{Id='new-synthetic-person'} }
             $null=New-DisabledEntraLehrer -Desired $newComparison.NewPeople[0].DesiredState -Password 'SyntheticPassw0rd' -Confirm:$false
-            Should -Invoke New-MgUser -Exactly 1 -ParameterFilter {$BodyParameter.JobTitle -ceq $Label -and $BodyParameter.AccountEnabled -eq $false}
+            Should -Invoke New-MgUser -Exactly 1 -ParameterFilter {$BodyParameter.JobTitle -ceq $Title -and $BodyParameter.CompanyName -ceq $profile.CompanyName -and $BodyParameter.AccountEnabled -eq $false}
         }
         It 'shows readable jobs in the personnel comparison without changing profile keys' {
             $script:PersonalUsers=@{}; $script:PersonalMemberships=@{}

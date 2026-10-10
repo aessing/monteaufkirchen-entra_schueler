@@ -330,7 +330,7 @@ function Compare-LehrerDirectory {
                 UserPrincipalName = $upn
                 Mail = if ($null -eq $user) { $upn } else { Get-ComparisonPropertyValue $user Mail }
                 MailNickname = if ($null -eq $user) { ($upn -split '@')[0] } else { Get-ComparisonPropertyValue $user MailNickname }
-                JobTitle = if ($Config.ContainsKey('PersonnelMode')) { ConvertTo-PersonalJobDisplayName -Job $personnelProfile.Job } else { $personnelProfile.Job }
+                JobTitle = if ($Config.ContainsKey('PersonnelMode')) { (ConvertTo-PersonalJobDisplayName -Job $personnelProfile.Job) -replace '^Kinderhaus\s+', '' } else { $personnelProfile.Job }
                 CompanyName = $personnelProfile.CompanyName
                 EmployeeType = $personnelProfile.EmployeeType; UsageLocation = 'DE'
                 AgeGroup = 'Adult'; ConsentProvidedForMinor = 'NotRequired'

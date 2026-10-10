@@ -12,17 +12,17 @@ Die [Spezifikation](PERSONAL-0.3.0-SPEC.md) beschreibt alle gelieferten Rollen-I
 
 ## Rollen und Jobwerte
 
-| `Job` in Excel | Interner Jobwert | Firma | Mitarbeitertyp |
-|---|---|---|---|
-| `Schule Sekretariat` | `Schule_Sekretariat` | Montessori Schule Aufkirchen | Sekretariat |
-| `Schule Vertretungskräfte` | `Schule_Vertretungskräfte` | Montessori Schule Aufkirchen | Vertretungskräfte |
-| `Kinderhaus Pädagogisches Team` | `Kinderhaus_PädagogischesTeam` | Montessori Kinderhaus Erding | Pädagogisches Team |
-| `Kinderhaus Sekretariat` | `Kinderhaus_Sekretariat` | Montessori Kinderhaus Erding | Sekretariat |
-| `Kinderhaus Vertretungskräfte` | `Kinderhaus_Vertretungskräfte` | Montessori Kinderhaus Erding | Vertretungskräfte |
-| `Unterstützung` | `Unterstützung` | Montessori Verein Landkreis Erding e.V. | Unterstützung |
-| `Externe Benutzer` | `ExterneBenutzer` | Montessori Verein Landkreis Erding e.V. | Externe Benutzer |
+| `Job` in Excel | Interner Jobwert | `JobTitle` in Entra | Firma | Mitarbeitertyp |
+|---|---|---|---|---|
+| `Schule Sekretariat` | `Schule_Sekretariat` | `Schule Sekretariat` | Montessori Schule Aufkirchen | Sekretariat |
+| `Schule Vertretungskräfte` | `Schule_Vertretungskräfte` | `Schule Vertretungskräfte` | Montessori Schule Aufkirchen | Vertretungskräfte |
+| `Kinderhaus Pädagogisches Team` | `Kinderhaus_PädagogischesTeam` | `Pädagogisches Team` | Montessori Kinderhaus Erding | Pädagogisches Team |
+| `Kinderhaus Sekretariat` | `Kinderhaus_Sekretariat` | `Sekretariat` | Montessori Kinderhaus Erding | Sekretariat |
+| `Kinderhaus Vertretungskräfte` | `Kinderhaus_Vertretungskräfte` | `Vertretungskräfte` | Montessori Kinderhaus Erding | Vertretungskräfte |
+| `Unterstützung` | `Unterstützung` | `Unterstützung` | Montessori Verein Landkreis Erding e.V. | Unterstützung |
+| `Externe Benutzer` | `ExterneBenutzer` | `Externe Benutzer` | Montessori Verein Landkreis Erding e.V. | Externe Benutzer |
 
-Der Personalexport ersetzt Unterstriche durch Leerzeichen und trennt CamelCase an Wortgrenzen, einschließlich Umlauten. Beim Einlesen werden die lesbaren Namen eindeutig auf die konfigurierten internen Jobwerte zurückgeführt. Bisherige Werte mit Unterstrichen oder CamelCase bleiben gültig, auch bei `-Add -Job`. Äußere und mehrfache Leerzeichen sowie Groß-/Kleinschreibung werden normalisiert. Unbekannte Namen oder mehrdeutige Zuordnungen blockieren den schreibenden Import. `JobTitle` erhält bei Neuanlage und normaler Profilpflege den lesbaren Namen, etwa `Kinderhaus Pädagogisches Team`. Vorhandene technische Jobtitel werden im Vergleich als Änderung angezeigt und erst beim ausdrücklich gestarteten Update oder bei Einzelpflege korrigiert. Auch Bestandsliste und Vergleich zeigen lesbare Jobnamen, die interne Profilzuordnung bleibt kanonisch. Die Kurzwerte `L`, `CO-L`, `PA` und `OGTS` gehören weiterhin zu `Sync-LehrerEntra.ps1`. Mehrere konkurrierende Personalprofile blockieren Änderungen. Zusätzliche Gruppen außerhalb der verwalteten Rollen bleiben erhalten.
+Der Personalexport ersetzt Unterstriche durch Leerzeichen und trennt CamelCase an Wortgrenzen, einschließlich Umlauten. Beim Einlesen werden die lesbaren Namen eindeutig auf die konfigurierten internen Jobwerte zurückgeführt. Bisherige Werte mit Unterstrichen oder CamelCase bleiben gültig, auch bei `-Add -Job`. Äußere und mehrfache Leerzeichen sowie Groß-/Kleinschreibung werden normalisiert. Unbekannte Namen oder mehrdeutige Zuordnungen blockieren den schreibenden Import. `JobTitle` erhält bei Neuanlage und normaler Profilpflege den lesbaren Namen. Bei Kinderhausprofilen entfällt der Präfix `Kinderhaus`, etwa `Pädagogisches Team`, da `CompanyName` bereits `Montessori Kinderhaus Erding` enthält. Die Excel-Spalte `Job` behält den Präfix für die eindeutige Zuordnung. Vorhandene technische oder mit `Kinderhaus` beginnende Jobtitel werden im Vergleich als Änderung angezeigt und erst beim ausdrücklich gestarteten Update oder bei Einzelpflege korrigiert. Auch Bestandsliste und Vergleich zeigen lesbare Jobnamen, die interne Profilzuordnung bleibt kanonisch. Die Kurzwerte `L`, `CO-L`, `PA` und `OGTS` gehören weiterhin zu `Sync-LehrerEntra.ps1`. Mehrere konkurrierende Personalprofile blockieren Änderungen. Zusätzliche Gruppen außerhalb der verwalteten Rollen bleiben erhalten.
 
 `ExterneAdmins` (Export: `Externe Admins`) und `SEC-A-ADM-GlobalAdministrators` sind sichtbar, aber vor Änderungen geschützt. Das gelieferte Adminprofil wird nicht angewandt. Die GlobalAdministrators-Gruppe wird über den eindeutigen exakten Namen aufgelöst. Fehlt eine Schutzgruppe oder ist ihre Zuordnung mehrdeutig, laufen Liste und Export mit Warnungen weiter. Schreibaktionen sind dann gesperrt.
 

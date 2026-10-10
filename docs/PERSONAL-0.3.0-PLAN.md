@@ -15,7 +15,7 @@ Stand: 10. Oktober 2026. Grundlage: [Spezifikation](PERSONAL-0.3.0-SPEC.md) und 
 - [x] Neue Personalfunktionen implementiert und lokal mit synthetischen Daten geprüft.
 - [x] Adressregeln für Neuanlagen und Bestandsschutz umgesetzt.
 - [x] Gemeinsame Konten-TUIs mit letzter Befehlszeile sowie Backspace/Entf zum Löschen geprüft.
-- [x] Lesbare Personaljobs im Export, in Bestandsliste und Vergleich sowie im tatsächlichen Entra-`JobTitle` geprüft. Rückzuordnung und Kompatibilität bisheriger Schreibweisen erhalten.
+- [x] Lesbare Personaljobs im Export, in Bestandsliste und Vergleich sowie im tatsächlichen Entra-`JobTitle` geprüft. Kinderhauspräfix nur aus dem Entra-Jobtitel entfernt, Firma und eindeutige Excel-Jobnamen erhalten. Rückzuordnung und Kompatibilität bisheriger Schreibweisen erhalten.
 - [x] Bedienungsanleitung, bestehende Dokumentation, README, Changelog und Abnahme aktualisiert.
 - [ ] Separate Windows- und kontrollierte Mandantenabnahme (nicht Bestandteil der lokalen Umsetzung).
 
