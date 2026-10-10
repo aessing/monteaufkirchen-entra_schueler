@@ -1,10 +1,30 @@
-﻿function Get-LehrerProfile {
+﻿function ConvertTo-PersonalJobDisplayName {
+    param([AllowNull()][AllowEmptyString()][string] $Job)
+
+    return (($Job -replace '_+', ' ' -creplace '(?<=[\p{Ll}\p{Nd}])(?=\p{Lu})', ' ') -replace '\s+', ' ').Trim()
+}
+
+function Resolve-PersonalJob {
+    param([Parameter(Mandatory)][string] $Job, [Parameter(Mandatory)][System.Collections.IDictionary] $Config)
+
+    $canonicalMatches = @($Config.Jobs.Keys | Where-Object { $_ -ieq $Job.Trim() })
+    $label = ConvertTo-PersonalJobDisplayName -Job $(if ($canonicalMatches.Count -eq 1) { $canonicalMatches[0] } else { $Job })
+    $jobMatches = @($Config.Jobs.Keys | Where-Object { (ConvertTo-PersonalJobDisplayName -Job $_) -ieq $label })
+    if ($jobMatches.Count -ne 1) { throw "Unbekannter oder mehrdeutiger Personaljob '$Job'." }
+    return [string]$jobMatches[0]
+}
+
+function Get-LehrerProfile {
     param([Parameter(Mandatory)][string] $Job, [Parameter(Mandatory)][System.Collections.IDictionary] $Config)
     $codes = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $primaryJobs = [Collections.Generic.List[string]]::new()
     $additionalJobs = [Collections.Generic.List[string]]::new()
     foreach ($part in ($Job -split ',')) {
         $code = $part.Trim().ToUpperInvariant()
+        if ($Config.ContainsKey('PersonnelMode')) {
+            $code = Resolve-PersonalJob -Job $part -Config $Config
+            if ($code -in $Config.ProtectedJobs) { throw "Unbekannter oder geschützter Personaljob '$Job'." }
+        }
         if (-not $code) { throw "Ungültige Jobliste '$Job'." }
         if ($Config.Jobs.ContainsKey($code)) {
             if ($codes.Add($code)) { $primaryJobs.Add($code) }
@@ -54,7 +74,7 @@ function Get-LehrerSnapshot {
     $userProperties = @('id','displayName','givenName','surname','userPrincipalName','mail','mailNickname',
         'proxyAddresses','companyName','employeeType','jobTitle','usageLocation','ageGroup',
         'consentProvidedForMinor','legalAgeGroupClassification','accountEnabled','userType',
-        'assignedLicenses','licenseAssignmentStates')
+        'assignedLicenses','licenseAssignmentStates','onPremisesSyncEnabled')
     $groups = @(Get-MgGroup -All -Property @('id','displayName','groupTypes','membershipRule','assignedLicenses') -ErrorAction Stop)
     $users = @(Get-MgUser -All -Property $userProperties -ErrorAction Stop)
     $groupsById = New-CaseInsensitiveHashtable
@@ -66,7 +86,7 @@ function Get-LehrerSnapshot {
         if (-not $groupMatches.ContainsKey($name)) { $groupMatches[$name] = @() }
         $groupMatches[$name] = @($groupMatches[$name]) + $group
     }
-    $required = @($Config.Roles.School, $Config.Roles.Ganztag)
+    $required = if ($Config.ContainsKey('PersonnelMode')) { @($Config.Roles.Values | Where-Object { $_.Name -notin $Config.ProtectedGroupNames }) } else { @($Config.Roles.School, $Config.Roles.Ganztag) }
     foreach ($role in $required) {
         $group = $groupsById[[string]$role.Id]
         if ($null -eq $group -or -not [string]::Equals([string]$group.DisplayName, [string]$role.Name, [StringComparison]::OrdinalIgnoreCase) -or
@@ -199,6 +219,13 @@ function Resolve-LehrerIdentity {
         if ($hits.Count -eq 1) { $user = $hits[0] }
     }
     if ($null -ne $user) {
+        if ($Config.ContainsKey('PersonnelMode')) {
+            Assert-PersonalSnapshotTarget -User $user -Snapshot $Snapshot
+            if (@(Get-LehrerDirectGroup -Snapshot $Snapshot -UserId $user.Id | Where-Object Id -in $Snapshot.ManagedRoleIds).Count -gt 1) { throw 'Mehrere konkurrierende Personalprofile.' }
+            if (-not $Snapshot.PersonnelMemberIds.Contains([string]$user.Id) -and -not $objectId) { throw 'Rollenlose Übernahme benötigt eine explizite EntraObjectId.' }
+            if ((Get-NormalizedStudentNameKey -Student $Person) -cne (Get-NormalizedStudentNameKey -Student $user)) { throw 'Name stimmt nicht mit der angegebenen Objekt-ID überein.' }
+            return $user
+        }
         if ($Snapshot.StudentMemberIds.Contains([string]$user.Id) -or $user.UserType -eq 'Guest') {
             throw "Benutzer '$($user.Id)' ist Schüler oder Gast."
         }
@@ -223,7 +250,8 @@ function Resolve-LehrerIdentity {
 
 function Compare-LehrerDirectory {
     param([object[]] $People, [object] $Snapshot, [System.Collections.IDictionary] $Config,
-        [object] $ExchangeAddressOwners, [switch] $Recovery)
+        [object] $ExchangeAddressOwners, [switch] $Recovery, [switch] $ReviewOnlyPersonnel)
+    if ($ReviewOnlyPersonnel -and -not $Config.ContainsKey('PersonnelMode')) { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
     $result = [pscustomobject]@{
         NewPeople = @(); Departures = @(); ChangedPeople = @(); ExistingPeople = @(); Warnings = @(); Errors = @()
     }
@@ -241,13 +269,31 @@ function Compare-LehrerDirectory {
             [void]$reserved.Add([string]$key)
         }
     }
+    $detailActivity = if ($Config.ContainsKey('PersonnelMode')) { 'Personaldetails prüfen' } else { 'Lehrerdetails prüfen' }
     $personIndex = 0
     foreach ($person in $People) {
         $personIndex++
         $personPercent = if ($People.Count -eq 0) { 0 } else { [int](100 * $personIndex / $People.Count) }
-        Write-Progress -Id 2 -ParentId 1 -Activity 'Lehrerdetails prüfen' `
+        Write-Progress -Id 2 -ParentId 1 -Activity $detailActivity `
             -Status "Prüfe Person $personIndex von $($People.Count): $($person.NameMitRufname)" -PercentComplete $personPercent
         try {
+            if ($ReviewOnlyPersonnel) {
+                $reviewReason = [string](Get-ComparisonPropertyValue $person ReviewReason)
+                $reviewUser = $Snapshot.UsersById[[string](Get-ComparisonPropertyValue $person EntraObjectId)]
+                if ($null -eq $reviewUser) { $reviewUser = $Snapshot.UsersByUpn[[string](Get-ComparisonPropertyValue $person StoredUpn)] }
+                if (-not $reviewReason -and $null -ne $reviewUser) {
+                    try { Assert-PersonalSnapshotTarget -User $reviewUser -Snapshot $Snapshot }
+                    catch { $reviewReason = $_.Exception.Message }
+                }
+                if ($reviewReason) {
+                    # Reviewed inventory rows must not become creation or departure candidates.
+                    if ($null -ne $reviewUser) { [void]$claimedIds.Add([string]$reviewUser.Id) }
+                    $label = [string](Get-ComparisonPropertyValue $person StoredUpn)
+                    if (-not $label) { $label = [string]$person.NameMitRufname }
+                    $result.Warnings += New-LehrerIssue -Area Workbook -Field Review -Message "Zeile $($person.RowNumber) ($label): Nur zur Prüfung, nicht abgeglichen. $reviewReason" -Person $person
+                    continue
+                }
+            }
             $personnelProfile = Get-LehrerProfile -Job $person.Job -Config $Config
             $nameKey = Get-NormalizedStudentNameKey -Student $person
             if (-not $identities.Add($nameKey)) { throw "Doppelter Name '$($person.NameMitRufname)' in der Datei." }
@@ -265,9 +311,14 @@ function Compare-LehrerDirectory {
             $direct = if ($null -eq $user) { @() } else { @(Get-LehrerDirectGroup -Snapshot $Snapshot -UserId $user.Id) }
             $license = Test-LehrerLicenseState -User $user -DirectGroups $direct
             if ($null -eq $user) {
+                $namingStyle = if ($personnelProfile.Role.Name -like "$($Config.RoleGroupPrefix)Externe*") { 'FirstLast' } else { 'InitialSurname' }
+                $aliasDomain = [string]$Config.Profiles[$personnelProfile.Key]['AliasDomain']
+                $aliasDomains = @(if ($aliasDomain) { $aliasDomain })
                 $selected = Select-AvailableUpn -GivenName $person.GivenName -Surname $person.Surname -Domain $Config.Domain `
-                    -UsedAddresses $reserved -AddressOwners $owners
+                    -UsedAddresses $reserved -AddressOwners $owners -NamingStyle $namingStyle -AliasDomains $aliasDomains
                 $upn = $selected.Upn
+                $personnelProfile.Exchange.PrimarySmtpAddress = $upn
+                if ($aliasDomain) { $personnelProfile.Exchange.RequiredAliases = @('{0}@{1}' -f ($upn -split '@')[0], $aliasDomain) }
             } else {
                 $upn = [string]$user.UserPrincipalName
                 if (-not $upn) { throw "Bestehender Benutzer '$($user.Id)' hat keinen UPN." }
@@ -276,7 +327,9 @@ function Compare-LehrerDirectory {
             $desired = [pscustomobject]@{
                 DisplayName = "$($person.GivenName) $($person.Surname)"
                 GivenName = $person.GivenName; Surname = $person.Surname
-                UserPrincipalName = $upn; Mail = $upn; MailNickname = ($upn -split '@')[0]
+                UserPrincipalName = $upn
+                Mail = if ($null -eq $user) { $upn } else { Get-ComparisonPropertyValue $user Mail }
+                MailNickname = if ($null -eq $user) { ($upn -split '@')[0] } else { Get-ComparisonPropertyValue $user MailNickname }
                 JobTitle = $personnelProfile.Job; CompanyName = $personnelProfile.CompanyName
                 EmployeeType = $personnelProfile.EmployeeType; UsageLocation = 'DE'
                 AgeGroup = 'Adult'; ConsentProvidedForMinor = 'NotRequired'
@@ -292,14 +345,14 @@ function Compare-LehrerDirectory {
                 }
                 $legal = New-StateDifference -Area Entra -Field LegalAgeGroupClassification -Current $user.LegalAgeGroupClassification -Desired 'Adult' -Action Compare
                 if ($null -ne $legal) { $differences.Add($legal) }
-                if ($user.AccountEnabled -eq $false) {
+                if ($user.AccountEnabled -eq $false -and -not $Config.ContainsKey('PersonnelMode')) {
                     $differences.Add((New-StateDifference -Area Entra -Field AccountEnabled -Current $false -Desired $true -Action Set))
                 }
                 $roleIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
                 foreach ($group in $direct) {
                     [void]$roleIds.Add([string]$group.Id)
                     if ($group.DisplayName.StartsWith($Config.RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) -and
-                        $group.Id -ine $role.Id) {
+                        $group.Id -ine $role.Id -and (-not $Config.ContainsKey('PersonnelMode') -or $group.Id -in $Snapshot.ManagedRoleIds)) {
                         if (@($Snapshot.GroupsById[[string]$group.Id].AssignedLicenses | Where-Object { $null -ne $_ }).Count -gt 0) {
                             throw "Rolle '$($group.DisplayName)' vergibt selbst Lizenzen. Rollenwechsel würde den Bestandsschutz verletzen."
                         }
@@ -324,7 +377,7 @@ function Compare-LehrerDirectory {
             $result.Errors += New-LehrerIssue -Area Preflight -Field Identity -Message $_.Exception.Message -Person $person
         }
     }
-    Write-Progress -Id 2 -ParentId 1 -Activity 'Lehrerdetails prüfen' -Completed
+    Write-Progress -Id 2 -ParentId 1 -Activity $detailActivity -Completed
     if ($result.Errors.Count -gt 0) {
         $result.NewPeople = @(); $result.Departures = @()
     } elseif (-not $Recovery) {
@@ -338,6 +391,10 @@ function Compare-LehrerDirectory {
             } elseif ($user.AccountEnabled -eq $false) {
                 continue
             } else {
+                if ($Config.ContainsKey('PersonnelMode')) {
+                    try { Assert-PersonalSnapshotTarget -User $user -Snapshot $Snapshot }
+                    catch { $result.Warnings += New-LehrerIssue -Area Safety -Field Departure -Message $_.Exception.Message; continue }
+                }
                 $result.Departures += [pscustomobject]@{ Person = $null; User = $user; DesiredState = $null; Differences = @()
                     SourceRoles = @($Snapshot.PersonnelRolesByUserId[$id]) }
             }

@@ -10,7 +10,7 @@ Describe 'SchuelerSync module contract' {
         (Get-Command Invoke-SchuelerSync -Module SchuelerSync).Name |
             Should -Be 'Invoke-SchuelerSync'
         @(Get-Command -Module SchuelerSync).Name |
-            Should -Be @('Invoke-DisabledAccountCheck', 'Invoke-DisabledAccountTui', 'Invoke-LehrerSync', 'Invoke-SchuelerSync')
+            Should -Be @('Invoke-DisabledAccountCheck', 'Invoke-DisabledAccountTui', 'Invoke-LehrerSync', 'Invoke-PersonalSync', 'Invoke-SchuelerSync')
     }
 
     It 'contains the immutable student configuration' {

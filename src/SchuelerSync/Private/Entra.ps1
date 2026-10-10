@@ -26,7 +26,7 @@ function Test-GraphScopeSet {
 
 function Connect-SchuelerGraph {
     [CmdletBinding()]
-    param()
+    param([string[]] $AdditionalScopes = @())
 
     $requiredScopes = @(
         'User.ReadWrite.All'
@@ -34,7 +34,7 @@ function Connect-SchuelerGraph {
         'Group.Read.All'
         'GroupMember.ReadWrite.All'
         'User.RevokeSessions.All'
-    )
+    ) + $AdditionalScopes
 
     $context = Get-MgContext
     $contextScopes = if ($null -eq $context) { @() } else { @($context.Scopes) }
@@ -530,7 +530,7 @@ function Set-EntraStudentAttribute {
 
     $writableFields = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($field in @(
-            'DisplayName', 'GivenName', 'Surname', 'UserPrincipalName', 'Mail', 'MailNickname',
+            'DisplayName', 'GivenName', 'Surname',
             'Department', 'OfficeLocation', 'CompanyName', 'EmployeeType', 'UsageLocation',
             'AgeGroup', 'ConsentProvidedForMinor'
         )) {
@@ -630,7 +630,7 @@ function Get-FreshEntraUserDirectGroup {
     param([Parameter(Mandatory)][string] $UserId)
 
     return @(
-        Get-MgUserMemberOfAsGroup -UserId $UserId -All -ErrorAction Stop |
+        Get-MgUserMemberOfAsGroup -UserId $UserId -All -Property @('id','displayName','groupTypes','membershipRule','assignedLicenses') -ErrorAction Stop |
             ForEach-Object {
                 $inheritedProperty = $_.PSObject.Properties['IsInherited']
                 $isInherited = $null -ne $inheritedProperty -and [bool]$inheritedProperty.Value

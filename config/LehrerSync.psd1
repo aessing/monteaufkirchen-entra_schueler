@@ -1,5 +1,5 @@
 ﻿@{
-    Domain = 'monteaufkirchen.com'
+    Domain = 'montessori-erding.de'
     ExpectedTenantId = $null
     RoleGroupPrefix = 'SEC-A-ROL-'
     Roles = @{
@@ -15,6 +15,7 @@
     AdditionalJobs = @('JAS')
     Profiles = @{
         School = @{
+            AliasDomain = 'monteaufkirchen.com'
             CompanyName = 'Montessori Schule Aufkirchen'
             EmployeeType = 'Pädagogisches Team'
             LicenseGroupName = 'SEC-A-LIC-M365A3Faculty'
@@ -34,7 +35,7 @@
         SharingPolicy = 'MON-EXO-Sharing-Default'
         RetentionPolicy = 'MON-EXO-Retention-Default'
         OwaMailboxPolicy = 'MON-EXO-OWA-Default'
-        MaxMailboxRetries = 5
-        RetryDelaySeconds = 60
+        MaxMailboxRetries = 3
+        RetryDelaySeconds = 150
     }
 }

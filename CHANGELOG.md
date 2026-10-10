@@ -4,6 +4,40 @@ Alle wesentlichen Änderungen an diesem Projekt werden in dieser Datei dokumenti
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.3.0] - Unreleased
+
+### Added
+
+- Eigener Einstieg `Sync-PersonalEntra.ps1` mit `Invoke-PersonalSync` für die sieben freigegebenen übrigen Personalprofile. Unterstützt Bestandsliste, passwortfreies Ergebnisobjekt, Einzelanlage/-pflege, Remove, Exchange-Reparatur und optionalen `Personal.xlsx`-Sync.
+- Personalbestand einschließlich rollenloser und sichtbar geschützter Konten. Lehrer, CO-L, PA, OGTS, Schüler und Shared Mailboxes werden auch bei transitiver Rollenmitgliedschaft ausgeschlossen. ExterneAdmins, Mitglieder von GlobalAdministrators und Verzeichnisrollenträger bleiben geschützt. Fehlende oder mehrdeutige Schutzgruppen sperren Schreibaktionen.
+- Personal-TUI zum Sperren mit Sitzungswiderruf, Entsperren von Mitgliedskonten und Löschen gesperrter Konten. Zulässige Gäste können gesperrt und gelöscht werden, auch ohne Rollengruppe oder mit `MailUser`/`GuestMailUser`. Gastentsperrung und Gastpflege im normalen Sync bleiben gesperrt.
+- `-ManageAccounts` für Schüler sowie Lehrer/Ganztag mit derselben TUI, Bestätigungen, Fortschritt und Bestandsaktualisierung. Die direkte Rollenmitgliedschaft sowie Identität, Mandant, Adminschutz und Exchange-Zuordnung werden vor jeder Aktion frisch geprüft.
+- Schüler-TUI mit K für Klasse/Jahrgang und L für Klassenlehrer. Klassenwechsel bestätigen zuerst die neue Mitgliedschaft, aktualisieren `Department` und `OfficeLocation` und entfernen anschließend alte CLS-Mitgliedschaften. Klassenlehrer stammen aus aktiven internen direkten Mitgliedern des Schul-Pädagogikteams. Gesperrte Konten bleiben gesperrt, Exceldateien werden nicht verändert.
+- Detailanzeige für Rollengruppen und `Last Login Timestamp (UTC)`, einschließlich fehlender und nicht abrufbarer Werte. Die Personalansicht zeigt zusätzlich den Kontotyp, die Schüleransicht Klasse, Jahrgang und Klassenlehrer.
+- `-ListToExcel` für alle drei Populationen mit neuen Dateizielen, `-File`, `-WhatIf` und Fortschritt. Gemeinsamer verifizierter Export mit Blatt und Tabelle `Tabelle1`, `TableStyleMedium14`, Textzellen und leeren Passwörtern. Schüler haben zehn Spalten, Lehrer und Personal neun. Bestehende Dateien und Symlinks werden abgewiesen.
+- `Last Login Timestamp` als rechts angehängte Exportspalte für die letzte erfolgreiche Anmeldung in UTC. Fehlende Werte bleiben leer. Bei fehlender Abrufberechtigung wird gewarnt und der Bestand ohne `signInActivity` geladen. Schüler- und Lehrerexporte benötigen zusätzlich `AuditLog.Read.All`.
+- Expliziter Wiederanlauf einer gesperrten Personal-Teilanlage über `-ResumeCreation` und Objekt-ID, ohne erneute Passworterzeugung. Früher Excel-Checkpoint und bestehende Identitäten werden verifiziert.
+- Synthetische Profil-, Inventar-, Schutz-, Sync-, Adress-, TUI- und XLSX-Regressionen sowie tatsächliche isolierte CLI-Aufrufe. Personal-Anleitung, Adressregeln, Spezifikation, Variantenentscheidung, Umsetzungsplan und Abnahmeprotokoll ergänzt.
+
+### Changed
+
+- Neue Schüler erhalten UPN und Mail unter `monteaufkirchen.com`. Neue Schulteam-, OGTS- und übrige Personalkonten erhalten `montessori-erding.de`. Das Schulteam erhält zusätzlich denselben lokalen Namen als Exchange-Alias unter `monteaufkirchen.com`, OGTS erhält keinen Schulalias. Hauptadresse und Alias werden gemeinsam auf Belegung geprüft und reserviert.
+- Neue Angestellte verwenden Vornamensinitiale plus Nachname. Bei Belegung wächst das Vornamenspräfix, danach folgt ein Zahlenfallback. Freigegebene `Externe*`-Rollen verwenden `vorname.nachname` mit Zahlenfallback. ExterneAdmins bleibt geschützt.
+- Bestehende UPNs, Mailadressen, Mail-Nicknames und Aliase bleiben in allen Populationen erhalten, auch bei fehlenden Werten oder Namens-/Rollenwechsel. Exchange erhält neue SMTP-Adressen ausschließlich im Neuanlagepfad, bewahrt zusätzliche Adressen und verifiziert den geschriebenen Zustand.
+- Personalexport mit lesbaren Jobnamen, etwa `Kinderhaus Pädagogisches Team` und `Externe Benutzer`. Unterstriche werden durch Leerzeichen ersetzt und CamelCase wird getrennt. Excel-Import und Einzelpflege erkennen lesbare Namen sowie bisherige interne Werte anhand der konfigurierten Jobs. Groß-/Kleinschreibung und mehrfache Leerzeichen werden normalisiert. Unbekannte oder mehrdeutige Namen werden abgewiesen, interne Profilwerte und Schutzregeln bleiben erhalten.
+- Backspace oder Entf öffnet in allen Konten-TUIs die Löschbestätigung. Enter hat in Kontenlisten keine Aktion und übernimmt weiterhin Ziele in der Schüler-Zielauswahl. Jede TUI zeigt ihre Tastenbefehle als letzte Ausgabezeile. Hinweise zu übersprungenen Konten stehen in Bestätigungsdialogen vor den Ja-/Nein-Befehlen.
+- Personal-`-Update` ohne Aktionsschalter erstellt und aktualisiert. Abgangssperrung und Sitzungswiderruf benötigen ausdrückliche Aktionsschalter. Gesperrte Bestandskonten bleiben im normalen Personal-Sync gesperrt. Die bisherigen Schüler-/Lehrer-Sync-Regeln bleiben erhalten.
+- Personalrollenwechsel entfernt ausschließlich verwaltete Rollen. Vorhandene und ausstehende Lizenzen bleiben erhalten und werden vor einem Standardgruppenbeitritt frisch geprüft. Eine nicht konfigurierte AddressBookPolicy wird bei Vorprüfung, Vergleich und Schreiben ausgelassen, bestehende Zuweisungen werden nicht entfernt.
+- Gemeinsamer Administratorschutz verwendet `SEC-A-ADM-GlobalAdministrators` mit eindeutiger Namensauflösung in Personal-, Lehrer- und Schülerverwaltung.
+- Entwicklungsstand im Modul und in der Dokumentation auf 0.3.0 gesetzt. Betriebs-, Test-, Sicherheits- und Supportanleitungen aktualisiert. Die letzte veröffentlichte Version bleibt 0.2.0.
+
+### Fixed
+
+- Ein unbearbeiteter Personalexport mit geschützten, rollenlosen, unbekannten oder unvollständigen Zeilen lässt sich rein lesend vergleichen. Solche Zeilen und explizit identifizierte nicht schreibbare Konten erscheinen als `Workbook.Review` mit Zeilennummer und Identität. Bekannte Prüfidentitäten werden nicht als Abgänge gewertet. Schreibimporte einschließlich Update-WhatIf bleiben strikt.
+- Abgebrochene oder vollständig übersprungene TUI-Aktionen erhalten Markierung und Cursor ohne erneuten Bestandsabruf. Aktive Konten und Gäste erhalten beim Löschversuch einen konkreten Sperrhinweis. Leere Aktionsergebnisse werden unter StrictMode korrekt behandelt.
+- Lehrer-/Ganztagspostfächer werden sofort und danach höchstens dreimal im Abstand von 150 Sekunden geprüft, auch bei gezielter Exchange-Reparatur. Eindeutige Empfänger-nicht-gefunden-Fehler bei Mailbox-/CAS-Lesen, Schreiben und Rückleseprüfung bleiben wiederholbar. Nach höchstens 7,5 Minuten folgt `Pending` mit Reparaturbefehl. Andere Fehler, WhatIf sowie Schüler- und Personal-Warteintervalle behalten ihr bisheriges Verhalten.
+- Wiederanlauf nach fehlgeschlagener Lehreranlage mit gezielter Postfachreparatur und selektivem Excel-Wiederanlauf dokumentiert und synthetisch geprüft.
+
 ## [0.2.0] - 2026-09-27
 
 ### Added
@@ -93,6 +127,7 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 - Passwörter werden nicht in Berichte, Ergebnisobjekte oder `-OutputFile` geschrieben
 - Abgänge werden deaktiviert und Sitzungen widerrufen, Benutzerkonten, Gruppen und Lizenzen werden nicht gelöscht
 
+[0.3.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/releases/tag/v0.1.0

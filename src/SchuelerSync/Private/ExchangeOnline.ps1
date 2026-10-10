@@ -116,7 +116,11 @@ function Test-ExchangeMailboxNotFoundError {
         $fullyQualifiedErrorId -match '(?i)ManagementObjectNotFoundException|Ex6F9304'
     $isNotFoundCategory = [string]::Equals($category, 'ObjectNotFound', [StringComparison]::OrdinalIgnoreCase)
     $hasDocumentedMessage = $message -match "(?i)(couldn't|could not|cannot|wasn't|was not) be found|does not exist"
-    return ($isNotFoundType -or $isNotFoundCategory) -and $hasDocumentedMessage
+    # EXO remote errors can lose their exception type and category in the client.
+    $exchangeObjectMessage = "(?i)(?:^|\|\|)\s*The operation (?:couldn't|could not) be performed because object '[^']+' (?:couldn't|could not) be found(?: on '[^']+')?\.?\s*$"
+    $detailsMessage = if ($null -ne $ErrorRecord.ErrorDetails) { [string]$ErrorRecord.ErrorDetails.Message } else { '' }
+    $hasExchangeObjectMessage = $message -match $exchangeObjectMessage -or $detailsMessage -match $exchangeObjectMessage
+    return (($isNotFoundType -or $isNotFoundCategory) -and $hasDocumentedMessage) -or $hasExchangeObjectMessage
 }
 
 function Get-StudentMailboxState {
@@ -129,6 +133,7 @@ function Get-StudentMailboxState {
     $upn = $UserPrincipalName.Trim()
     try {
         $mailbox = Get-Mailbox -Identity $upn -ErrorAction Stop
+        $casMailbox = Get-CASMailbox -Identity $upn -ErrorAction Stop
     } catch {
         if (Test-ExchangeMailboxNotFoundError -ErrorRecord $_) {
             return [pscustomobject]@{
@@ -143,7 +148,6 @@ function Get-StudentMailboxState {
         throw
     }
 
-    $casMailbox = Get-CASMailbox -Identity $upn -ErrorAction Stop
     $differences = if ($null -eq $Config) {
         @()
     } else {
@@ -240,8 +244,23 @@ function Compare-StudentMailboxState {
         [pscustomobject]@{ Field = 'RetentionPolicy'; Current = ConvertTo-ExchangePolicyName (Get-ComparisonPropertyValue -InputObject $Mailbox -Name RetentionPolicy); Desired = [string]$Config.RetentionPolicy }
     )
     foreach ($field in $scalarFields) {
+        if ($field.Field -eq 'AddressBookPolicy' -and [string]::IsNullOrWhiteSpace([string]$field.Desired)) { continue }
         $difference = New-StateDifference -Area Exchange -Field $field.Field -Current $field.Current -Desired $field.Desired
         if ($null -ne $difference) { $differences.Add($difference) }
+    }
+
+    # Creation targets carry address policy. Ordinary updates and repairs do not.
+    if ($Config.Contains('PrimarySmtpAddress')) {
+        $difference = New-StateDifference -Area Exchange -Field PrimarySmtpAddress `
+            -Current ([string](Get-ComparisonPropertyValue $Mailbox PrimarySmtpAddress)) -Desired ([string]$Config['PrimarySmtpAddress'])
+        if ($null -ne $difference) { $differences.Add($difference) }
+    }
+    if ($Config.Contains('RequiredAliases')) {
+        $current = @((Get-ComparisonPropertyValue $Mailbox EmailAddresses) | Where-Object { [string]$_ -match '^smtp:' } | ForEach-Object { ([string]$_).Substring(5) })
+        $missing = @(Get-MissingExchangeValue -Current $current -Required @($Config['RequiredAliases']))
+        if ($missing.Count -gt 0) {
+            $differences.Add([pscustomobject]@{ Area='Exchange'; Field='EmailAddresses'; Current=$current; Desired=@($Config['RequiredAliases']); Action='Add' })
+        }
     }
 
     $requiredAudit = Get-RequiredExchangeAuditAction -Mailbox $Mailbox
@@ -298,6 +317,7 @@ function Get-ExchangeMailboxWriteParameter {
         SharingPolicy = [string]$Config.SharingPolicy
         RetentionPolicy = [string]$Config.RetentionPolicy
     }
+    if ([string]::IsNullOrWhiteSpace([string]$Config.AddressBookPolicy)) { $desiredValues.Remove('AddressBookPolicy') }
     foreach ($difference in @($Differences | Where-Object { $desiredValues.ContainsKey([string]$_.Field) })) {
         $parameters[[string]$difference.Field] = $desiredValues[[string]$difference.Field]
     }
@@ -309,6 +329,22 @@ function Get-ExchangeMailboxWriteParameter {
                 -Current @((Get-ComparisonPropertyValue -InputObject $Mailbox -Name $field)) `
                 -Required @((Get-ComparisonPropertyValue -InputObject $requiredAudit -Name $field)))
         if ($missing.Count -gt 0) { $parameters[$field] = @{ Add = [object[]]@($missing) } }
+    }
+    if ($Config.Contains('PrimarySmtpAddress') -and @($Differences | Where-Object Field -in @('PrimarySmtpAddress','EmailAddresses')).Count -gt 0) {
+        $primary = [string]$Config['PrimarySmtpAddress']
+        $addresses = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        [void]$addresses.Add("SMTP:$primary")
+        foreach ($address in @((Get-ComparisonPropertyValue $Mailbox EmailAddresses))) {
+            $value = [string]$address
+            if ($value -match '^smtp:') { $value = 'smtp:' + $value.Substring(5) }
+            if ($value) { [void]$addresses.Add($value) }
+        }
+        $oldPrimary = [string](Get-ComparisonPropertyValue $Mailbox PrimarySmtpAddress)
+        if ($oldPrimary) { [void]$addresses.Add("smtp:$oldPrimary") }
+        foreach ($alias in @($Config['RequiredAliases'])) {
+            if ($alias) { [void]$addresses.Add("smtp:$alias") }
+        }
+        $parameters.EmailAddresses = [string[]]@($addresses)
     }
     return $parameters
 }
@@ -348,7 +384,8 @@ function New-ExchangeConfigurationResult {
         [bool] $Changed,
         [AllowNull()][object[]] $Differences,
         [AllowNull()][object[]] $RemainingDifferences,
-        [AllowNull()][string] $ErrorMessage
+        [AllowNull()][string] $ErrorMessage,
+        [bool] $Retryable = $false
     )
 
     return [pscustomobject]@{
@@ -358,6 +395,7 @@ function New-ExchangeConfigurationResult {
         Differences = [object[]]@($Differences)
         RemainingDifferences = [object[]]@($RemainingDifferences)
         Error = $ErrorMessage
+        Retryable = $Retryable
     }
 }
 
@@ -366,7 +404,9 @@ function Set-StudentMailboxConfiguration {
     param(
         [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $UserPrincipalName,
         [Parameter(Mandatory)][System.Collections.IDictionary] $Config,
-        [AllowNull()][object] $MailboxState
+        [AllowNull()][object] $MailboxState,
+        [System.Collections.IDictionary] $SafetyConfig,
+        [string] $SafetyUserId
     )
 
     $upn = $UserPrincipalName.Trim()
@@ -378,7 +418,7 @@ function Set-StudentMailboxConfiguration {
         }
     } catch {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Failed -Changed:$false `
-            -Differences @() -RemainingDifferences @() -ErrorMessage $_.Exception.Message
+            -Differences @() -RemainingDifferences @() -ErrorMessage $_.Exception.Message -Retryable:(Test-ExchangeMailboxNotFoundError $_)
     }
     if (-not [bool]$state.Exists) {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status MailboxNotReady -Changed:$false `
@@ -403,16 +443,18 @@ function Set-StudentMailboxConfiguration {
     $changed = $false
     try {
         if ($mailboxParameters.Count -gt 0 -and $PSCmdlet.ShouldProcess($upn, 'Exchange mailbox settings')) {
+            if ($null -ne $SafetyConfig) { $null = Assert-PersonalMutationTarget -UserId $SafetyUserId -ExpectedUpn $upn -Config $SafetyConfig }
             Set-Mailbox -Identity $upn @mailboxParameters -Confirm:$false -ErrorAction Stop
             $changed = $true
         }
         if ($casParameters.Count -gt 0 -and $PSCmdlet.ShouldProcess($upn, 'Exchange CAS mailbox settings')) {
+            if ($null -ne $SafetyConfig) { $null = Assert-PersonalMutationTarget -UserId $SafetyUserId -ExpectedUpn $upn -Config $SafetyConfig }
             Set-CASMailbox -Identity $upn @casParameters -Confirm:$false -ErrorAction Stop
             $changed = $true
         }
     } catch {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Failed -Changed:$changed `
-            -Differences $differences -RemainingDifferences $differences -ErrorMessage $_.Exception.Message
+            -Differences $differences -RemainingDifferences $differences -ErrorMessage $_.Exception.Message -Retryable:(Test-ExchangeMailboxNotFoundError $_)
     }
     if (-not $changed) {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Skipped -Changed:$false `
@@ -423,7 +465,7 @@ function Set-StudentMailboxConfiguration {
         $verified = Get-StudentMailboxState -UserPrincipalName $upn -Config $Config
     } catch {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Failed -Changed:$true `
-            -Differences $differences -RemainingDifferences $differences -ErrorMessage $_.Exception.Message
+            -Differences $differences -RemainingDifferences $differences -ErrorMessage $_.Exception.Message -Retryable:(Test-ExchangeMailboxNotFoundError $_)
     }
     $verifiedReady = [bool](Get-ComparisonPropertyValue -InputObject $verified -Name Exists) -and
         [string]::Equals(
@@ -436,7 +478,8 @@ function Set-StudentMailboxConfiguration {
     if (-not $verifiedReady) {
         return New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Failed -Changed:$true `
             -Differences $differences -RemainingDifferences $differences `
-            -ErrorMessage 'Exchange-Verifikation fehlgeschlagen: Das Postfach ist nach der Schreiboperation nicht bereit.'
+            -ErrorMessage 'Exchange-Verifikation fehlgeschlagen: Das Postfach ist nach der Schreiboperation nicht bereit.' `
+            -Retryable:([string](Get-ComparisonPropertyValue $verified Status) -eq 'MailboxNotReady')
     }
     $remaining = @($verified.Differences)
     if ($remaining.Count -gt 0) {
@@ -457,6 +500,7 @@ function Wait-StudentMailbox {
         [ValidateRange(0, 86400)][int] $RetryDelaySeconds = 60,
         [scriptblock] $SleepAction = { param($seconds) Start-Sleep -Seconds $seconds },
         [System.Collections.IDictionary] $Config,
+        [string[]] $NewAccountUpns = @(),
         [switch] $Configure
     )
 
@@ -484,8 +528,13 @@ function Wait-StudentMailbox {
         Write-Progress -Id 3 -Activity 'Exchange-Postfächer bereitstellen' -Status "Prüfe Versuch $($attempt + 1) von $($MaxRetries + 1), $($pending.Count) Postfach/Postfächer ausstehend ..." -PercentComplete ([int](100 * ($attempt + 1) / ($MaxRetries + 1)))
         foreach ($upn in @($pending)) {
             $attemptsByUpn[$upn] = [int]$attemptsByUpn[$upn] + 1
+            $targetConfig = $Config
+            if ($Configure -and $upn -in $NewAccountUpns) {
+                $targetConfig = @{} + $Config
+                $targetConfig.PrimarySmtpAddress = $upn
+            }
             try {
-                $state = Get-StudentMailboxState -UserPrincipalName $upn -Config $Config
+                $state = Get-StudentMailboxState -UserPrincipalName $upn -Config $targetConfig
             } catch {
                 $failed.Add([pscustomobject]@{
                         UserPrincipalName = $upn
@@ -504,10 +553,10 @@ function Wait-StudentMailbox {
                         -Differences @() -RemainingDifferences @() -ErrorMessage $null
                 } elseif ($WhatIfPreference) {
                     $configuration = Set-StudentMailboxConfiguration `
-                        -UserPrincipalName $upn -Config $Config -MailboxState $state -WhatIf
+                        -UserPrincipalName $upn -Config $targetConfig -MailboxState $state -WhatIf
                 } elseif ($PSCmdlet.ShouldProcess($upn, 'Configure Exchange Online student mailbox')) {
                     $configuration = Set-StudentMailboxConfiguration `
-                        -UserPrincipalName $upn -Config $Config -MailboxState $state -Confirm:$false
+                        -UserPrincipalName $upn -Config $targetConfig -MailboxState $state -Confirm:$false
                 } else {
                     $configuration = New-ExchangeConfigurationResult -UserPrincipalName $upn `
                         -Status Skipped -Changed:$false -Differences $state.Differences `

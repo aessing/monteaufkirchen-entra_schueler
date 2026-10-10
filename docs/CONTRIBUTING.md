@@ -1,6 +1,18 @@
 # Contributor's Guide
 
+Changes to account creation must follow the [address policy](ADRESSREGELN.md). Add failing regression tests before changing behavior. Cover both the primary and alias address when reserving school staff names, and verify that existing UPNs, mail addresses, mail nicknames and SMTP aliases stay unchanged. Run the complete local verification because normalization, comparison and Exchange helpers are shared across all three populations.
+
 Below is the guidance for how to report issues, propose new features, and submit contributions via Pull Requests.
+
+## Local verification and personnel changes
+
+Use `tests/Test-PesterDiscovery.ps1` in a fresh PowerShell process, followed by `tests/Invoke-LocalVerification.ps1` and `git diff --check`. The common module serves student, teacher, personnel and disabled-account entry points, so changes to shared behavior require the complete regression suite. See [TESTING.md](TESTING.md) and [ABNAHME.md](ABNAHME.md).
+
+Personnel changes must preserve the approved [0.3.0 specification](PERSONAL-0.3.0-SPEC.md). Use synthetic identities and isolated remote-command mocks. Do not commit workbooks, exports, backups or reports containing production data. Actual CLI and TUI fixtures are available in `tests/Invoke-SyntheticPersonalCli.ps1`.
+
+All three workbook exporters share `Export-AccountWorkbook`. Cover schema and import round trips in `tests/WorkbookExport.Tests.ps1` and retain the personnel export regressions. The isolated CLI harness accepts `-Population Student` or `-Population Teacher` with `-Mode Export`. Keep existing defaults, parameter aliases and student/teacher update semantics intact.
+
+The trailing `Last Login Timestamp` uses the shared `Get-EntraLastLogin` interpretation of successful sign-ins. Cover UTC conversion, empty values and sign-in-query fallback. Additional informational columns must not change required import fields or identity/password column positions.
 
 ## :bug: Before you start, file an issue
 

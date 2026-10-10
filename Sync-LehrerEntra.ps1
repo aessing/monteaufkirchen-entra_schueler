@@ -1,7 +1,9 @@
 [CmdletBinding(DefaultParameterSetName = 'Sync', SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-    [Parameter(ParameterSetName = 'Sync')][ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
+    [Parameter(ParameterSetName = 'Sync')][Parameter(ParameterSetName = 'Export')][ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
     [string] $File = (Join-Path $PSScriptRoot 'Lehrer.xlsx'),
+    [Parameter(ParameterSetName = 'Export', Mandatory)][switch] $ListToExcel,
+    [Parameter(ParameterSetName = 'Manage', Mandatory)][switch] $ManageAccounts,
     [Parameter(ParameterSetName = 'Sync')][switch] $Update,
     [Parameter(ParameterSetName = 'Sync')][switch] $CreateNewUsers,
     [Parameter(ParameterSetName = 'Sync')][switch] $UpdateUsers,
@@ -18,6 +20,10 @@ param(
     [Parameter(ParameterSetName = 'Remove', Mandatory)]
     [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
     [Alias('UPN', 'UserPrincipalName')][ValidateNotNullOrEmpty()][string[]] $Mail,
+    [Parameter(ParameterSetName = 'Sync')]
+    [Parameter(ParameterSetName = 'Add')]
+    [Parameter(ParameterSetName = 'Remove')]
+    [Parameter(ParameterSetName = 'ExchangeOnly')]
     [ValidateNotNullOrEmpty()][string] $OutputFile
 )
 
@@ -25,7 +31,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'src/SchuelerSync/SchuelerSync.psd1') -Force
 $forwardParameters = @{} + $PSBoundParameters
-if ($PSCmdlet.ParameterSetName -eq 'Sync' -and -not $PSBoundParameters.ContainsKey('File')) {
+if ($PSCmdlet.ParameterSetName -in @('Sync','Export') -and -not $PSBoundParameters.ContainsKey('File')) {
     $forwardParameters['File'] = $File
 }
 $result = Invoke-LehrerSync @forwardParameters

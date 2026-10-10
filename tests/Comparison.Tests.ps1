@@ -426,6 +426,18 @@ Describe 'Stable student identity and directory comparison' {
         }
 
         Context 'desired state and differences' {
+            It 'preserves a custom mail and nickname on an existing student' {
+                $required = @(Get-RequiredTestGroups)
+                $user = New-TestUser -Id student-id -Mail 'legacy@example.invalid'
+                $user.MailNickname='legacy-nickname'
+                $teacher = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
+                $snapshot = New-TestSnapshot -Users @($user,$teacher) -RoleMemberIds @('student-id') -Groups $required -DirectGroups @{ 'student-id'=@($required) }
+                $result = Compare-StudentDirectory -Students @((New-TestStudent -EntraObjectId student-id)) -Snapshot $snapshot -Config $script:ComparisonTestConfig
+                $result.Errors | Should -BeNullOrEmpty
+                $result.ChangedStudents | Should -BeNullOrEmpty
+                $result.ExistingStudents[0].DesiredState.Mail | Should -Be $user.Mail
+                $result.ExistingStudents[0].DesiredState.MailNickname | Should -Be $user.MailNickname
+            }
             It 'preserves Unicode names and creates every required desired value' {
                 $student = New-TestStudent -GivenName 'Änne' -Surname 'Weiß'
                 $manager = New-TestUser -Id teacher-id -GivenName Lea -Surname Lehrerin -UserPrincipalName lea@monteaufkirchen.com
@@ -621,7 +633,7 @@ Describe 'Stable student identity and directory comparison' {
                 $result.Warnings.Field | Should -Contain 'Mail'
             }
 
-            It 'treats a missing mail nickname as a field-level Set difference' {
+            It 'preserves a missing mail nickname on an existing account' {
                 $required = @(Get-RequiredTestGroups)
                 $user = New-TestUser -Id student-id
                 $user.PSObject.Properties.Remove('MailNickname')
@@ -633,12 +645,9 @@ Describe 'Stable student identity and directory comparison' {
                 $result = Compare-StudentDirectory -Students @(
                     New-TestStudent -EntraObjectId student-id
                 ) -Snapshot $snapshot -Config $script:ComparisonTestConfig
-                $difference = $result.ChangedStudents[0].Differences | Where-Object Field -eq MailNickname
-
-                $difference.Area | Should -Be 'Entra'
-                $difference.Current | Should -BeNullOrEmpty
-                $difference.Desired | Should -Be 'mmueller'
-                $difference.Action | Should -Be 'Set'
+                $result.Errors | Should -BeNullOrEmpty
+                $result.ChangedStudents | Should -BeNullOrEmpty
+                $result.ExistingStudents[0].DesiredState.MailNickname | Should -BeNullOrEmpty
             }
 
             It 'keeps new, departure, changed, and existing categories mutually exclusive' {

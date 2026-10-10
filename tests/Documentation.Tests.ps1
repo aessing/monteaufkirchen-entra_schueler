@@ -21,13 +21,15 @@ BeforeAll {
 }
 
 Describe 'Documentation contract' {
-    It 'keeps the v0.2.0 release metadata consistent' {
-        $manifest.ModuleVersion | Should -Be '0.2.0'
-        $readme | Should -Match 'Aktuelle Version:\s*\*\*0\.2\.0\*\*'
+    It 'keeps the v0.3.0 development metadata and previous release consistent' {
+        $manifest.ModuleVersion | Should -Be '0.3.0'
+        $readme | Should -Match 'Aktuelle Entwicklungsversion:\s*\*\*0\.3\.0\*\*'
+        $readme | Should -Match 'Letzte veröffentlichte Version:\s*\*\*0\.2\.0\*\*'
+        $changelog | Should -Match '## \[0\.3\.0\] - Unreleased'
+        $changelog | Should -Match '\[0\.3\.0\]:.+compare/v0\.2\.0\.\.\.HEAD'
         $changelog | Should -Match '## \[0\.2\.0\] - 2026-09-27'
         $changelog | Should -Match '## \[0\.1\.1\] - 2026-09-12'
         $changelog | Should -Match '\[0\.2\.0\]:.+compare/v0\.1\.1\.\.\.v0\.2\.0'
-        $changelog | Should -Not -Match '\[Unreleased\]'
     }
 
     It 'derives every documented public selector from the executable command' {
@@ -35,7 +37,7 @@ Describe 'Documentation contract' {
                 'File', 'Update', 'CreateNewUsers', 'DisableUsers', 'UpdateUsers',
                 'RevokeSessions', 'ConfigureExchangeOnlineOnly', 'Mail', 'OutputFile',
                 'Add', 'Remove', 'Vorname', 'Nachname', 'Klasse', 'Klassenlehrer', 'EntraObjectId', 'WhatIf',
-                'Confirm', 'Verbose'
+                'Confirm', 'Verbose', 'ListToExcel', 'ManageAccounts'
             )) {
             $command.Parameters.Keys | Should -Contain $parameter
         }
@@ -49,6 +51,28 @@ Describe 'Documentation contract' {
         Test-Path -LiteralPath $operationsPath -PathType Leaf | Should -BeTrue
         Test-Path -LiteralPath $testingPath -PathType Leaf | Should -BeTrue
         Test-Path -LiteralPath $personnelGuidePath -PathType Leaf | Should -BeTrue
+    }
+
+    It 'documents exports for both existing entry points and their public module functions' {
+        foreach ($entry in @($command,$personnelCommand)) {
+            $entry.Parameters.Keys | Should -Contain 'ListToExcel'
+            @($entry.ParameterSets | Where-Object Name -eq Export).Count | Should -Be 1
+        }
+        Import-Module $manifestPath -ErrorAction Stop
+        foreach ($name in @('Invoke-SchuelerSync','Invoke-LehrerSync')) {
+            (Get-Command $name).Parameters.Keys | Should -Contain 'ListToExcel'
+        }
+        $teacherGuide = Get-Content $personnelGuidePath -Raw
+        foreach ($text in @($guide,$teacherGuide,$readme,$operations,$testing,$changelog)) {
+            $text | Should -Match 'ListToExcel|WorkbookExport'
+        }
+        $guide | Should -Match 'zehn Spalten'
+        $teacherGuide | Should -Match 'neun Spalten'
+        foreach ($text in @($guide,$teacherGuide,(Get-Content (Join-Path $repoRoot 'docs/ENTRA-PERSONAL-SYNC.md') -Raw),$readme)) {
+            $text | Should -Match 'Last Login Timestamp'
+        }
+        $guide | Should -Match 'gesperrte.*reaktiviert|Gesperrte.*reaktiviert'
+        $teacherGuide | Should -Match 'gesperrte Konten reaktivieren'
     }
 
     It 'keeps the README examples aligned with the command surface' {
@@ -80,6 +104,23 @@ Describe 'Documentation contract' {
         $personnelGuide | Should -Match 'Ganztag'
         $personnelGuide | Should -Match 'ForceChangePasswordNextSignIn = true'
         $personnelGuide | Should -Match 'zwölf'
+    }
+
+    It 'documents the implemented remaining-personnel command and approved safety differences' {
+        $personalCommand=Get-Command (Join-Path $repoRoot 'Sync-PersonalEntra.ps1') -ErrorAction Stop
+        $personalGuide=Get-Content (Join-Path $repoRoot 'docs/ENTRA-PERSONAL-SYNC.md') -Raw
+        foreach($parameter in @('Add','Remove','ConfigureExchangeOnlineOnly','List','ListToExcel','ManageAccounts',
+            'PassThru','File','OutputFile','Vorname','Nachname','Job','EntraObjectId','ResumeCreation','Update',
+            'CreateNewUsers','UpdateUsers','DisableUsers','RevokeSessions','Mail','WhatIf','Confirm')) {
+            $personalCommand.Parameters.Keys | Should -Contain $parameter
+            $personalGuide | Should -Match ([regex]::Escape("-$parameter"))
+        }
+        $personalCommand.Parameters['Mail'].Aliases | Should -Contain 'UPN'
+        $personalCommand.Parameters['Mail'].Aliases | Should -Contain 'UserPrincipalName'
+        $personalGuide | Should -Match 'TableStyleMedium14'
+        $personalGuide | Should -Match 'Es sperrt keine Abgänge'
+        $personalGuide | Should -Match 'ExterneAdmins'
+        $readme | Should -Match 'docs/ENTRA-PERSONAL-SYNC.md'
     }
 
     It 'keeps the recommended report directory out of Git' {

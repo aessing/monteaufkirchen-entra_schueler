@@ -1,8 +1,70 @@
 # Test- und Abnahmeplan für die Parallels-VM
 
-Für den Personalabgleich 0.2.0 die [Personalregeln](ENTRA-LEHRER-SYNC.md) zusätzlich prüfen. Benutze eine Arbeitskopie der synthetischen `tests/fixtures/Lehrer-Testdaten.xlsx` in einem isolierten Mandanten oder mit vollständig isolierten Personalrollen. Teste L, CO-L, PA und OGTS, den Wechsel zwischen Schul- und Ganztagsrolle, bestehende Direkt- und Gruppenlizenzen, die zwei Exchange-Profile und die Passwortregel mit genau zwölf Zeichen und erzwungenem Erstwechsel. Prüfe `-Remove` auf Deaktivierung und Sitzungswiderruf bei erhaltenem Konto, Postfach, Gruppen und Lizenzen. `-WhatIf` darf keine Mandanten- oder Excel-Mutation auslösen. Halte den Personaltest getrennt vom historischen Schülerprotokoll fest.
+## Lesbare Personaljobs in Export und Import
 
-Der [Check gesperrter Konten](GESPERRTE-KONTEN-VERWALTUNG.md) lädt zunächst nur lesend. Die Pester-Tests prüfen aktive Konten, die Aufnahme von freigegebenen und Ressourcenpostfächern sowie Konten ohne Exchange-Empfänger, die eindeutige Zuordnung über Objekt-IDs, den Abbruch bei einem Exchange-Bestandsfehler, `UserMailbox` und `RemoteUserMailbox`, Gäste, synchronisierte Konten, Verzeichnisrollen, fehlende Anmeldedaten, besessene Entra-Objekte mit Typ, Name und ID aus Graph-`AdditionalProperties` und den abgeschlossenen Fortschrittsbalken. Die TUI-Tests prüfen das Ausblenden von `SharedMailbox`, Pfeile, Markierung mit Leertaste für persönliche Benutzerpostfächer und eindeutig empfängerlose Konten, Nein und Esc ohne Aktion, Enter zum Löschen, `U` zum Entsperren, Ja nur für markierte Konten sowie `-WhatIf`. Bei mehreren ausgewählten Konten müssen Löschen und Entsperren jeden Schritt im Fortschrittsbalken anzeigen und den Balken auch nach `Skipped` oder `Failed` abschließen. Beide Schreibpfade müssen vor jeder Aktion Identität, Sperrstatus, Exchange-Zuordnung und Verzeichnisrollen erneut lesen. Vor der Aktion bei einem empfängerlosen Konto muss ein neuer vollständiger Exchange-Bestand ohne Treffer für seine Objekt-ID geladen werden. Eine inzwischen zugeordnete `SharedMailbox`, eine unklare Zuordnung oder ein Exchange-Fehler muss die Aktion überspringen. Der Löschpfad nennt bekannte Besitzobjekte in der Bestätigung, fragt sie unmittelbar vor dem Löschen erneut ab und warnt bei Treffern. Eigentümerkonten dürfen nach Bestätigung gelöscht werden. Fehler der erneuten Besitzabfrage führen weiterhin zu `Skipped`. Der Entsperrpfad aktiviert Eigentümerkonten, ohne eine Besitzabfrage zu benötigen. Aktive Konten und freigegebene Postfächer werden bei beiden Aktionen übersprungen. Prüfe bei einem synthetischen Skriptaufruf, dass die TUI nur in einem interaktiven Terminal startet und `-List` und `-PassThru` lesend bleiben. Für einen kontrollierten Mandantentest zuerst ausschließlich `-List` oder `-WhatIf` verwenden und die Tenant-ID prüfen. Das Skript kann weder eine 90-Tage-Frist noch eine echte Person automatisch belegen. Vor einer echten Löschung muss der Betreiber beides außerhalb der TUI anhand verlässlicher Daten prüfen.
+Die Personaltests prüfen die sieben freigegebenen Jobprofile sowie den geschützten Job `ExterneAdmins`. Native XLSX-Exporte müssen Unterstriche und CamelCase durch Wortabstände ersetzen, insbesondere `Kinderhaus Pädagogisches Team` mit Umlaut. Der Import muss lesbare Namen, unterschiedliche Groß-/Kleinschreibung, mehrfache Leerzeichen und bisherige interne Werte auf dasselbe Profil zurückführen. Rollen, Exchange-Profil und interner `JobTitle` behalten ihre kanonischen Werte. Konkurrierende Jobs, unbekannte Namen und mehrdeutige konfigurierte Anzeigenamen müssen abgewiesen werden. `Externe Admins` bleibt im schreibenden Import gesperrt und im lesenden Vergleich eine kanonisch identifizierte Prüfzeile. Leere Jobzellen bleiben leer. Der tatsächliche isolierte Personal-CLI-Test prüft die exportierte Jobzelle sowie anschließenden Compare und Update-WhatIf mit unveränderter Quelldatei. Lehrerexport und Lehrerjobkürzel werden separat geprüft.
+
+## Löschtasten in allen Konten-TUIs
+
+Backspace und Entf müssen nach Markierung dieselbe Löschbestätigung öffnen. Enter darf in keiner Kontenliste eine Aktion oder Bestätigung starten. Die Zielauswahl für Klasse und Klassenlehrer verwendet weiterhin Enter. Die fokussierten Tests prüfen beide Löschpfade, alle drei verwalteten Populationen, erhaltene Auswahl nach Nein und den Sperrhinweis für aktive Gäste. Im synthetischen Terminal zusätzlich beide Tasten prüfen, mit N abbrechen und mit Esc zurückkehren. Anschließend einen bestätigten Löschvorgang ausschließlich mit `-WhatIf` prüfen.
+
+## Letzte TUI-Zeile mit Tastenbefehlen
+
+`DisabledAccountTui.Tests.ps1` erfasst die Reihenfolge der Terminalausgabe und prüft, dass die letzte Ausgabezeile die passenden Tastenbefehle enthält. Abgedeckt sind normale und leere Kontenlisten, Personal-/Lehreransicht, Schüleransicht mit K/L, Klassen-/Klassenlehrer-Zielauswahl sowie Sperr-/Entsperr-/Löschbestätigungen mit übersprungenen Konten.
+
+## Adressregeln bei Neuanlagen, 10. Oktober 2026
+
+Der Vertrag steht in [ADRESSREGELN.md](ADRESSREGELN.md). `CreationIdentity.Tests.ps1` prüft die neuen Domains, alle Schulteamjobs, OGTS ohne Alias, Personalnamen, `Externe*`-Namen und gemeinsame Reservierung von Lehrer-Hauptadresse und Alias. Kollisionsfälle umfassen Graph und Exchange, Vornamenspräfixe und Zahlenfallback. `Comparison.Tests.ps1` prüft abweichende und fehlende Bestandswerte. `EntraMutations.Tests.ps1` belegt, dass der Schüler-Schreibpfad auch bei ausdrücklich angelieferten Adressdifferenzen keine UPN-, Mail- oder Mail-Nickname-Änderung schreibt. `ExchangeOnline.Tests.ps1` prüft neue SMTP-Adressen, zusätzliche SMTP-/X500-Adressen, Vorschau, Rücklesefehler, Idempotenz und gewöhnliche Reparatur ohne Adressänderungen.
+
+Die TDD-Regressionen wurden vor der Umsetzung ausgeführt und schlugen fehl. Alle Fernaufrufe der lokalen Tests sind synthetisch. Für eine separat autorisierte Mandantenabnahme nach Neuanlage `UserPrincipalName`, `Mail`, `PrimarySmtpAddress` und `EmailAddresses` prüfen. Ein Lehrer muss den passenden `smtp:`-Alias erhalten, bestehende Konten müssen ihre Adressen behalten. Domainfreigabe, reale Exchange-Replikation und Windows-Dateisperren sind lokal nicht belegt.
+
+## Schüler-TUI 0.3.0
+
+Die fokussierten Personal-/TUI-Tests prüfen die Schülerpopulation, aktuelle CLS-Gruppen und Manager-Anzeige. K und L durchlaufen Markierung, Zielauswahl, Namensbestätigung und Aktualisierung. Eine neue Klasse muss zuerst bestätigt werden, bevor alte CLS-Mitgliedschaften entfernt werden. Es dürfen ausschließlich `Department` und `OfficeLocation` als Benutzerattribute geschrieben werden. Schülerrolle, andere Gruppen, Lizenzen und ein gesperrter Status bleiben erhalten. Die erste Klasse ohne bisherige CLS-Zuordnung und bereits passende Zuordnungen werden gesondert geprüft.
+
+Frisch verlorene Schülerrolle, neuer Adminschutz, neue Shared Mailbox, veränderte Ausgangsklasse beziehungsweise Manager-Zuordnung und geänderte Ziele müssen beide Aktionen vor dem Schreiben blockieren. Dynamische und lizenzierende Klassen sind geschützt. Fehlende Bestätigung der neuen Mitgliedschaft, fehlerhafte Attribute und nachträglich auftretender Adminschutz müssen Teilfehler melden und alte Gruppen erhalten. Vorschau, Esc und Nein dürfen nicht schreiben. Der gemeinsame Renderer muss Klasse, Jahrgang, Lehrer, K/L und UTC-Login zeigen. Tatsächliche CLI-Prozesse prüfen den eigenen Parametersatz und die Ablehnung umgeleiteter Eingabe.
+
+Für die echte Tastaturprüfung ausschließlich synthetischer Daten:
+
+```powershell
+pwsh -NoProfile -File ./tests/Invoke-SyntheticPersonalCli.ps1 -Population Student -Mode Tui
+```
+
+Leertaste, K, Pfeil nach unten, Enter, Y prüfen. Danach erneut Leertaste, L, Pfeil nach unten, Enter, Y und Esc. Der Harness erzwingt `-WhatIf` und ersetzt sämtliche Fernbefehle. Windows-Darstellung und echte Mandantenänderungen sind gesonderte Integrationsprüfungen. Die TUI pflegt keine Quelldatei, eine veraltete Exceldatei kann Zuordnungen zurücksetzen und gesperrte Schüler beim bisherigen Sync reaktivieren. Ergebnisse stehen im [Abnahmeprotokoll](ABNAHME.md).
+
+## Lehrer-Kontenverwaltung 0.3.0
+
+Die fokussierten Personal-/TUI-Tests verwenden dieselben synthetischen Benutzer und Fernbefehle für die Lehrerpopulation. Sie prüfen aktive und gesperrte direkte Schulteam-/Ganztagsmitglieder, Ausschluss von Schülern, Shared Mailboxes, rein indirekten Mitgliedern und übrigen Personalkonten. B, U und Backspace oder Entf müssen die bestehenden bestätigten Aktionen ausführen. Frisch verlorene direkte Lehrerrolle, neue Admin-/Schülerrolle oder Shared-Mailbox-Zuordnung blockieren jede Aktion. Nach einer Sperrung muss der geladene Bestand im Lehrermodus bleiben. Rollen-, Status- und Login-Anzeige verwenden den gemeinsamen Renderer mit eigener Lehrerüberschrift.
+
+Die tatsächlichen CLI-Tests prüfen den neuen Parametersatz in einem separaten Prozess. Ein umgeleitetes Terminal muss mit der Interaktivitätsmeldung abbrechen. `-ManageAccounts` mit `-Update`, `-ListToExcel` oder `-File` muss vor einer Verbindung abgewiesen werden. Für die echte Tastaturprüfung ausschließlich synthetischer Daten:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Population Teacher -Mode Tui
+pwsh -NoLogo -NoProfile -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Population Teacher -Mode Tui -DisabledFixture
+```
+
+Im ersten Aufruf Leertaste, B, Y und Esc prüfen. Im zweiten Leertaste, U, Y und nach der Aktualisierung erneut Leertaste, Backspace oder Entf, Y, Esc prüfen. Der Harness erzwingt `-WhatIf`, echte Verbindungen und Mutationen sind verboten. Beide Ansichten müssen `Lehrer- und Ganztagskonten`, Rolle und Login-Zeitstempel anzeigen. Die vollständige lokale Suite prüft anschließend die bisherigen Sync-, Export- und Personal-/Kontenverwaltungseinstiege. Windows und eine gesondert autorisierte Mandantenprüfung bleiben eigene Integrationsschritte.
+
+## Schüler- und Lehrerexport 0.3.0
+
+Die TUI-Anzeigetests prüfen `Last Login Timestamp (UTC)` im Detailbereich, Cursorwechsel zwischen Konten, UTC-Konvertierung, fehlende/nicht abrufbare Werte, ältere Ergebnisobjekte ohne Login-Felder sowie einen leeren Bestand. Personal- und bisheriger TUI-Modus verwenden dieselbe Anzeige. Der tatsächliche Personal-Einstieg wird zusätzlich im Pseudoterminal mit der synthetischen CLI-Fixture geöffnet und mit Esc verlassen.
+
+Für `Last Login Timestamp` prüfen synthetische Tests alle drei Exportarten, UTC-Konvertierung, unveränderte Passwort-/Identitätsspalten, fehlende Werte, leeren Bestand und erfolgreiche Importe trotz Zusatzspalte. Die Rollenbestände verwenden ausschließlich die letzte erfolgreiche Anmeldung, keinen neueren fehlgeschlagenen Anmeldeversuch. Fehler beim Lesen von `signInActivity` müssen eine Warnung und einen erneuten Abruf ohne diese Eigenschaft auslösen, für Personal einschließlich des tatsächlichen Exportaufrufs. Die CLI-Fixture enthält einen synthetischen Login-Zeitstempel.
+
+`WorkbookExport.Tests.ps1` prüft direkte Rollenpopulationen, gesperrte Konten, Shared-Mailbox-Ausschluss, Klassen und Manager-UPNs, kanonische Lehrerjobs, Ganztag, Mehrfachrollen, fehlende Zuordnungen und Bestandsfehler. Native XLSX-Tests prüfen zehn Schüler- beziehungsweise neun Lehrerspalten, den vorhandenen Importadapter, leere Passwörter und Formelzeichen als unveränderte Texte. Bestehende Personalexport- und Dateischutztests bleiben Teil der Gesamtsuite.
+
+Der isolierte Harness `Invoke-SyntheticPersonalCli.ps1` unterstützt zusätzlich `-Population Student` und `-Population Teacher` im Exportmodus. Tatsächliche Prozesse prüfen beide Sync-Einstiege, neue Ziele, Ablehnung bestehender Dateien, unveränderte Dateihashes und `-WhatIf` ohne Datei oder Ordner. Die CLI-Prüfung weist widersprüchliche Selektoren vor einer Verbindung zurück. Alle Fernbefehle sind ersetzt, echte Verbindungen und Mutationen schlagen im Harness fehl.
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Mode Export -Population Student -File "$([IO.Path]::GetTempPath())Schueler-Synthetic-Neu.xlsx"
+pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Mode Export -Population Teacher -File "$([IO.Path]::GetTempPath())Lehrer-Synthetic-Neu.xlsx" -Preview
+```
+
+Auch synthetische Ziele müssen neu sein. Wiederhole die Gesamtsuite unter Windows. Bei einer separat autorisierten Mandantenprüfung die direkte Rollenpopulation, Klassengruppen, Manager und Jobs kontrollieren. Ein Reimport mit Update kann im bisherigen Schüler-/Lehrerpfad enthaltene gesperrte Konten aktivieren. Lokale Ergebnisse stehen im [Abnahmeprotokoll](ABNAHME.md).
+
+Für den Lehrer-/Ganztagsabgleich seit 0.2.0 die [Lehrerregeln](ENTRA-LEHRER-SYNC.md) zusätzlich prüfen. Benutze eine Arbeitskopie der synthetischen `tests/fixtures/Lehrer-Testdaten.xlsx` in einem isolierten Mandanten oder mit vollständig isolierten Personalrollen. Teste L, CO-L, PA und OGTS, den Wechsel zwischen Schul- und Ganztagsrolle, bestehende Direkt- und Gruppenlizenzen, die zwei Exchange-Profile und die Passwortregel mit genau zwölf Zeichen und erzwungenem Erstwechsel. Prüfe `-Remove` auf Deaktivierung und Sitzungswiderruf bei erhaltenem Konto, Postfach, Gruppen und Lizenzen. `-WhatIf` darf keine Mandanten- oder Excel-Mutation auslösen. Halte den Personaltest getrennt vom historischen Schülerprotokoll fest.
+
+Der [Check gesperrter Konten](GESPERRTE-KONTEN-VERWALTUNG.md) lädt zunächst nur lesend. Die Pester-Tests prüfen aktive Konten, die Aufnahme von freigegebenen und Ressourcenpostfächern sowie Konten ohne Exchange-Empfänger, die eindeutige Zuordnung über Objekt-IDs, den Abbruch bei einem Exchange-Bestandsfehler, `UserMailbox` und `RemoteUserMailbox`, Gäste, synchronisierte Konten, Verzeichnisrollen, fehlende Anmeldedaten, besessene Entra-Objekte mit Typ, Name und ID aus Graph-`AdditionalProperties` und den abgeschlossenen Fortschrittsbalken. Die TUI-Tests prüfen das Ausblenden von `SharedMailbox`, Pfeile, Markierung mit Leertaste für persönliche Benutzerpostfächer und eindeutig empfängerlose Konten, Nein und Esc ohne Aktion, Backspace oder Entf zum Löschen, `U` zum Entsperren, Ja nur für markierte Konten sowie `-WhatIf`. Bei mehreren ausgewählten Konten müssen Löschen und Entsperren jeden Schritt im Fortschrittsbalken anzeigen und den Balken auch nach `Skipped` oder `Failed` abschließen. Beide Schreibpfade müssen vor jeder Aktion Identität, Sperrstatus, Exchange-Zuordnung und Verzeichnisrollen erneut lesen. Vor der Aktion bei einem empfängerlosen Konto muss ein neuer vollständiger Exchange-Bestand ohne Treffer für seine Objekt-ID geladen werden. Eine inzwischen zugeordnete `SharedMailbox`, eine unklare Zuordnung oder ein Exchange-Fehler muss die Aktion überspringen. Der Löschpfad nennt bekannte Besitzobjekte in der Bestätigung, fragt sie unmittelbar vor dem Löschen erneut ab und warnt bei Treffern. Eigentümerkonten dürfen nach Bestätigung gelöscht werden. Fehler der erneuten Besitzabfrage führen weiterhin zu `Skipped`. Der Entsperrpfad aktiviert Eigentümerkonten, ohne eine Besitzabfrage zu benötigen. Aktive Konten und freigegebene Postfächer werden bei beiden Aktionen übersprungen. Prüfe bei einem synthetischen Skriptaufruf, dass die TUI nur in einem interaktiven Terminal startet und `-List` und `-PassThru` lesend bleiben. Für einen kontrollierten Mandantentest zuerst ausschließlich `-List` oder `-WhatIf` verwenden und die Tenant-ID prüfen. Das Skript kann weder eine 90-Tage-Frist noch eine echte Person automatisch belegen. Vor einer echten Löschung muss der Betreiber beides außerhalb der TUI anhand verlässlicher Daten prüfen.
 
 Für die Personalabnahme zuerst die Mitglieder beider Rollen und alle Abgänge im lesenden Vergleich kontrollieren. Prüfe die tatsächlichen SKUs der Lizenzgruppen und die Exchange-Richtlinien im Mandanten. Verwende für einen Test mit einer unvollständigen Personalliste ausschließlich `-Update -CreateNewUsers -UpdateUsers`. Vergleiche den Dateihash vor und nach `-WhatIf`. Führe den vollständigen Lebenszyklus erst mit vollständig isolierten Personalrollen aus und dokumentiere die Ergebnisse getrennt nach Graph, Exchange und Excel. Der lokale Testlauf ersetzt weder die Windows-Dateisperrprüfung noch den Mandantennachweis.
 
@@ -16,6 +78,42 @@ Der aktuelle lokale Prüfstand und die auszufüllende Abnahme-Checkliste stehen 
 
 > [!CAUTION]
 > Abgänge sind alle aktiven, nicht zugeordneten Mitglieder der konfigurierten Gruppe `SEC-A-ROL-Schule_Schüler`. Die Erkennung ist nicht auf eine Testklasse oder einen Arbeitsmappenausschnitt begrenzt. Für jede Abgangsaktion muss die Excel-Datei die vollständige konfigurierte Schülerpopulation enthalten. Eine Testklasse in einer gemeinsam genutzten produktiven Rollengruppe ist nicht isoliert und kann reale Schüler als Abgänge markieren. Live-Tests mit `-Update`, `-DisableUsers` oder `-RevokeSessions` sind deshalb nur in einem vollständig isolierten Mandanten oder mit einer konfigurierten Schüler-Rollengruppe erlaubt, deren Mitglieder ausschließlich synthetische Konten sind.
+
+## Personal 0.3.0: lokaler und späterer Integrationsnachweis
+
+Der Global-Administrator-Gruppenname ist `SEC-A-ADM-GlobalAdministrators`. Die synthetischen Fixtures verwenden diesen Namen. Zusätzliche Schutztests prüfen direkte Mitglieder in Personal-, Lehrer- und Schülerpopulation, einen ausschließlich vorhandenen veralteten Rollengruppennamen und einen mehrdeutigen aktuellen Namen. Ein fehlender oder mehrdeutiger aktueller Name muss Schreibaktionen sperren.
+
+Die Regression nach einem Gesamtexport wird mit `Invoke-SyntheticPersonalCli.ps1 -ReviewFixture` geprüft. Der Harness exportiert ein zulässiges Personalkonto, ExterneAdmins, ein rollenloses Konto ohne Namensbestandteile und einen Gast mit freigegebenem Job. Ein tatsächlicher anschließender Compare-Aufruf muss das zulässige Konto vergleichen und drei `Workbook.Review`-Warnungen liefern. Update-WhatIf mit derselben Datei muss vor Mutationen scheitern, der Dateihash muss unverändert bleiben. Adaptertests prüfen die bewusst aktivierte Vergleichstoleranz, den weiterhin strikten Standardimport und die Ablehnung dieses Modus für Lehrer. Vergleichstests prüfen Gäste, Adminschutz, lokale AD-Synchronisierung, Shared Mailboxes und den Ausschluss bekannter Prüfzeilen aus Abgängen.
+
+Die [Personal-Anleitung](ENTRA-PERSONAL-SYNC.md) und [Spezifikation](PERSONAL-0.3.0-SPEC.md) gelten für den neuen Einstieg. `PersonalSync.Tests.ps1` prüft alle sieben schreibbaren Profile, die beiden geschützten Adminrollen, transitive Ausschlüsse, rollenlose aktive und gesperrte Konten, Gäste, lokal synchronisierte Benutzer, Ressourcen- und Shared Mailboxes, doppelte Empfänger und Fehler beim vollständigen Lesen.
+
+Die Sync-Tests prüfen die explizite Übernahme mit Objekt-ID, Erhalt des Sperrstatus, ausdrückliches `-ResumeCreation`, Rollenwechsel bei erhaltenen fremden Gruppen, vorhandene und ausstehende Lizenzen, eine nach dem Vergleich hinzugekommene Lizenz, Neuanlage mit frühem Checkpoint, Checkpointfehler und Wiederanlaufbefehl. Personal-`-Update` allein darf keine Abgänge sperren. Explizites `-DisableUsers` betrifft nur verwaltete direkte Rollenmitglieder. Auch zwischen Mailbox- und CAS-Schreiben wird der Personal-Schutz erneut geprüft.
+
+Native Exporttests prüfen neun Spalten, Tabelle und Blatt `Tabelle1`, `TableStyleMedium14`, Spaltenbreite, IDs, leere Passwörter, rollenlose Zeilen, Formelzeichen als Text, einen leeren Bestand und kein Dateiziel unter `-WhatIf`. Der vorhandene Excel-Dateischutz bleibt über die gesamte Suite geprüft. ABP-Leerwerte werden im tatsächlichen Vergleich und in Schreibparametern ausgelassen.
+
+`Invoke-SyntheticPersonalCli.ps1` ersetzt jeden Fernbefehl. Verbindung und Mutation werfen bei versehentlichem Aufruf einen Fehler. Damit prüft die Suite tatsächliche separate CLI-Prozesse für Liste, Objekt, Export, Vergleich, Update-Vorschau, Add, Remove, Exchange, UPN-Aliase, Fehlerstatus und nicht interaktive TUI-Ablehnung. Für eine manuelle Tastaturprüfung ausschließlich synthetischer Daten:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Mode Tui
+pwsh -NoLogo -NoProfile -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Mode Tui -DisabledFixture
+```
+
+Im ersten Aufruf Leertaste, `B`, `Y`, danach `Esc` prüfen. Im zweiten Leertaste, `U` beziehungsweise Backspace oder Entf, `Y`, anschließend `Esc`. Diese echten TUI-Aufrufe sind ausschließlich `-WhatIf`. Pester prüft zusätzlich synthetische Schreibresultate, gemischte Auswahl, Nein, Esc, Teilfehler und fehlgeschlagene Besitzabfrage. Wiederhole die Tastaturprüfung unter Windows. Windows-Dateisperren und echte Graph-/Exchange-Provisionierung bleiben eigene offene Integrationsprüfungen.
+
+Für den Gast-Löschpfad einen aktiven Gast markieren und Backspace oder Entf drücken. Erwartung: konkreter Hinweis zum vorherigen Sperren mit B, erhaltene Markierung und Cursor, kein neuer Bestandsabruf. B muss für diese Auswahl sofort nutzbar sein. Bei N oder Esc in der Bestätigung bleibt die Auswahl ebenfalls erhalten. Mit synthetischen Schreibstubs anschließend B, Y, erneutes Markieren, Backspace oder Entf und Y prüfen. Der Gast muss genau einmal gesperrt und gelöscht werden. Für einen bereits gesperrten synthetischen Gast muss Backspace oder Entf sofort die Löschbestätigung öffnen. Die tatsächliche Terminalprüfung verwendet weiterhin ausschließlich WhatIf.
+
+Bei einer später ausdrücklich autorisierten Mandantenabnahme ausschließlich isolierte synthetische Konten verwenden. Prüfe Namen und IDs aller Ausschluss- und Schutzgruppen, die A1Faculty-SKU, Richtlinien und Adresslistenfilter. Teste die gesamte Lebensdauer mit einem aktiven, einem gesperrten und einem rollenlosen Konto. Ein Export darf erst nach bereinigter Profilzuordnung als Eingabe für einen schreibenden Sync dienen. Vollständige Abgänge benötigen eine ausschließlich synthetische, vollständig isolierte Rollenpopulation.
+
+Die zusätzlichen TUI-Tests prüfen die Rollenanzeige mit mehreren und unbekannten Rollengruppen, ohne Rollengruppe und in beiden Verwaltungsmodi. Gasttests durchlaufen Markieren, Sperren, Bestandsaktualisierung, erneutes Markieren und Löschen für empfängerlose Gäste sowie `UserMailbox`, `MailUser` und `GuestMailUser`. Frische Änderungen von Administrator-/Ausschluss-/Verzeichnisrollen, Identität, Kontotyp, lokaler AD-Synchronisierung, Shared Mailbox und mehrdeutigen Empfängern müssen beide Aktionen blockieren. Gastentsperrung, normale Profilprüfung und der bisherige Löschpfad bleiben gesperrt.
+
+Für die tatsächliche Gast-Tastaturprüfung mit synthetischen Daten:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Mode Tui -GuestFixture
+pwsh -NoLogo -NoProfile -File .\tests\Invoke-SyntheticPersonalCli.ps1 -Mode Tui -GuestFixture -DisabledFixture
+```
+
+Im ersten Aufruf Leertaste, `B`, `Y`, `Esc` prüfen. Im zweiten Leertaste, Backspace oder Entf, `Y`, `Esc`. Beide Aufrufe erzwingen `-WhatIf`, der Harness verbietet alle Fernänderungen. Die synthetischen Pester-Mutationen prüfen zusätzlich den tatsächlichen Statuswechsel.
 
 ## Freigabekriterien
 
@@ -57,6 +155,7 @@ Invoke-Pester .\tests -Output Detailed
 $analyzerFindings = @(
   Invoke-ScriptAnalyzer -Path '.\Sync-SchuelerEntra.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
   Invoke-ScriptAnalyzer -Path '.\Sync-LehrerEntra.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
+  Invoke-ScriptAnalyzer -Path '.\Sync-PersonalEntra.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
   Invoke-ScriptAnalyzer -Path '.\Verwalte-GesperrteEntraKonten.ps1' -Settings '.\PSScriptAnalyzerSettings.psd1'
   Invoke-ScriptAnalyzer -Path '.\src' -Recurse -Settings '.\PSScriptAnalyzerSettings.psd1'
 )
@@ -314,6 +413,12 @@ Verwende einen synthetischen Neuzugang, dessen Postfach bei der ersten Prüfung 
 ### Schreibfehler
 
 Entziehe in einer kontrollierten Testkonstellation einen benötigten Exchange-Parameter oder simuliere ihn ausschließlich im Pester-Test. Erwartung: `Set-Mailbox` oder `Set-CASMailbox` meldet sofort `Failed`. Der Schreibfehler wird nicht als vermeintlich fehlendes Postfach wiederholt.
+
+### Lehrerbereitstellung und Wiederanlauf
+
+Die Lehrerregressionen verwenden synthetische Empfänger und ersetzen Wartezeiten. Prüfe die sofortige Prüfung und höchstens drei Wiederholungen mit jeweils 150 Sekunden, nur eine Wartezeit je Batch-Runde. Fehlende Mailbox- und CAS-Objekte sowie eindeutige Exchange-Empfängerfehler mit generischen Ausnahmeinformationen müssen als Bereitstellungsverzögerung gelten. Auch ein solcher Fehler bei `Set-Mailbox`, `Set-CASMailbox` oder Rückleseprüfung muss im Lehrerpfad wiederholbar bleiben. Ein nach vier Prüfungen fehlendes Postfach erhält `Pending` mit `-ConfigureExchangeOnlineOnly -UPN` als Reparaturbefehl. Parameterfehler, Verbindungsprobleme und verbleibende Konfigurationsabweichungen bleiben Fehler. WhatIf darf weder warten noch schreiben.
+
+Der isolierte CLI-Harness ruft `Invoke-SyntheticPersonalCli.ps1 -Population Teacher -Mode Exchange` auf und prüft den echten Lehrereinstieg mit einem bestehenden synthetischen Konto unter WhatIf. Jeder produktive Verbindungs- und Schreibbefehl ist ersetzt oder gesperrt. Reale 150-Sekunden-Wartezeiten und Exchange-Replikation sind durch diese lokalen Tests nicht belegt. Schüler- und übrige Personal-Konfiguration behalten fünf Wiederholungen mit jeweils 60 Sekunden.
 
 ## 12. Idempotenz
 

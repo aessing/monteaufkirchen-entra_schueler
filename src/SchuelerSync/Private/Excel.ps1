@@ -62,21 +62,24 @@ function Open-StudentWorkbookPackage {
 }
 
 function Read-StudentWorkbook {
-    param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student')
+    param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student',
+        [switch] $AllowPersonnelReviewRows)
+
+    if ($AllowPersonnelReviewRows -and $Kind -ne 'Personnel') { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
-    $teacherConfig = if ($Kind -eq 'Teacher') {
-        Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/LehrerSync.psd1')
+    $teacherConfig = if ($Kind -in @('Teacher', 'Personnel')) {
+        Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot $(if ($Kind -eq 'Personnel') { 'config/PersonalSync.psd1' } else { 'config/LehrerSync.psd1' }))
     } else { $null }
     $sourceHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256 -ErrorAction Stop).Hash
     $package = $null
     try {
         $package = Open-StudentWorkbookPackage -Path $resolvedPath
         $candidates = @()
-        $mandatoryHeaders = if ($Kind -eq 'Teacher') { $script:MandatoryTeacherHeaders } else { $script:MandatoryStudentHeaders }
+        $mandatoryHeaders = if ($Kind -in @('Teacher', 'Personnel')) { $script:MandatoryTeacherHeaders } else { $script:MandatoryStudentHeaders }
         foreach ($worksheet in $package.Workbook.Worksheets) {
             $headers = Get-WorksheetHeaderMap -Worksheet $worksheet
-            if ($Kind -eq 'Teacher' -and $null -ne $worksheet.Dimension) {
+            if ($Kind -in @('Teacher', 'Personnel') -and $null -ne $worksheet.Dimension) {
                 foreach ($mandatory in $mandatoryHeaders) {
                     $count = 0
                     for ($column = 1; $column -le $worksheet.Dimension.End.Column; $column++) {
@@ -124,14 +127,29 @@ function Read-StudentWorkbook {
             if ($filledCount -eq 0) {
                 continue
             }
+            $reviewReason = ''
             if ($filledCount -ne $mandatoryHeaders.Count) {
                 if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
-                throw "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
+                $reviewReason = "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
+                if (-not $AllowPersonnelReviewRows) { throw $reviewReason }
             }
 
-            if ($Kind -eq 'Teacher') {
-                try { $job = (Get-LehrerProfile -Job $values['Job'] -Config $teacherConfig).Job }
-                catch { throw "Ungültiger Job '$($values['Job'])' in Zeile $row. $($_.Exception.Message)" }
+            if ($Kind -in @('Teacher', 'Personnel')) {
+                $job = $values['Job']
+                if (-not $AllowPersonnelReviewRows -or $job) {
+                    try {
+                        # Review rows retain their canonical identity even when the profile is protected.
+                        if ($Kind -eq 'Personnel') {
+                            $job = ($job -split ',' | ForEach-Object { Resolve-PersonalJob -Job $_ -Config $teacherConfig }) -join ', '
+                        }
+                        $job = (Get-LehrerProfile -Job $job -Config $teacherConfig).Job
+                    }
+                    catch {
+                        $jobIssue = "Ungültiger Job '$($values['Job'])' in Zeile $row. $($_.Exception.Message)"
+                        if (-not $AllowPersonnelReviewRows) { throw $jobIssue }
+                        $reviewReason = (@($reviewReason,$jobIssue) | Where-Object { $_ }) -join ' '
+                    }
+                }
             }
 
             $record = [ordered]@{
@@ -154,7 +172,8 @@ function Read-StudentWorkbook {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Mail']].Value
                 } else { '' }
             }
-            if ($Kind -eq 'Teacher') { $record.Job = $job }
+            if ($Kind -in @('Teacher', 'Personnel')) { $record.Job = $job }
+            if ($AllowPersonnelReviewRows) { $record.ReviewReason = $reviewReason }
             $students += [pscustomobject]$record
         }
 
@@ -205,7 +224,7 @@ function Assert-WorkbookSafeForPasswordWrite {
     param(
         [Parameter(Mandatory)][string] $Path,
         [switch] $SkipGitSafetyCheck,
-        [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student'
+        [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student'
     )
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
@@ -218,7 +237,7 @@ function Assert-WorkbookSafeForPasswordWrite {
             [IO.FileShare]::None
         )
     } catch {
-        $label = if ($Kind -eq 'Teacher') { 'Lehrerdatei' } else { 'Schülerdatei' }
+        $label = if ($Kind -eq 'Personnel') { 'Personaldatei' } elseif ($Kind -eq 'Teacher') { 'Lehrerdatei' } else { 'Schülerdatei' }
         throw "Die $label ist gesperrt oder nicht schreibbar: '$resolvedPath'."
     } finally {
         if ($null -ne $lockHandle) {
@@ -293,7 +312,7 @@ function Write-StudentWorkbookUpdate {
         [Parameter(Mandatory)][object[]] $Updates,
         [string] $ExpectedSourceHash,
         [switch] $SkipGitSafetyCheck,
-        [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student'
+        [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student'
     )
 
     if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and safely commit workbook updates')) { return }
