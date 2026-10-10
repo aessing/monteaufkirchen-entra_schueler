@@ -1,5 +1,18 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Lesbare Personal-Jobtitel in Entra und Berichten, 10. Oktober 2026
+
+Die vorherige Formatierung betraf die Jobzelle im Personalexport, das tatsächliche Entra-`JobTitle` erhielt weiterhin den technischen Profilwert. Neuanlage und normale Personal-Profilpflege schreiben jetzt den lesbaren Namen mit Leerzeichen statt Unterstrichen und CamelCase, etwa `Kinderhaus Pädagogisches Team` und `Externe Benutzer`. Technische Bestandstitel erscheinen im lesenden Vergleich als Änderung und werden erst beim gestarteten Update beziehungsweise bei Einzelpflege korrigiert. Bestandsliste und Vergleich zeigen ebenfalls lesbare Jobnamen. Interne Profilwerte, Rollen-IDs, Exchange-Profile und Lehrerjobkürzel bleiben erhalten. Bereits lesbare Titel erzeugen keine erneute Jobtiteländerung.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Vor Umsetzung acht neue Fälle fehlgeschlagen, der bereits identische Titel `Unterstützung` bestand. Danach alle neun fokussierten Regressionen bestanden |
+| Personalregressionen | Alle sieben freigegebenen Profile auf lesbares JobTitle bei Neuanlage und Update geprüft. Synthetische Graph-Schreibparameter, anschließender Vergleich ohne Änderungen und fehlende Adressmutationen geprüft. Bestandsliste und Vergleich bleiben lesbar, interne Jobschlüssel unverändert |
+| Gesamtprüfung | 663 Tests erkannt, 662 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Tatsächliche isolierte Personal-, Lehrer- und Schüler-CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Es wurden ausschließlich synthetische Konten und Fernbefehle geprüft. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
 ## Ergänzung 0.3.0: Lesbare Jobnamen im Personalexport, 10. Oktober 2026
 
 Der Personalexport ersetzt Unterstriche durch Leerzeichen und trennt CamelCase an Wortgrenzen, einschließlich Umlauten. Beispiele: `Schule_Sekretariat` wird `Schule Sekretariat`, `Kinderhaus_PädagogischesTeam` wird `Kinderhaus Pädagogisches Team`, `ExterneBenutzer` wird `Externe Benutzer`. Beim Einlesen und bei Einzelpflege werden lesbare Namen sowie bisherige interne Werte anhand der konfigurierten Jobs eindeutig auf das kanonische Profil zurückgeführt. Groß-/Kleinschreibung und mehrfache Leerzeichen werden normalisiert. Mehrdeutige Anzeigenamen werden auch bei anders geschriebenen internen Werten abgewiesen. Der kanonische `JobTitle`, Gruppen-IDs und Exchange-Profilwerte bleiben erhalten. `Externe Admins` bleibt geschützt und wird im lesenden Vergleich als kanonisch identifizierte Prüfzeile erfasst.

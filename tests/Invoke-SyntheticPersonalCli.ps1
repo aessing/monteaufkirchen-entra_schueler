@@ -26,7 +26,7 @@ $global:PersonalCliGroups['cccccccc-cccc-cccc-cccc-cccccccccccc'].AssignedLicens
 $global:PersonalCliUser=[pscustomobject]@{
     Id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';DisplayName='Lea Testwald';GivenName='Lea';Surname='Testwald'
     UserPrincipalName='ltestwald@example.invalid';Mail='ltestwald@example.invalid';MailNickname='ltestwald';ProxyAddresses=@()
-    AccountEnabled=$true;UserType='Member';OnPremisesSyncEnabled=$false;JobTitle='Schule_Sekretariat'
+    AccountEnabled=$true;UserType='Member';OnPremisesSyncEnabled=$false;JobTitle='Schule Sekretariat'
     CompanyName='Montessori Schule Aufkirchen';EmployeeType='Sekretariat';UsageLocation='DE';AgeGroup='Adult'
     ConsentProvidedForMinor='NotRequired';LegalAgeGroupClassification='Adult';AssignedLicenses=@([pscustomobject]@{SkuId='synthetic-sku'})
     LicenseAssignmentStates=@();SignInActivity=[pscustomobject]@{LastSuccessfulSignInDateTime='2026-01-02T12:30:00+02:00'}

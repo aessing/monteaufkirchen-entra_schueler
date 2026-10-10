@@ -216,7 +216,7 @@ function Write-PersonalInventoryReport {
     foreach ($account in $Inventory.Accounts) {
         $row = [ordered]@{
             DisplayName = $account.DisplayName; UPN = $account.UPN; UserId = $account.UserId; AccountEnabled = $account.AccountEnabled
-            Job = $account.Job; 'Exchange-Empfänger' = "$($account.RecipientType) ($($account.RecipientStatus))"
+            Job = ConvertTo-PersonalJobDisplayName -Job $account.Job; 'Exchange-Empfänger' = "$($account.RecipientType) ($($account.RecipientStatus))"
             'SEC-A Gruppen' = $account.SecAGroups -join ', '; 'Last Login' = if ($account.LastLogin) { $account.LastLogin.ToString('u') } else { $account.LastLoginStatus }
             Lizenzentscheidung = $account.LicenseReason
             Besitzobjekte = @($account.OwnedObjects | ForEach-Object { "$($_.Type): $($_.DisplayName) ($($_.Id))" }) -join ', '

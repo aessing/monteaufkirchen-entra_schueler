@@ -27,7 +27,7 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
                     Id=$Id; DisplayName='Lea Testwald'; GivenName='Lea'; Surname='Testwald'
                     UserPrincipalName='ltestwald@example.invalid'; Mail='ltestwald@example.invalid'; MailNickname='ltestwald'
                     ProxyAddresses=@(); AccountEnabled=$Enabled; UserType='Member'; OnPremisesSyncEnabled=$false
-                    CompanyName='Montessori Schule Aufkirchen'; EmployeeType='Sekretariat'; JobTitle='Schule_Sekretariat'
+                    CompanyName='Montessori Schule Aufkirchen'; EmployeeType='Sekretariat'; JobTitle='Schule Sekretariat'
                     AgeGroup='Adult'; LegalAgeGroupClassification='Adult'; ConsentProvidedForMinor='NotRequired'; UsageLocation='DE'
                     AssignedLicenses=@(); LicenseAssignmentStates=@(); SignInActivity=[pscustomobject]@{LastSuccessfulSignInDateTime=$null}
                 }
@@ -160,6 +160,62 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
                 $profile.Role.Id | Should -BeExactly $script:PersonalConfig.Roles[$Job].Id
                 $profile.Exchange.AddressBookPolicy | Should -BeExactly $script:PersonalConfig.Profiles[$Job].AddressBookPolicy
             }
+        }
+        It 'uses readable <Label> for personnel JobTitle on creation and update' -ForEach @(
+            @{Job='Schule_Sekretariat';Label='Schule Sekretariat'},
+            @{Job='Schule_Vertretungskräfte';Label='Schule Vertretungskräfte'},
+            @{Job='Kinderhaus_PädagogischesTeam';Label='Kinderhaus Pädagogisches Team'},
+            @{Job='Kinderhaus_Sekretariat';Label='Kinderhaus Sekretariat'},
+            @{Job='Kinderhaus_Vertretungskräfte';Label='Kinderhaus Vertretungskräfte'},
+            @{Job='Unterstützung';Label='Unterstützung'},
+            @{Job='ExterneBenutzer';Label='Externe Benutzer'}
+        ) {
+            $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            $profile=Get-LehrerProfile -Job $Job -Config $script:PersonalConfig
+            $user=$script:PersonalUsers[$id]
+            $user.JobTitle=$Job; $user.CompanyName=$profile.CompanyName; $user.EmployeeType=$profile.EmployeeType
+            $script:PersonalMemberships[$id]=@($profile.Role.Id,'cccccccc-cccc-cccc-cccc-cccccccccccc')
+            $person=New-PersonalSyntheticPerson -Job $Job
+            $comparison=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
+            $comparison.Errors | Should -BeNullOrEmpty
+            $entry=@($comparison.ChangedPeople)+@($comparison.ExistingPeople)
+            $entry.Count | Should -Be 1
+            $entry[0].DesiredState.JobTitle | Should -BeExactly $Label
+            $entry[0].DesiredState.Role.Id | Should -BeExactly $profile.Role.Id
+            @($entry[0].Differences | Where-Object Field -in @('UserPrincipalName','Mail','MailNickname')).Count | Should -Be 0
+            (Invoke-LehrerUpdate -Entry $entry[0] -Config $script:PersonalConfig -Confirm:$false).Status | Should -Be Succeeded
+            $user.JobTitle | Should -BeExactly $Label
+            $unchanged=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
+            $unchanged.Errors | Should -BeNullOrEmpty
+            $unchanged.ChangedPeople.Count | Should -Be 0
+            $unchanged.ExistingPeople.Count | Should -Be 1
+
+            $script:PersonalUsers=@{}; $script:PersonalMemberships=@{}
+            $newPerson=New-PersonalSyntheticPerson -Job $Label -Id ''
+            $newComparison=Compare-LehrerDirectory -People @($newPerson) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
+            $newComparison.Errors | Should -BeNullOrEmpty
+            $newComparison.NewPeople.Count | Should -Be 1
+            $newComparison.NewPeople[0].DesiredState.JobTitle | Should -BeExactly $Label
+            Mock New-MgUser { [pscustomobject]@{Id='new-synthetic-person'} }
+            $null=New-DisabledEntraLehrer -Desired $newComparison.NewPeople[0].DesiredState -Password 'SyntheticPassw0rd' -Confirm:$false
+            Should -Invoke New-MgUser -Exactly 1 -ParameterFilter {$BodyParameter.JobTitle -ceq $Label -and $BodyParameter.AccountEnabled -eq $false}
+        }
+        It 'shows readable jobs in the personnel comparison without changing profile keys' {
+            $script:PersonalUsers=@{}; $script:PersonalMemberships=@{}
+            $person=New-PersonalSyntheticPerson -Job Kinderhaus_PädagogischesTeam -Id ''
+            $comparison=Compare-LehrerDirectory -People @($person) -Snapshot (Get-PersonalSyntheticSnapshot) -Config $script:PersonalConfig
+            $safe=ConvertTo-SafeLehrerComparison -Comparison $comparison
+            $safe.NewPeople[0].Job | Should -BeExactly 'Kinderhaus Pädagogisches Team'
+            $person.Job | Should -BeExactly 'Kinderhaus_PädagogischesTeam'
+        }
+        It 'shows readable jobs in the personnel inventory report without changing profile keys' {
+            $id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            $script:PersonalMemberships[$id]=@($script:PersonalConfig.Roles.Kinderhaus_PädagogischesTeam.Id)
+            $inventory=Get-PersonalInventory
+            Mock Write-Information { }
+            Write-PersonalInventoryReport -Inventory $inventory
+            Should -Invoke Write-Information -Exactly 1 -ParameterFilter {$MessageData -match 'Job\s*:\s*Kinderhaus Pädagogisches Team'}
+            $inventory.Accounts[0].Job | Should -BeExactly 'Kinderhaus_PädagogischesTeam'
         }
         It 'rejects protected, unknown and competing readable jobs' -ForEach @(
             @{Job='Externe Admins'},@{Job='  externe   admins  '},@{Job='Schule Verwaltung'},
@@ -484,6 +540,7 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             Mock New-MgUser {
                 $script:PersonalWriteOrder.Add('CreateDisabled')
                 $BodyParameter.AccountEnabled | Should -BeFalse
+                $BodyParameter.JobTitle | Should -BeExactly 'Schule Sekretariat'
                 $BodyParameter.PasswordProfile.ForceChangePasswordNextSignIn | Should -BeTrue
                 $BodyParameter.PasswordProfile.Password.Length | Should -Be 12
                 $user=New-PersonalSyntheticUser -Enabled:$false

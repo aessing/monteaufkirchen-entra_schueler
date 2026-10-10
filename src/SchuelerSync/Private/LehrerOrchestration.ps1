@@ -106,7 +106,7 @@ function ConvertTo-SafeLehrerComparison {
                 UserId = Get-ComparisonPropertyValue $_.User Id
                 DisplayName = if ($null -ne $_.DesiredState) { $_.DesiredState.DisplayName } else { $_.User.DisplayName }
                 UserPrincipalName = if ($null -ne $_.DesiredState) { $_.DesiredState.UserPrincipalName } else { $_.User.UserPrincipalName }
-                Job = if ($null -ne $_.Person) { Get-ComparisonPropertyValue $_.Person Job } else { Get-ComparisonPropertyValue $_.User JobTitle }
+                Job = ConvertTo-PersonalJobDisplayName -Job $(if ($null -ne $_.Person) { Get-ComparisonPropertyValue $_.Person Job } else { Get-ComparisonPropertyValue $_.User JobTitle })
                 LicenseReason = if ($null -ne $_.DesiredState) { $_.DesiredState.LicenseReason } else { 'Unverändert' }
                 Role = if ($null -ne $_.DesiredState) { $_.DesiredState.Role.DisplayName } else { @($_.SourceRoles) -join ', ' }
                 AddressBookPolicy = if ($null -ne $_.DesiredState) { $_.DesiredState.Exchange.AddressBookPolicy } else { '' }

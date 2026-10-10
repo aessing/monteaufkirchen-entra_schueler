@@ -33,6 +33,7 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- Personal-`JobTitle` verwendet bei Neuanlage und Profilpflege lesbare Namen statt technischer Werte mit Unterstrichen und CamelCase. Bestehende technische Titel werden als Änderung verglichen, bereits lesbare Titel bleiben unverändert. Bestandsliste und Vergleich zeigen ebenfalls lesbare Jobnamen. Interne Profil- und Rollenschlüssel sowie Lehrerjobkürzel bleiben erhalten.
 - Ein unbearbeiteter Personalexport mit geschützten, rollenlosen, unbekannten oder unvollständigen Zeilen lässt sich rein lesend vergleichen. Solche Zeilen und explizit identifizierte nicht schreibbare Konten erscheinen als `Workbook.Review` mit Zeilennummer und Identität. Bekannte Prüfidentitäten werden nicht als Abgänge gewertet. Schreibimporte einschließlich Update-WhatIf bleiben strikt.
 - Abgebrochene oder vollständig übersprungene TUI-Aktionen erhalten Markierung und Cursor ohne erneuten Bestandsabruf. Aktive Konten und Gäste erhalten beim Löschversuch einen konkreten Sperrhinweis. Leere Aktionsergebnisse werden unter StrictMode korrekt behandelt.
 - Lehrer-/Ganztagspostfächer werden sofort und danach höchstens dreimal im Abstand von 150 Sekunden geprüft, auch bei gezielter Exchange-Reparatur. Eindeutige Empfänger-nicht-gefunden-Fehler bei Mailbox-/CAS-Lesen, Schreiben und Rückleseprüfung bleiben wiederholbar. Nach höchstens 7,5 Minuten folgt `Pending` mit Reparaturbefehl. Andere Fehler, WhatIf sowie Schüler- und Personal-Warteintervalle behalten ihr bisheriges Verhalten.
