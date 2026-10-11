@@ -1,12 +1,15 @@
 # Entra-Schülersynchronisation
 
-Für den Personalabgleich ab Version 0.2.0 siehe [ENTRA-LEHRER-SYNC.md](ENTRA-LEHRER-SYNC.md).
+Die Konten-TUI zeigt die verfügbaren Tastenbefehle als letzte Ausgabezeile unter Liste, Details und Hinweisen. Bestätigungsdialoge enden mit den Ja-/Nein-Befehlen. Backspace und Entf öffnen die Löschbestätigung, Enter hat in der Kontenliste keine Aktion.
+Die Schüleransicht ergänzt K und L. Auch die Zielauswahl für Klasse/Jahrgang und Klassenlehrer zeigt ihre Navigation unten.
+
+Für Lehrer und Ganztag seit Version 0.2.0 siehe [ENTRA-LEHRER-SYNC.md](ENTRA-LEHRER-SYNC.md), für übrige Personalkonten ab 0.3.0 [ENTRA-PERSONAL-SYNC.md](ENTRA-PERSONAL-SYNC.md). Der Schüleraufruf und seine bisherigen Regeln bleiben kompatibel.
 
 Diese Dokumentation beschreibt den fachlichen Vertrag und die tatsächlich implementierte Kommandozeile. [BETRIEB.md](BETRIEB.md) führt durch einen sicheren Lauf. [TESTING.md](TESTING.md) enthält die Abnahme in der Windows-Parallels-VM.
 
 ## Zweck und Grenzen
 
-`Sync-SchuelerEntra.ps1` gleicht Schülerdaten aus genau einer `.xlsx`-Datei mit Microsoft Entra ID und Exchange Online ab. Der Lauf ohne Aktionsparameter ist der Standard und bleibt vollständig lesend. Schreibzugriffe benötigen ausdrücklich `-Update`, `-Add`, `-Remove` oder den Exchange-Reparaturmodus. Das Skript löscht keine Benutzer. Abgänge werden nur bei entsprechender Auswahl deaktiviert und ihre Sitzungen optional widerrufen. Gruppen und Lizenzen eines Abgangs bleiben erhalten.
+`Sync-SchuelerEntra.ps1` gleicht Schülerdaten aus genau einer `.xlsx`-Datei mit Microsoft Entra ID und Exchange Online ab. Der Lauf ohne Aktionsparameter ist der Standard und bleibt vollständig lesend. Schreibzugriffe benötigen ausdrücklich `-Update`, `-Add`, `-Remove`, den Exchange-Reparaturmodus oder eine bestätigte Aktion in `-ManageAccounts`. Der Excel-Sync und `-Remove` löschen keine Benutzer. Die TUI kann gesperrte Konten nach eigener Bestätigung löschen. Abgänge im Sync werden nur bei entsprechender Auswahl deaktiviert und ihre Sitzungen optional widerrufen. Gruppen und Lizenzen eines gesperrten Abgangs bleiben erhalten.
 
 Der reine Exchange-Modus liest keine Excel-Datei und ändert weder Entra-Benutzer noch Gruppen.
 
@@ -147,7 +150,7 @@ Die Kollisionsprüfung umfasst:
 - alle Exchange-Empfängeradressen
 - alle bereits im aktuellen Lauf reservierten Adressen
 
-Eine Adresse desselben Entra-Objekts ist keine Kollision. Ein bereits regelkonformer UPN bleibt bei unverändertem Vor- und Nachnamen stabil. Jede Abweichung vom ersten Kandidaten erscheint als Warnung mit den kollidierenden Kandidaten.
+Eine Adresse desselben Entra-Objekts ist keine Kollision. Bestehende UPNs, Mailadressen und Mail-Nicknames bleiben auch bei Namensänderungen unverändert. Fehlende Werte werden nicht ergänzt. Für neue Schüler erscheint jede Abweichung vom ersten Kandidaten als Warnung mit den kollidierenden Kandidaten. Die gemeinsamen [Adressregeln](ADRESSREGELN.md) gelten ausschließlich für Neuanlagen.
 
 ## Entra-Sollzustand
 
@@ -236,7 +239,69 @@ Bei einem vollständigen `-Update` prüft das Skript Exchange für bestehende Sc
 
 Bereits deaktivierte Schülerkonten ohne Excel-Zeile erscheinen nicht erneut als Abgänge. Passt ein deaktiviertes Konto eindeutig zu einer Excel-Zeile, zeigt der Vergleich `AccountEnabled: False → True` unter „Änderungen“. Ein autorisierter Lauf mit `-UpdateUsers` aktiviert es erst nach erfolgreicher Prüfung von Datei, Attributen, Manager und Gruppen. Es wird kein neues Konto und kein neues Passwort angelegt.
 
+## Schüler-TUI: ManageAccounts
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -ManageAccounts -WhatIf
+.\Sync-SchuelerEntra.ps1 -ManageAccounts
+```
+
+`-ManageAccounts` ist ein eigener Parametersatz und benötigt ein interaktives Terminal. Er liest keine Excel-Datei und kann nicht mit `-File`, `-ListToExcel`, Sync-Schaltern, Einzelpflege, Exchange-Reparatur oder `-OutputFile` kombiniert werden. Auch `Invoke-SchuelerSync` unterstützt ihn. Die gemeinsame TUI verwendet die vorhandenen Fortschrittsanzeigen, Bestätigungen, frischen Schutzprüfungen und Ergebnisstatus.
+
+Der Bestand enthält aktive und gesperrte direkte Mitglieder von `SEC-A-ROL-Schule_Schüler`. Lehrer-/Ganztagsmitgliedschaften und Shared Mailboxes sind ausgeschlossen. Gäste, lokal synchronisierte Konten, geschützte Administratoren, Verzeichnisrollen und unklare Empfänger bleiben gegen Änderungen geschützt. Dieselben Regeln werden vor jeder Mutation erneut geprüft. Der Detailbereich zeigt Rolle, Kontotyp, aktuelle direkte CLS-Gruppen, `Department / Jahrgang`, Klassenlehrer und `Last Login Timestamp (UTC)`. Ein nicht lesbarer Manager erscheint als `Nicht abrufbar` und verhindert einen Klassenlehrerwechsel.
+
+| Taste | Aktion |
+|---|---|
+| Pfeile | Konto oder Ziel bewegen |
+| Leertaste | Zulässiges Konto markieren oder Markierung entfernen |
+| B | Markierte aktive Konten sperren und Sitzungen widerrufen |
+| U | Markierte gesperrte Mitgliedskonten gezielt entsperren |
+| Backspace oder Entf | Markierte gesperrte Konten löschen |
+| Enter | In der Zielauswahl ein Ziel wählen |
+| K | Klasse/Jahrgang für alle markierten Konten wechseln |
+| L | Klassenlehrer für alle markierten Konten wechseln |
+| Y/J | Namensbestätigung annehmen |
+| N/Esc | Bestätigung abbrechen, Esc verlässt die Zielauswahl oder die TUI |
+
+### Klasse/Jahrgang wechseln
+
+Mit `K` wählst du eine vorhandene Gruppe mit dem konfigurierten Präfix `SEC-A-CLS-`. Der Name muss eindeutig sein. Dynamische oder lizenzierende Gruppen sind nicht schreibbar. Die Bestätigung nennt für jeden markierten Schüler Namen, UPN, bisherige Klasse und gemeinsames Ziel. Ein Schüler ohne bisherige CLS-Gruppe kann ebenfalls zugeordnet werden.
+
+Der Ablauf fügt zuerst die Zielmitgliedschaft hinzu und bestätigt sie durch erneutes Lesen. Anschließend setzt er ausschließlich `Department` auf den Klassencode ohne Präfix und `OfficeLocation` auf den mit der bestehenden `Get-OfficeLocation`-Logik abgeleiteten Jahrgangscode (beispielsweise `G2` oder `M1`). Erst nach bestätigter Zielmitgliedschaft und bestätigten Attributen entfernt er die bisherigen direkten CLS-Mitgliedschaften. Schülerrolle, andere Gruppen, Lizenzen, Passwort und Kontostatus bleiben erhalten. Ein gesperrtes Konto bleibt gesperrt.
+
+Ändern sich Identität, Schutzrollen, Empfänger, Klasse, Attribute, Kontostatus oder Ziel seit der Auswahl, stoppt die Einzelaktion. Bereits erfolgte Schritte werden nicht automatisch zurückgerollt. Ein Teilfehler wird mit `Teiländerung möglich. Bestand neu prüfen.` gemeldet. Die TUI lädt danach den Bestand neu. Prüfe bei einem Teilfehler insbesondere alte und neue CLS-Mitgliedschaften und beide Klassenattribute, bevor du fortfährst.
+
+### Klassenlehrer wechseln
+
+Mit `L` wählst du ein aktives internes Mitgliedskonto, das direkt zu `SEC-A-ROL-Schule_PädagogischesTeam` gehört. Reine Ganztagsmitglieder, Gäste, gesperrte Konten und Konten mit Schülerrolle sind keine Ziele. Die Anzeige nennt Namen und UPN. Die bestätigte Aktion setzt ausschließlich die vorhandene Graph-Manager-Zuordnung. Sie verwendet `Set-EntraStudentManager` einschließlich Rückleseprüfung. Klassen- und Rollengruppen des Schülers und des Lehrers werden dabei nicht geändert. Zielidentität, Zielrolle und bisherige Manager-Zuordnung werden unmittelbar vor dem Schreiben erneut bestätigt.
+
+### Berechtigungen und Quelldatei
+
+Der lesende Bestand benötigt `User.Read.All`, `Directory.Read.All` und `AuditLog.Read.All` sowie eine lesende Exchange-Verbindung zum selben Mandanten. Ein Klassenwechsel fordert zusätzlich `User.ReadWrite.All` und `GroupMember.ReadWrite.All` an. Ein Klassenlehrerwechsel oder eine Löschung benötigt `User.ReadWrite.All`. Sperren und Entsperren benötigen `User.EnableDisableAccount.All`, der Sitzungswiderruf beim Sperren außerdem `User.RevokeSessions.All`. Eine passende delegierte Administratorrolle bleibt erforderlich. `-WhatIf` prüft den Bestand und zeigt bestätigte Aktionen als Vorschau, ohne zusätzliche Schreibscopes anzufordern oder Änderungen auszuführen.
+
+Die TUI aktualisiert keine Excel-Datei. Übernimm Klasse und Klassenlehrer vor einem späteren Excel-Sync in deine Quelle. Alternativ kannst du mit `-ListToExcel -File '.\Schueler-Neuer-Bestand.xlsx'` einen neuen Bestand exportieren und ihn geprüft mit deiner Quelle abgleichen. Eine ältere Quelle kann die TUI-Zuordnungen zurücksetzen. Der bisherige Schüler-Sync kann außerdem enthaltene gesperrte Konten reaktivieren. Nach einer TUI-Sperrung muss die Quelldatei entsprechend gepflegt werden. Eine bereits passende Klasse beziehungsweise Manager-Zuordnung erhält `Compliant` ohne weitere Mutation.
+
 ## Parameter und Modi
+
+### Bestand nach Excel exportieren (0.3.0)
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -ListToExcel
+.\Sync-SchuelerEntra.ps1 -ListToExcel -File '.\Schueler-Bestand.xlsx'
+.\Sync-SchuelerEntra.ps1 -ListToExcel -File '.\Schueler-Vorschau.xlsx' -WhatIf
+```
+
+Ohne `-File` ist das neue Ziel `Schueler.xlsx` im Repository-Root. Im Exportmodus wird keine Eingabedatei gelesen. Exportiert werden aktive und gesperrte direkte Benutzer-Mitglieder der konfigurierten Schülerrolle. Shared Mailboxes fehlen, Konten ohne Postfach bleiben enthalten. Nichtbenutzer wie verschachtelte Gruppen werden nicht als Schüler exportiert. Fehler beim vollständigen Benutzer-, Rollen- oder Exchange-Bestand brechen den Export ab.
+
+Die zehn Spalten lauten in dieser Reihenfolge: `Name mit Rufname`, `Vorname`, `Nachname`, `Klassen`, `Klassenlehrer`, `Passwort`, `EntraObjectId`, `UPN`, `Mail`, `Last Login Timestamp`. Blatt und Tabelle heißen `Tabelle1`, Tabellenstil ist `TableStyleMedium14`. Werte bleiben Text, IDs und bestehende UPNs bleiben erhalten. Die Passwortspalte ist immer leer.
+
+`Last Login Timestamp` verwendet dieselbe Quelle wie die Bestandsliste: `signInActivity.lastSuccessfulSignInDateTime`, die letzte erfolgreiche interaktive oder nicht interaktive Anmeldung. Der Wert wird als UTC-Text mit Sekunden (`2026-01-02T10:30:00Z`) exportiert. Ohne Wert bleibt die Zelle leer, das beweist keine fehlende frühere Anmeldung. Ist `signInActivity` nicht abrufbar, wird der Benutzerbestand ohne diese Eigenschaft erneut geladen und eine Warnung ausgegeben. Der Export läuft mit leeren Timestamp-Zellen weiter. Für die Abfrage sind `AuditLog.Read.All`, passende Administratorrechte und laut [Microsoft-Dokumentation](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0#example-11-get-users-including-their-last-sign-in-time) eine Entra-ID-P1-/P2-Lizenz erforderlich. Die zusätzliche Spalte wird vom Import ignoriert und bei Rückschreibungen erhalten.
+
+`Klassen` enthält den Namensteil hinter `ClassGroupPrefix` (standardmäßig `SEC-A-CLS-`) einer eindeutig vorhandenen direkten Klassengruppe. Keine oder mehrere Klassengruppen lassen die Zelle leer. `Klassenlehrer` enthält den UPN des in Entra hinterlegten Managers, den der bestehende Import als Identität akzeptiert. Fehlende oder nicht lesbare Manager lassen diese Zelle leer. Warnungen nennen den Prüfgrund. Namen, Klasse und Klassenlehrer müssen vor einem schreibenden Import vollständig geprüft werden. **Gesperrte exportierte Konten können beim bisherigen Schülerupdate reaktiviert werden.** Der Export ergänzt keine Sperrstatusspalte und verändert die Sync-Regeln nicht.
+
+Der Export benötigt `User.Read.All`, `Group.Read.All` und für die Anmeldedaten `AuditLog.Read.All` sowie eine lesende Exchange-Verbindung zum selben Mandanten. Er fordert keine Graph-Schreibscopes an und führt keine Mandantenänderungen aus. `-ListToExcel` ist ein eigener Modus und nicht mit `-Update`, Aktionsselektoren, `-Add`, `-Remove`, Exchange-Reparatur oder `-OutputFile` kombinierbar.
+
+Das Ziel muss eine neue `.xlsx`-Datei sein. Bestehende Dateien und symbolische Links im Pfad werden abgewiesen. Innerhalb eines Git-Repositories müssen Ziel und temporäre Kopie ignoriert und unverfolgt sein. Git und ImportExcel werden benötigt. Die erzeugte Datei wird erneut geöffnet und verifiziert, bevor sie ans Ziel verschoben wird. `-WhatIf` lädt den Bestand und zeigt die geplante Dateiaktion, ohne Datei oder fehlende Ordner anzulegen. Die Fortschrittsanzeige endet auch bei einem Fehler.
 
 ### Lesender Standardvergleich
 

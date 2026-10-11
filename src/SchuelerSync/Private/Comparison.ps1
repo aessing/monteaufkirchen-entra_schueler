@@ -578,6 +578,8 @@ function Compare-StudentDirectory {
         }
 
         $differences = [Collections.Generic.List[object]]::new()
+        $desired.Mail = Get-ComparisonPropertyValue -InputObject $user -Name Mail
+        $desired.MailNickname = Get-ComparisonPropertyValue -InputObject $user -Name MailNickname
         foreach ($field in @(
                 'DisplayName', 'GivenName', 'Surname', 'UserPrincipalName', 'Mail', 'MailNickname',
                 'Department', 'OfficeLocation', 'CompanyName', 'EmployeeType', 'UsageLocation',

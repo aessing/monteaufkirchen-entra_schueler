@@ -51,6 +51,7 @@ BeforeAll {
             [CmdletBinding(SupportsShouldProcess)]
             param(
                 [string] $Identity,
+                [object] $EmailAddresses,
                 [object] $AddressBookPolicy,
                 [string] $CustomAttribute1,
                 [bool] $AuditEnabled,
@@ -182,6 +183,61 @@ Describe 'Exchange Online student mailbox adapter' {
     }
 
     InModuleScope SchuelerSync {
+        Context 'new account SMTP addresses' {
+            BeforeEach {
+                $script:newAddressConfig = @{} + $global:ExchangeTestConfig
+                $script:newAddressConfig.PrimarySmtpAddress='ltestwald@montessori-erding.de'
+                $script:newAddressConfig.RequiredAliases=@('ltestwald@monteaufkirchen.com')
+                $global:ExchangeTestState.CompliantMailbox | Add-Member -NotePropertyMembers @{
+                    PrimarySmtpAddress='old@example.invalid'
+                    EmailAddresses=@('SMTP:old@example.invalid','smtp:extra@example.invalid','X500:/o=synthetic')
+                }
+            }
+            It 'previews primary SMTP and alias changes without writing' {
+                $result = Set-StudentMailboxConfiguration -UserPrincipalName 'ltestwald@montessori-erding.de' -Config $script:newAddressConfig -WhatIf
+                $result.Status | Should -Be Planned
+                $result.Differences.Field | Should -Contain PrimarySmtpAddress
+                $result.Differences.Field | Should -Contain EmailAddresses
+                Should -Invoke Set-Mailbox -Exactly 0
+            }
+            It 'writes and verifies new addresses and remains idempotent on a second call' {
+                Mock Set-Mailbox {
+                    $global:ExchangeTestState.CompliantMailbox.EmailAddresses=$EmailAddresses
+                    $global:ExchangeTestState.CompliantMailbox.PrimarySmtpAddress=(@($EmailAddresses | Where-Object { $_ -cmatch '^SMTP:' })[0]).Substring(5)
+                }
+                $result = Set-StudentMailboxConfiguration -UserPrincipalName 'ltestwald@montessori-erding.de' -Config $script:newAddressConfig -Confirm:$false
+                $result.Status | Should -Be Configured
+                $result.RemainingDifferences | Should -BeNullOrEmpty
+                (Set-StudentMailboxConfiguration -UserPrincipalName 'ltestwald@montessori-erding.de' -Config $script:newAddressConfig -Confirm:$false).Status | Should -Be Compliant
+                Should -Invoke Set-Mailbox -Exactly 1 -ParameterFilter {
+                    $EmailAddresses -ccontains 'SMTP:ltestwald@montessori-erding.de' -and
+                    $EmailAddresses -contains 'smtp:ltestwald@monteaufkirchen.com' -and
+                    $EmailAddresses -contains 'X500:/o=synthetic'
+                }
+            }
+            It 'reports a missing alias after writing as failed verification' {
+                Mock Set-Mailbox {
+                    $global:ExchangeTestState.CompliantMailbox.PrimarySmtpAddress='ltestwald@montessori-erding.de'
+                }
+                $result = Set-StudentMailboxConfiguration -UserPrincipalName 'ltestwald@montessori-erding.de' -Config $script:newAddressConfig -Confirm:$false
+                $result.Status | Should -Be Failed
+                $result.RemainingDifferences.Field | Should -Contain EmailAddresses
+            }
+            It 'does not change existing mailbox addresses during ordinary repair' {
+                $result = Set-StudentMailboxConfiguration -UserPrincipalName 'old@example.invalid' -Config $global:ExchangeTestConfig -Confirm:$false
+                $result.Status | Should -Be Compliant
+                Should -Invoke Set-Mailbox -Exactly 0
+            }
+            It 'applies the primary SMTP policy only to newly created students in a mixed batch' {
+                Mock Get-StudentMailboxState { [pscustomobject]@{ Exists=$true; Differences=@() } }
+                $batch = Wait-StudentMailbox -UserPrincipalName @('new@monteaufkirchen.com','existing@example.invalid') `
+                    -NewAccountUpns @('new@monteaufkirchen.com') -Config $global:ExchangeTestConfig -Configure -MaxRetries 0 -Confirm:$false
+                $batch.Failed | Should -BeNullOrEmpty
+                Should -Invoke Get-StudentMailboxState -Exactly 1 -ParameterFilter { $UserPrincipalName -eq 'new@monteaufkirchen.com' -and $Config['PrimarySmtpAddress'] -eq $UserPrincipalName }
+                Should -Invoke Get-StudentMailboxState -Exactly 1 -ParameterFilter { $UserPrincipalName -eq 'existing@example.invalid' -and -not $Config.ContainsKey('PrimarySmtpAddress') }
+                $global:ExchangeTestConfig.ContainsKey('PrimarySmtpAddress') | Should -BeFalse
+            }
+        }
         Context 'connection and recipient inventory' {
             It 'reuses an active Exchange Online connection' {
                 [void]$global:ExchangeTestState.Connections.Enqueue([pscustomobject]@{
@@ -313,6 +369,14 @@ Describe 'Exchange Online student mailbox adapter' {
                 Should -Invoke Get-CASMailbox -Times 0 -Exactly
             }
 
+            It 'recognizes the exact Exchange server not-found message with generic exception metadata' {
+                Mock Get-Mailbox -ModuleName SchuelerSync {throw [InvalidOperationException]::new("||The operation couldn't be performed because object 'retry@example.invalid' couldn't be found on 'synthetic.exchange.invalid'.")}
+                (Get-StudentMailboxState -UserPrincipalName 'retry@example.invalid').Status | Should -Be MailboxNotReady
+            }
+            It 'treats a not-yet-replicated CAS mailbox as provisioning delay' {
+                Mock Get-CASMailbox -ModuleName SchuelerSync {throw [Management.Automation.ItemNotFoundException]::new("The operation couldn't be performed because object 'retry@example.invalid' couldn't be found.")}
+                (Get-StudentMailboxState -UserPrincipalName 'retry@example.invalid').Status | Should -Be MailboxNotReady
+            }
             It 'propagates transport errors instead of treating them as provisioning delay' {
                 Mock Get-Mailbox -ModuleName SchuelerSync {
                     throw [System.Net.Http.HttpRequestException]::new('The transport connection was interrupted.')
@@ -541,10 +605,31 @@ Describe 'Exchange Online student mailbox adapter' {
                     -Confirm:$false
 
                 $result.Status | Should -Be 'Failed'
+                $result.Retryable | Should -BeFalse
                 $result.Error | Should -Be 'A parameter cannot be found that matches parameter name AuditLogAgeLimit.'
                 Should -Invoke Set-Mailbox -Times 1 -Exactly
                 Should -Invoke Set-CASMailbox -Times 0 -Exactly
                 Should -Invoke Get-Mailbox -Times 1 -Exactly
+            }
+
+            It 'marks a provisioning failure from <Command> as retryable' -ForEach @(
+                @{Command='Set-Mailbox'}, @{Command='Set-CASMailbox'}
+            ) {
+                Mock -CommandName $Command -ModuleName SchuelerSync {
+                    throw [InvalidOperationException]::new("||The operation couldn't be performed because object 'retry@example.invalid' couldn't be found on 'synthetic.exchange.invalid'.")
+                }
+                $mailbox = $global:ExchangeTestState.CompliantMailbox | Select-Object *
+                $mailbox.CustomAttribute1 = 'Wrong'
+                $cas = $global:ExchangeTestState.CompliantCasMailbox | Select-Object *
+                $cas.ImapEnabled = $true
+                $snapshot = [pscustomobject]@{Exists=$true;Mailbox=$mailbox;CasMailbox=$cas}
+                $result = Set-StudentMailboxConfiguration -UserPrincipalName 'retry@example.invalid' `
+                    -Config $global:ExchangeTestConfig -MailboxState $snapshot -Confirm:$false
+                $result.Status | Should -Be Failed
+                $result.Retryable | Should -BeTrue
+                $result.Error | Should -Match 'synthetic.exchange.invalid'
+                Should -Invoke $Command -Times 1 -Exactly
+                Should -Invoke Get-Mailbox -Times 0 -Exactly
             }
 
             It 'reports verification drift after writes as a failure' {
@@ -560,6 +645,7 @@ Describe 'Exchange Online student mailbox adapter' {
 
                 $result.Status | Should -Be 'Failed'
                 $result.Error | Should -Match 'CustomAttribute1'
+                $result.Retryable | Should -BeFalse
                 $result.RemainingDifferences.Field | Should -Contain 'CustomAttribute1'
                 Should -Invoke Set-Mailbox -Times 1 -Exactly
             }
@@ -584,6 +670,7 @@ Describe 'Exchange Online student mailbox adapter' {
 
                 $result.Status | Should -Be 'Failed'
                 $result.Error | Should -Match 'Verifikation.*Postfach'
+                $result.Retryable | Should -BeTrue
                 Should -Invoke Set-Mailbox -Times 1 -Exactly
                 Should -Invoke Set-CASMailbox -Times 0 -Exactly
                 Should -Invoke Get-Mailbox -Times 2 -Exactly

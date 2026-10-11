@@ -1,8 +1,6 @@
 ﻿function Connect-DisabledAccountGraph {
     [CmdletBinding()]
-    param()
-
-    $requiredScopes = @('User.Read.All', 'Directory.Read.All', 'AuditLog.Read.All')
+    param([string[]] $RequiredScopes = @('User.Read.All', 'Directory.Read.All', 'AuditLog.Read.All'))
     $context = Get-MgContext
     $grantedScopes = if ($null -eq $context) { @() } else { @($context.Scopes) }
     $missingScopes = @(Test-GraphScopeSet -GrantedScopes $grantedScopes -RequiredScopes $requiredScopes)
@@ -41,6 +39,20 @@ function Get-DisabledAccountMemberValue {
     return $null
 }
 
+function Get-EntraLastLogin {
+    param([object] $User, [bool] $LastLoginAvailable = $true)
+    $lastLogin = $null
+    if ($LastLoginAvailable) {
+        $activity = Get-ComparisonPropertyValue -InputObject $User -Name SignInActivity
+        $rawLastLogin = Get-ComparisonPropertyValue -InputObject $activity -Name LastSuccessfulSignInDateTime
+        if (-not [string]::IsNullOrWhiteSpace([string]$rawLastLogin)) { $lastLogin = [datetimeoffset]$rawLastLogin }
+    }
+    [pscustomobject]@{
+        LastLogin = $lastLogin
+        LastLoginStatus = if (-not $LastLoginAvailable) { 'Nicht abrufbar' } elseif ($null -eq $lastLogin) { 'Kein Wert' } else { 'Bekannt' }
+    }
+}
+
 function ConvertTo-DisabledAccountCheckRecord {
     [CmdletBinding()]
     param(
@@ -50,10 +62,11 @@ function ConvertTo-DisabledAccountCheckRecord {
         [AllowNull()][object] $Recipient,
         [string] $RecipientStatus,
         [string[]] $CheckErrors = @(),
-        [bool] $LastLoginAvailable = $true
+        [bool] $LastLoginAvailable = $true,
+        [switch] $AllowActive
     )
 
-    if ($User.AccountEnabled -ne $false) {
+    if (-not $AllowActive -and $User.AccountEnabled -ne $false) {
         throw "Konto '$($User.Id)' ist nicht gesperrt."
     }
 
@@ -108,21 +121,15 @@ function ConvertTo-DisabledAccountCheckRecord {
         $reasons.Add('Keine SEC-A-Gruppe, Kontozweck prüfen')
     }
 
-    $lastLogin = $null
-    if ($LastLoginAvailable -and $null -ne $User.SignInActivity) {
-        $rawLastLogin = $User.SignInActivity.LastSuccessfulSignInDateTime
-        if ($null -ne $rawLastLogin -and -not [string]::IsNullOrWhiteSpace([string]$rawLastLogin)) {
-            $lastLogin = [datetimeoffset]$rawLastLogin
-        }
-    }
+    $login = Get-EntraLastLogin -User $User -LastLoginAvailable:$LastLoginAvailable
 
     [pscustomobject]@{
         DisplayName = [string]$User.DisplayName
         UPN = [string]$User.UserPrincipalName
         UserId = [string]$User.Id
         SecAGroups = @(($secAGroups | Sort-Object -Unique))
-        LastLogin = $lastLogin
-        LastLoginStatus = if (-not $LastLoginAvailable) { 'Nicht abrufbar' } elseif ($null -eq $lastLogin) { 'Kein Wert' } else { 'Bekannt' }
+        LastLogin = $login.LastLogin
+        LastLoginStatus = $login.LastLoginStatus
         RecipientType = $recipientType
         RecipientStatus = $RecipientStatus
         OwnedObjects = @($ownedObjectDetails)

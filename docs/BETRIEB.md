@@ -1,8 +1,60 @@
 # Betrieb und Wiederanlauf
 
-Der Personalabgleich hat einen eigenen Einstiegspunkt und ein rollenabhängiges Exchange-Profil. Bedienung, Lizenzbestandsschutz und Wiederanlauf stehen in [ENTRA-LEHRER-SYNC.md](ENTRA-LEHRER-SYNC.md). Ein vollständiger Personal-Update-Lauf benötigt beide Personalrollen vollständig in der Arbeitsmappe. `-Remove` deaktiviert und widerruft Sitzungen, ohne Konto oder Lizenz zu löschen.
+## Adressen bei Neuanlagen (0.3.0)
 
-Für eine Bestandsaufnahme aller gesperrten Entra-Konten gibt es [Verwalte-GesperrteEntraKonten.ps1](GESPERRTE-KONTEN-VERWALTUNG.md). `-List` zeigt die lesende Ausgabe einschließlich freigegebener Postfächer. Ohne Schalter öffnet eine TUI mit Markierung, Enter zur Löschbestätigung und `U` zur Entsperrbestätigung. `SharedMailbox` wird in der TUI ausgeblendet. Konten ohne Exchange-Empfänger sind auswählbar, wenn die Inventarzuordnung eindeutig fehlt. Ressourcenpostfächer und unklare Empfänger bleiben nur zur Prüfung sichtbar. Besitzobjekte erscheinen mit Typ, Name und ID. Kann der Exchange-Bestand insgesamt nicht geladen werden, bricht der Check ab. Ein Sperrdatum und die 90-Tage-Frist werden weiterhin nicht automatisch geprüft.
+Schüler erhalten UPN und Mail unter `monteaufkirchen.com`. Schulteam, OGTS und übriges Personal verwenden `montessori-erding.de`. Nur das Schulteam (`L`, `CO-L`, `PA`, auch mit `JAS`) erhält zusätzlich den gleichnamigen Alias unter `monteaufkirchen.com`. Angestellte verwenden Vornamensinitiale plus Nachname mit wachsendem Präfix bei Belegung. Freigegebene Rollen `Externe*` verwenden `vorname.nachname` mit Zahl ab `2` bei Belegung.
+
+Bestehende UPNs, Mailadressen, Mail-Nicknames und Aliase bleiben erhalten. Ein normaler Exchange-Reparaturlauf ändert keine Adressen. Prüfe nach einer fehlgeschlagenen Lehrer-Neuanlage Hauptadresse und Alias separat. Die [Adressregeln](ADRESSREGELN.md) beschreiben den gezielten Abschluss eines fehlenden Alias, ohne eine Bestandsmigration auszulösen.
+
+## Schülerkonten verwalten (0.3.0)
+
+`Sync-SchuelerEntra.ps1 -ManageAccounts -WhatIf` öffnet die gemeinsame Schüler-TUI als Vorschau. Ohne `-WhatIf` können bestätigte Aktionen schreiben. Leertaste markiert Schüler, `K` wählt eine vorhandene CLS-Gruppe für Klasse/Jahrgang, `L` einen aktiven internen direkten Angehörigen des Schul-Pädagogikteams als Klassenlehrer. B sperrt mit Sitzungswiderruf, U entsperrt gezielt, Backspace oder Entf löscht gesperrte Konten. Rolle, Klasse, Jahrgang, Klassenlehrer und letzte Anmeldung stehen im Detailbereich. Lehrer, Ganztag, Shared Mailboxes und geschützte Administratoren können nicht geändert werden.
+
+Beim Klassenwechsel werden neue Mitgliedschaft und Klassenattribute vor der Entfernung alter CLS-Zuordnungen bestätigt. Bei einem Teilfehler alte und neue Gruppen sowie `Department`/`OfficeLocation` im neu geladenen Bestand prüfen. Es gibt keinen automatischen Rollback. Ein gesperrtes Konto bleibt beim Klassen- oder Lehrerwechsel gesperrt. Excel wird nicht aktualisiert, übernimm Änderungen vor dem nächsten Sync in die Quelle oder gleiche einen neuen `-ListToExcel`-Export ab. Eine alte Quelle kann Zuordnungen zurücksetzen und gesperrte Schüler reaktivieren. [Bedienung und Berechtigungen](ENTRA-SCHUELER-SYNC.md#schüler-tui-manageaccounts).
+
+## Lehrer- und Ganztagskonten verwalten (0.3.0)
+
+`Sync-LehrerEntra.ps1 -ManageAccounts` startet dieselbe TUI wie die Personalverwaltung, beschränkt auf aktive und gesperrte direkte Schulteam-/Ganztagsmitglieder. Zuerst mit `-WhatIf` prüfen. B sperrt einschließlich Sitzungswiderruf, U entsperrt Mitgliedskonten, Backspace oder Entf löscht gesperrte Konten nach Namensbestätigung. Rolle, Kontotyp und letzte Anmeldung stehen im Detailbereich. Vor jeder Aktion wird die direkte Rollenmitgliedschaft frisch geprüft, ein inzwischen ausgetretenes Konto wird übersprungen. Schüler und Shared Mailboxes sind ausgeschlossen, Adminschutz und Empfängerprüfung gelten weiter. Der Bestand bleibt nach einer Aktion auf dieselben Lehrerrollen begrenzt. Der Modus benötigt keine Exceldatei und verändert keine Gruppen, Lizenzzuweisungen oder Passwörter separat. [Aufrufe, Grenzen und Berechtigungen](ENTRA-LEHRER-SYNC.md).
+
+## Bestandsdateien erzeugen (0.3.0)
+
+Alle drei Sync-Einstiege unterstützen `-ListToExcel`. Ohne `-File` erzeugen sie eine neue `Schueler.xlsx`, `Lehrer.xlsx` beziehungsweise `Personal.xlsx` im Repository-Root. Wenn das Ziel existiert, wähle einen neuen Dateinamen. Vorhandene Dateien werden nicht ersetzt.
+
+Alle Exporte hängen `Last Login Timestamp` rechts an, als UTC-Zeitstempel der letzten erfolgreichen Anmeldung. Schüler haben damit zehn, Lehrer und Personal neun Spalten. Die Schüler-/Lehrerexporte fordern nun zusätzlich `AuditLog.Read.All` an. Ohne verfügbaren Wert bleibt die Zelle leer, bei einem Fehler der Anmeldedatenabfrage läuft der Export nach einer Warnung ohne diese Daten weiter. Die neue Spalte ist rein informativ und wird vom Sync nicht ausgewertet.
+
+```powershell
+.\Sync-SchuelerEntra.ps1 -ListToExcel -File '.\Schueler-Bestand.xlsx'
+.\Sync-LehrerEntra.ps1 -ListToExcel -File '.\Lehrer-Bestand.xlsx'
+.\Sync-PersonalEntra.ps1 -ListToExcel -File '.\Personal-Bestand.xlsx'
+```
+
+`-WhatIf` lädt denselben Bestand und erzeugt keine Datei oder Ordner. Alle Exportpasswörter bleiben leer. Schüler- und Lehrerexporte enthalten auch gesperrte direkte Rollenmitglieder. Vor der Wiederverwendung Klasse, Klassenlehrer, Job und gewünschte Population prüfen. Der bisherige Schüler-/Lehrerupdate kann gelistete gesperrte Konten aktivieren. Die Personalregel zum Erhalt des Sperrstatus gilt ausschließlich für den Personal-Einstieg. Ein Export ersetzt diese Prüfung nicht. Eindeutig über Objekt-ID oder UPN erkannte Entra-Gäste bleiben im Personalexport enthalten und werden im Vergleich sowie bei Update einschließlich WhatIf ohne Pflichtdatenwarnung übersprungen. Sie erzeugen keine Sync-Aktionen oder Abgänge. Interne und unbekannte Konten behalten die Pflichtdatenprüfung. Schema, Rollen, Warnungen und Berechtigungen stehen in den [Schülerregeln](ENTRA-SCHUELER-SYNC.md), [Lehrerregeln](ENTRA-LEHRER-SYNC.md) und [Personalregeln](ENTRA-PERSONAL-SYNC.md).
+
+## Update ohne PowerShell-Bestätigungsfragen
+
+Für den geprüften Personal-Update-Lauf ohne einzelne Ja-/Nein-Abfragen:
+
+```powershell
+./Sync-PersonalEntra.ps1 -File ./Personal.xlsx -Update -Confirm:$false
+```
+
+Der Schalter unterdrückt PowerShell-Bestätigungen für die ausgewählten Aktionen. Vorprüfungen, Identitäts- und Rollenschutz sowie die eigenen Namensbestätigungen der Konten-TUIs bleiben aktiv. `-Update` allein erstellt und aktualisiert Personal, Abgangssperrungen und Sitzungswiderruf benötigen ausdrückliche Aktionsschalter. `-WhatIf` zeigt die geplanten Aktionen ohne Ausführung.
+
+## Bestehende Verwaltungsabläufe
+
+Ein unveränderter Personal-Gesamtexport kann ohne `-Update` mit `Sync-PersonalEntra.ps1 -File '.\Personal.xlsx'` verglichen werden. Nicht importierbare oder nicht schreibbare Zeilen stehen als `Workbook.Review` mit Zeilennummer und Identität in den Warnungen. Die übrigen Zeilen werden weiter abgeglichen. Bei Update einschließlich WhatIf bleiben eindeutig anhand von Objekt-ID oder UPN identifizierte Konten mit bestätigter geschützter Gruppen- oder Verzeichnisrollenmitgliedschaft als Prüfzeilen enthalten und werden ohne Mutation übersprungen. Sie blockieren die Aktualisierung gültiger Personalzeilen nicht. Eindeutig identifizierte Mitgliedskonten mit leerem Job und nachweislich ohne verwaltete Personalrolle werden ebenfalls mit `Workbook.Review` übersprungen. Fehlende Namen dieser Konten blockieren gültige Personaländerungen nicht. Die Ausnahme benötigt einen vollständigen Schutzkontext und vollständig lesbare aktuelle transitive Mitgliedschaften. Dateien ausschließlich mit übersprungenen Konten erzeugen keine Abgänge. Auch eindeutig erkannte Bestandskonten mit gültigem Job, genau einer bestätigten Personalrolle und fehlenden Namensdaten bleiben mit `Workbook.Review` in der Datei und werden ohne Mutation übersprungen. Die übrigen Personaländerungen werden verarbeitet. Die tatsächlichen Namensfelder müssen für einen regulären Abgleich dieser Konten ergänzt werden. Andere ungültige oder nicht schreibbare Zeilen vor Update aus der Arbeitskopie entfernen oder korrekt zuordnen, gültige Profile nur zulässigen Konten zuweisen. Eine geänderte Jobzelle hebt Schutzrollen nicht auf. Die vollständige aktive verwaltete Population muss bei ausdrücklich gewählten Abgangsaktionen weiterhin enthalten sein.
+
+Der Lehrer-/Ganztagsabgleich hat einen eigenen Einstiegspunkt und ein rollenabhängiges Exchange-Profil. Bedienung, Lizenzbestandsschutz und Wiederanlauf stehen in [ENTRA-LEHRER-SYNC.md](ENTRA-LEHRER-SYNC.md). Ein vollständiger Lehrer-Update-Lauf benötigt beide Lehrer-/Ganztagsrollen vollständig in der Arbeitsmappe. `-Remove` deaktiviert und widerruft Sitzungen, ohne Konto oder Lizenz zu löschen.
+
+Für die übrigen Personalkonten ab 0.3.0 gibt es [Sync-PersonalEntra.ps1](ENTRA-PERSONAL-SYNC.md). `-List`, `-PassThru` und `-ListToExcel` zeigen denselben Bestand einschließlich rollenloser Konten. Lehrer, CO-L, PA, OGTS, Schüler und Shared Mailboxes fehlen. ExterneAdmins und GlobalAdministrators bleiben sichtbar und geschützt. Personal-`-Update` allein erstellt und aktualisiert, gesperrte Bestandskonten bleiben gesperrt. Personal-`JobTitle` wird dabei lesbar geschrieben. Kinderhausprofile erhalten `Pädagogisches Team`, `Sekretariat` oder `Vertretungskräfte` ohne den Präfix `Kinderhaus`. `CompanyName` bleibt `Montessori Kinderhaus Erding`. Technische oder bisher mit `Kinderhaus` beginnende Bestandstitel erscheinen zunächst im lesenden Vergleich als Änderung. Bestandsliste, Vergleich und Excel behalten die eindeutigen lesbaren Jobnamen einschließlich `Kinderhaus`. Abgänge werden erst mit `-Update -DisableUsers` beziehungsweise `-Update -RevokeSessions` bearbeitet. Dafür ist eine vollständige Liste der verwalteten aktiven Personalpopulation erforderlich.
+
+`-ManageAccounts` startet die Personal-TUI mit `B`, `U` und Backspace oder Entf. Bei jeder Aktion werden die Schutzkriterien erneut gelesen. Nach Bestätigung zeigt sie Einzelresultate, lädt den Bestand neu und entfernt Markierungen. Ein Teilfehler beim Sitzungswiderruf hebt eine erfolgte Sperrung nicht auf. `-Remove -UPN` bleibt eine gezielte Sperrung einschließlich Widerruf, es löscht nicht.
+
+Die Personal-TUI zeigt Rolle und Kontotyp im Detailbereich. Auch zulässige Gäste können mit `B` gesperrt und nach erneuter Markierung mit Backspace oder Entf gelöscht werden. Zum Löschen ist der Sperrstatus erforderlich. Gäste mit eindeutigem `MailUser`/`GuestMailUser`, persönlichem Postfach oder ohne Exchange-Empfänger sind zulässig. Adminschutz, ausgeschlossene Rollen und alle frischen Zielprüfungen gelten weiter. Gäste können mit `U` nicht entsperrt werden. Die Gastfreigabe gilt ausschließlich für die Personal-TUI.
+
+Der Export braucht eine neue ignorierte XLSX-Datei. Personaljobs werden mit Leerzeichen statt Unterstrichen und CamelCase exportiert. Import und Einzelpflege erkennen die lesbaren Namen sowie die bisherigen internen Jobwerte, unbekannte oder mehrdeutige Zuordnungen werden abgewiesen. Bei eindeutig erkannten Gästen, bestätigten geschützten Adminkonten und bestätigten Mitgliedskonten ohne Job und Personalrolle können diese Exportzeilen in der Update-Datei bleiben. Andere leere oder ungültige Jobs blockieren weiterhin einen schreibenden Import. Die [Personal-Anleitung](ENTRA-PERSONAL-SYNC.md) erklärt die Übernahme rollenloser Konten mit Objekt-ID und den ausdrücklichen Wiederanlauf einer Teilanlage über `-ResumeCreation`. Für den neuen Einstieg `ExpectedTenantId` in `config/PersonalSync.psd1` prüfen.
+
+Für eine Bestandsaufnahme aller gesperrten Entra-Konten gibt es [Verwalte-GesperrteEntraKonten.ps1](GESPERRTE-KONTEN-VERWALTUNG.md). `-List` zeigt die lesende Ausgabe einschließlich freigegebener Postfächer. Ohne Schalter öffnet eine TUI mit Markierung, Backspace oder Entf zur Löschbestätigung und `U` zur Entsperrbestätigung. `SharedMailbox` wird in der TUI ausgeblendet. Konten ohne Exchange-Empfänger sind auswählbar, wenn die Inventarzuordnung eindeutig fehlt. Ressourcenpostfächer und unklare Empfänger bleiben nur zur Prüfung sichtbar. Besitzobjekte erscheinen mit Typ, Name und ID. Kann der Exchange-Bestand insgesamt nicht geladen werden, bricht der Check ab. Ein Sperrdatum und die 90-Tage-Frist werden weiterhin nicht automatisch geprüft.
 
 Besitzobjekte blockieren weder Entsperren noch eine bestätigte Löschung. Die Löschbestätigung nennt die Objekte und warnt vor möglicherweise besitzerlosen Gruppen oder Anwendungen. Unmittelbar vor dem Löschen fragt das Skript den Besitz erneut ab und warnt bei Treffern. Kann es den Besitz nicht prüfen, überspringt es das Konto.
 
@@ -164,7 +216,9 @@ Prüfe vor dem zweiten Befehl den exakten UPN und die angezeigte Tenant-ID. `-Re
 
 ## Exchange-Reparatur
 
-Ein neues Postfach wird sofort und danach bis zu fünfmal im Abstand von 60 Sekunden geprüft. Das Warten geschieht einmal pro Batch-Runde. Nach dem letzten Versuch bleibt der Entra-Zustand erhalten und das Ergebnis meldet `EXO-Konfiguration ausstehend`.
+Ein neues Schüler- oder übriges Personalpostfach wird sofort und danach bis zu fünfmal im Abstand von 60 Sekunden geprüft. Beim Lehrer-/Ganztagspfad folgen auf die sofortige Prüfung bis zu drei Wiederholungen im Abstand von 150 Sekunden, insgesamt höchstens 7,5 Minuten Wartezeit. Das Warten geschieht einmal pro Batch-Runde. Nach dem letzten Versuch bleibt der Entra-Zustand erhalten und das Ergebnis meldet `Pending` mit `EXO-Konfiguration ausstehend` und einem Reparaturbefehl.
+
+Ist beim Lehrerimport nur Exchange fehlgeschlagen, setze den vorhandenen UPN mit `Sync-LehrerEntra.ps1 -ConfigureExchangeOnlineOnly -UPN` fort. Dieser Modus erzeugt kein Konto und setzt kein Passwort zurück. Die [Lehreranleitung](ENTRA-LEHRER-SYNC.md#sicherheitsprüfungen-und-wiederanlauf) enthält die Vorschau, den Schreibaufruf und den selektiven Excel-Wiederanlauf für frühere Entra-Fehler. Eindeutige Empfänger-nicht-gefunden-Fehler bei Exchange-Lese-, Schreib- und Rückleseoperationen werden dort erneut geprüft. Andere Schreibfehler bleiben sofortige Fehler.
 
 Ein einzelnes Postfach nachziehen:
 

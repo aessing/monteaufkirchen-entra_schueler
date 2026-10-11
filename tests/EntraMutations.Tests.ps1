@@ -264,6 +264,14 @@ Describe 'Verified Entra student mutations' {
         }
 
         Context 'attribute and manager verification' {
+            It 'ignores address changes even if supplied in an existing student update plan' {
+                $differences = @('UserPrincipalName','Mail','MailNickname') | ForEach-Object {
+                    [pscustomobject]@{ Area='Entra'; Field=$_; Action='Set' }
+                }
+                $result = Set-EntraStudentAttribute -UserId 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' -Desired $global:EntraMutationDesired -Differences $differences -Confirm:$false
+                $result.Changed | Should -BeFalse
+                Should -Invoke Update-MgUser -Exactly 0
+            }
             It 'writes only selected Entra set differences and never legal age classification' {
                 [void]$global:EntraMutationState.UserReads.Enqueue([pscustomobject]@{
                     Id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'

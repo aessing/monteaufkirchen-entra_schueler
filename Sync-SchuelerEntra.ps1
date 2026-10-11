@@ -1,8 +1,11 @@
 [CmdletBinding(DefaultParameterSetName = 'Sync', SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [Parameter(ParameterSetName = 'Sync')]
+    [Parameter(ParameterSetName = 'Export')]
     [ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
     [string] $File = (Join-Path $PSScriptRoot 'Schueler.xlsx'),
+    [Parameter(ParameterSetName = 'Export', Mandatory)][switch] $ListToExcel,
+    [Parameter(ParameterSetName = 'Manage', Mandatory)][switch] $ManageAccounts,
     [Parameter(ParameterSetName = 'Sync')][switch] $Update,
     [Parameter(ParameterSetName = 'Sync')][switch] $CreateNewUsers,
     [Parameter(ParameterSetName = 'Sync')][switch] $DisableUsers,
@@ -34,7 +37,7 @@ $manifest = Join-Path $PSScriptRoot 'src/SchuelerSync/SchuelerSync.psd1'
 Import-Module $manifest -Force
 
 $forwardParameters = @{} + $PSBoundParameters
-if ($PSCmdlet.ParameterSetName -eq 'Sync' -and -not $PSBoundParameters.ContainsKey('File')) {
+if ($PSCmdlet.ParameterSetName -in @('Sync','Export') -and -not $PSBoundParameters.ContainsKey('File')) {
     $forwardParameters['File'] = $File
 }
 
