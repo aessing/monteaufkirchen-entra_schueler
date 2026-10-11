@@ -21,6 +21,7 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Personal-Update ohne einzelne PowerShell-Bestätigungsfragen mit `-Confirm:$false` in README, Personal-, Betriebs- und Supportanleitung dokumentiert. Gewählte Aktionen, Vorprüfungen, Schutzregeln und die eigenen Namensbestätigungen der TUIs bleiben erhalten. README mit Übersicht der Gast-, Admin-, rollenlosen und unvollständigen Bestandszeilen ergänzt.
 - Neue Schüler erhalten UPN und Mail unter `monteaufkirchen.com`. Neue Schulteam-, OGTS- und übrige Personalkonten erhalten `montessori-erding.de`. Das Schulteam erhält zusätzlich denselben lokalen Namen als Exchange-Alias unter `monteaufkirchen.com`, OGTS erhält keinen Schulalias. Hauptadresse und Alias werden gemeinsam auf Belegung geprüft und reserviert.
 - Neue Angestellte verwenden Vornamensinitiale plus Nachname. Bei Belegung wächst das Vornamenspräfix, danach folgt ein Zahlenfallback. Freigegebene `Externe*`-Rollen verwenden `vorname.nachname` mit Zahlenfallback. ExterneAdmins bleibt geschützt.
 - Bestehende UPNs, Mailadressen, Mail-Nicknames und Aliase bleiben in allen Populationen erhalten, auch bei fehlenden Werten oder Namens-/Rollenwechsel. Exchange erhält neue SMTP-Adressen ausschließlich im Neuanlagepfad, bewahrt zusätzliche Adressen und verifiziert den geschriebenen Zustand.

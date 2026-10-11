@@ -36,6 +36,16 @@ Der Sync verwendet die vorhandenen Graph-Schreibscopes `User.ReadWrite.All`, `Us
 
 Gemeinsame Aufrufkonventionen sind `-WhatIf`, `-Confirm`, `-OutputFile` und `-Mail` mit den Aliasen `-UPN` und `-UserPrincipalName`. Für einzelne Sync-Phasen stehen `-CreateNewUsers`, `-UpdateUsers`, `-DisableUsers` und `-RevokeSessions` zusammen mit `-Update` bereit.
 
+## Update ohne PowerShell-Bestätigungsfragen
+
+Nach Prüfung des Vergleichs und der geplanten Aktionen:
+
+```powershell
+./Sync-PersonalEntra.ps1 -File ./Personal.xlsx -Update -Confirm:$false
+```
+
+`-Confirm:$false` unterdrückt die PowerShell-Ja-/Nein-Abfragen und wird an die gewählten Schreibaktionen weitergereicht. Es aktiviert keine zusätzlichen Aktionen und umgeht keine Vorprüfung oder Schutzregel. `-Update` allein erstellt und aktualisiert, ohne Abgänge zu sperren oder ihre Sitzungen zu widerrufen. Mit `-Update -WhatIf` erhältst du eine Vorschau ohne Ausführung. Die eigene Namensbestätigung in `-ManageAccounts` bleibt auch mit `-Confirm:$false` erforderlich.
+
 ## Einzelanlage und Einzelpflege
 
 Alle Namen und Adressen in den Beispielen sind erfunden. Führe zuerst die Vorschau aus:

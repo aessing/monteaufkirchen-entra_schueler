@@ -1,5 +1,19 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Dokumentationsabschluss und Gesamtprüfung, 11. Oktober 2026
+
+README, Personal-, Betriebs- und Supportanleitung dokumentieren den Personal-Update-Aufruf mit `-Confirm:$false`. Der Schalter unterdrückt PowerShell-Bestätigungen für ausgewählte Schreibaktionen. Er aktiviert keine weiteren Aktionen und umgeht keine Vorprüfung oder Schutzregel. Die eigene Namensbestätigung der Konten-TUI bleibt erforderlich. Das README fasst die Gast-, Admin-, rollenlosen und unvollständigen Bestandszeilen in einer Tabelle zusammen. Adressregeln, lesbare Jobtitel, Kinderhauspräfix, Bestandsadressschutz und Tastenbelegung sind in den bestehenden Anleitungen und im Changelog enthalten. Entwicklungsstand bleibt 0.3.0 mit `Unreleased`, die letzte veröffentlichte Version bleibt 0.2.0.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Umsetzungsplan, Changelog und aktueller Prüfnachweis ergänzt. Aufrufparameter und Weitergabe von `Confirm` anhand des bestehenden Skripts geprüft |
+| Discovery | 728 Tests erkannt, keine Testausführung in diesem Schritt |
+| Gesamtprüfung | 727 Tests bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Parser und statische Analyse erfolgreich. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden |
+| Erstlauf und Wiederholung | Erster Gesamtlauf meldete in `Invoke-ScriptAnalyzer` den Fehler `Object reference not set to an instance of an object` und hing vor der Testausführung. Prozess beendet. Separater Analyzer-Lauf prüfte alle 28 Skript- und Konfigurationsdateien erfolgreich. Vollständige Prüfung in einem frischen Prozess anschließend erfolgreich. Ursache des ersten Analyzer-Fehlers nicht festgestellt, keine Prüfschritte ausgelassen |
+| Git und Daten | `git diff --check` ohne Befund. Keine Benutzerarbeitsmappen, Exporte oder Protokolle mit Personendaten für den Commit ausgewählt. Weiterhin ausschließlich die zwei vorhandenen synthetischen XLSX-Fixtures verfolgt |
+
+Die Tests verwendeten synthetische Konten und ersetzte Fernbefehle. Keine produktiven Entra-/Exchange-Änderungen ausgeführt. Windows-Dateisperren und eine kontrollierte Mandantenabnahme bleiben offen. Frühere Nachweise unten beschreiben den jeweiligen historischen Stand.
+
 ## Ergänzung 0.3.0: Personaländerungen trotz Bestandskonten ohne vollständige Namen, 10. Oktober 2026
 
 Der nächste gemeldete Update-Abbruch betraf Zeile 41 mit gültigem Job `Kinderhaus Pädagogisches Team`, aber ohne Vor- und Nachname. Die lokale Arbeitsmappe wurde ausschließlich gelesen. In den Zeilen 41 bis 46 fehlen dieselben Namensfelder, sämtliche 74 ausgefüllten Jobzellen lassen sich anhand der konfigurierten Werte zuordnen. Daraus wurde kein Entra-Kontotyp abgeleitet.

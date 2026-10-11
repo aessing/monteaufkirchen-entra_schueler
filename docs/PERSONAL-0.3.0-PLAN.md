@@ -2,7 +2,7 @@
 
 Ergänzung vom 10. Oktober 2026: Die beauftragten [Adressregeln](ADRESSREGELN.md) verwenden die gemeinsamen Normalisierungs- und Vergleichsfunktionen. Neue Lehrer-/Personaladressen erhalten `montessori-erding.de`, neue Schulteamkonten zusätzlich den passenden Alias unter `monteaufkirchen.com`. Freigegebene `Externe*`-Rollen verwenden `vorname.nachname`. Hauptadresse und Alias werden gemeinsam reserviert. Bestehende Adressfelder bleiben erhalten, der Schüler-Schreibpfad lässt diese Felder aus. Exchange-Adresswerte werden ausschließlich für Neuanlagen übergeben und verifiziert. Die TDD-Prüfung umfasst den bisherigen Gesamtprüflauf und die neuen Adressregressionen. Ergebnisse stehen im [Abnahmeprotokoll](ABNAHME.md).
 
-Stand: 10. Oktober 2026. Grundlage: [Spezifikation](PERSONAL-0.3.0-SPEC.md) und [Variantenentscheidung](PERSONAL-0.3.0-BRAINSTORMING.md).
+Stand: 11. Oktober 2026. Grundlage: [Spezifikation](PERSONAL-0.3.0-SPEC.md) und [Variantenentscheidung](PERSONAL-0.3.0-BRAINSTORMING.md).
 
 ## Aktueller Stand
 
@@ -21,6 +21,7 @@ Stand: 10. Oktober 2026. Grundlage: [Spezifikation](PERSONAL-0.3.0-SPEC.md) und 
 - [x] Eindeutig erkannte Mitgliedskonten ohne Job und ohne Personalrolle bei Compare und Update mit Hinweis übersprungen. Gültige Änderungen trotz fehlender Namen dieser Exportzeilen verarbeitet. Pflichtdatenprüfung verwalteter Konten und unbekannter Identitäten sowie Schutz vor Abgängen bei ausschließlich übersprungenen Zeilen geprüft.
 - [x] Eindeutig erkannte Bestandskonten mit gültigem Job, genau einer bestätigten Personalrolle und unvollständigen Namensdaten in Compare und Update mit Hinweis übersprungen. Gemischter Gesamtexport mit sechs solchen Konten sowie Schutz vor Abgängen bei ausschließlich übersprungenen Zeilen synthetisch geprüft.
 - [x] Bedienungsanleitung, bestehende Dokumentation, README, Changelog und Abnahme aktualisiert.
+- [x] Personal-Update mit `-Confirm:$false` dokumentiert. PowerShell-Bestätigungen, eigene TUI-Namensbestätigung und weiterhin aktive Schutzprüfungen erläutert. README mit Übersicht der übersprungenen Bestandszeilen konsolidiert und Gesamtprüfung erneut ausgeführt.
 - [ ] Separate Windows- und kontrollierte Mandantenabnahme (nicht Bestandteil der lokalen Umsetzung).
 
 Die lokale Umsetzung ist abgeschlossen. Historische Abnahmestände bleiben erhalten. Der aktuelle Prüfnachweis steht in [ABNAHME.md](ABNAHME.md), der ursprüngliche Planungsnachweis am Ende dieses Dokuments. Die folgenden sieben Schritte sind umgesetzt.

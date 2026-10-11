@@ -33,6 +33,16 @@ All account TUIs open deletion confirmation with Backspace or Delete. Enter does
 
 Personnel exports display readable job names such as `Kinderhaus Pädagogisches Team` and `Externe Benutzer`. Workbook imports and `-Add -Job` resolve these labels and the previous internal names to the configured canonical profile. Case and repeated whitespace are ignored. Unknown or ambiguous jobs are rejected. `Externe Admins` remains protected, including on writable imports. Personnel JobTitle is written as the readable label during creation and profile maintenance. For the three Kinderhaus profiles, the Entra title omits the `Kinderhaus` prefix, yielding `Pädagogisches Team`, `Sekretariat` or `Vertretungskräfte`. CompanyName remains `Montessori Kinderhaus Erding`. Workbook job labels retain the prefix for unambiguous profile mapping. Existing technical titles or titles with the old Kinderhaus prefix appear as differences and are corrected only by an explicitly started update or single-account maintenance. Inventory and comparison reports show readable labels too. Internal profile and role identifiers keep their canonical values.
 
+## PowerShell confirmation prompts
+
+To apply a reviewed personnel update without individual PowerShell Yes/No prompts, run this command in PowerShell:
+
+```powershell
+./Sync-PersonalEntra.ps1 -File ./Personal.xlsx -Update -Confirm:$false
+```
+
+The common `-Confirm:$false` parameter is forwarded to the selected write operations. It does not enable extra actions or bypass preflight, identity, role or administrator protections. Personnel `-Update` alone creates and updates accounts. Departures require explicit action switches. `-WhatIf` previews the planned actions without applying them. The TUI's own account-name confirmation remains required even with `-Confirm:$false`.
+
 ## :cop: Code of conduct
 
 My [Code of Conduct](CODE_OF_CONDUCT.md) outlines expectations for participation in the community, as well as steps for reporting unacceptable behavior. I am committed to provide a welcoming and inspiring community for all. People violating this code of conduct may be banned from the community and the repository.
