@@ -98,7 +98,7 @@ Describe 'Personal profiles and license protection' {
         It 'creates personnel disabled and requires a first sign-in password change' {
             $desired = [pscustomobject]@{
                 DisplayName = 'Lea Testwald'; GivenName = 'Lea'; Surname = 'Testwald'
-                UserPrincipalName = 'ltestwald@monteaufkirchen.com'; Mail = 'ltestwald@monteaufkirchen.com'
+                UserPrincipalName = 'ltestwald@montessori-erding.de'; Mail = 'ltestwald@montessori-erding.de'
                 MailNickname = 'ltestwald'; JobTitle = 'CO-L'; CompanyName = 'Montessori Schule Aufkirchen'
                 EmployeeType = 'Pädagogisches Team'; UsageLocation = 'DE'; AgeGroup = 'Adult'; ConsentProvidedForMinor = 'NotRequired'
             }
@@ -106,6 +106,8 @@ Describe 'Personal profiles and license protection' {
             $null = New-DisabledEntraLehrer -Desired $desired -Password 'Abcdef123!45' -Confirm:$false
             Should -Invoke New-MgUser -Exactly 1 -ParameterFilter {
                 $BodyParameter.AccountEnabled -eq $false -and $BodyParameter.JobTitle -eq 'CO-L' -and
+                $BodyParameter.UserPrincipalName -eq 'ltestwald@montessori-erding.de' -and
+                $BodyParameter.Mail -eq $BodyParameter.UserPrincipalName -and $BodyParameter.MailNickname -eq 'ltestwald' -and
                 $BodyParameter.EmployeeType -eq 'Pädagogisches Team' -and
                 $BodyParameter.PasswordProfile.Password.Length -eq 12 -and
                 $BodyParameter.PasswordProfile.ForceChangePasswordNextSignIn -eq $true
@@ -716,6 +718,67 @@ Describe 'Personnel comparison and safe update selection' {
             Should -Invoke Write-Progress -Exactly 1 -ParameterFilter { $Id -eq 3 -and $Activity -eq 'Personalpostfächer bereitstellen' -and $Completed }
         }
 
+        It 'uses three teacher mailbox retries at 150 seconds' {
+            $script:LehrerConfig.Exchange.MaxMailboxRetries | Should -Be 3
+            $script:LehrerConfig.Exchange.RetryDelaySeconds | Should -Be 150
+        }
+        It 'retries a teacher provisioning <Phase> failure and succeeds without real sleeping' -ForEach @(@{Phase='Read'},@{Phase='Configuration'}) {
+            $targets=New-CaseInsensitiveHashtable
+            $targets['retry@example.invalid']=(Get-LehrerProfile -Job L -Config $script:LehrerConfig).Exchange
+            $script:RetryChecks=0; $script:RetryWrites=0; $script:RetrySleeps=[Collections.Generic.List[int]]::new()
+            Mock Get-StudentMailboxState {
+                $script:RetryChecks++
+                if ($Phase -eq 'Read' -and $script:RetryChecks -eq 1) {throw [InvalidOperationException]::new("||The operation couldn't be performed because object 'retry@example.invalid' couldn't be found on 'synthetic.exchange.invalid'.")}
+                [pscustomobject]@{Exists=$true;Differences=@([pscustomobject]@{Field='AddressBookPolicy'})}
+            }
+            Mock Set-StudentMailboxConfiguration {
+                $script:RetryWrites++
+                if ($Phase -eq 'Configuration' -and $script:RetryWrites -eq 1) {[pscustomobject]@{Status='Failed';Retryable=$true;Error='Mailbox not yet replicated'}}
+                else {[pscustomobject]@{Status='Compliant';Retryable=$false}}
+            }
+            $batch=Wait-LehrerMailbox -Targets $targets -SleepAction {param($seconds) $script:RetrySleeps.Add($seconds)} -Confirm:$false
+            $batch.Ready.Count | Should -Be 1
+            $batch.Failed.Count | Should -Be 0
+            $batch.Missing.Count | Should -Be 0
+            @($script:RetrySleeps) | Should -Be @(150)
+            $script:RetryChecks | Should -Be 2
+        }
+        It 'leaves teacher provisioning pending after three delayed retries with a recovery command' {
+            $targets=New-CaseInsensitiveHashtable
+            $targets['retry@example.invalid']=(Get-LehrerProfile -Job L -Config $script:LehrerConfig).Exchange
+            $script:RetrySleeps=[Collections.Generic.List[int]]::new()
+            Mock Get-StudentMailboxState {[pscustomobject]@{Exists=$false;Status='MailboxNotReady';Differences=@()}}
+            $batch=Wait-LehrerMailbox -Targets $targets -SleepAction {param($seconds) $script:RetrySleeps.Add($seconds)} -Confirm:$false
+            $batch.Missing | Should -Contain 'retry@example.invalid'
+            $batch.Failed.Count | Should -Be 0
+            @($script:RetrySleeps) | Should -Be @(150,150,150)
+            Should -Invoke Get-StudentMailboxState -Exactly 4
+            $action=ConvertTo-LehrerExchangeAction -Batch $batch
+            $action.Status | Should -Be Pending
+            $action.RecoveryCommand | Should -Match 'ConfigureExchangeOnlineOnly.*retry@example.invalid'
+        }
+        It 'does not retry a permanent teacher mailbox configuration error' {
+            $targets=New-CaseInsensitiveHashtable
+            $targets['retry@example.invalid']=(Get-LehrerProfile -Job L -Config $script:LehrerConfig).Exchange
+            Mock Get-StudentMailboxState {[pscustomobject]@{Exists=$true;Differences=@([pscustomobject]@{Field='AddressBookPolicy'})}}
+            Mock Set-StudentMailboxConfiguration {[pscustomobject]@{Status='Failed';Retryable=$false;Error='Permission denied'}}
+            $batch=Wait-LehrerMailbox -Targets $targets -SleepAction {throw 'Must not sleep'} -Confirm:$false
+            $batch.Failed.Count | Should -Be 1
+            $batch.Missing.Count | Should -Be 0
+            Should -Invoke Get-StudentMailboxState -Exactly 1
+        }
+
+        It 'does not wait or write for a missing teacher mailbox under WhatIf' {
+            $targets=New-CaseInsensitiveHashtable
+            $targets['retry@example.invalid']=(Get-LehrerProfile -Job L -Config $script:LehrerConfig).Exchange
+            Mock Get-StudentMailboxState {[pscustomobject]@{Exists=$false;Differences=@()}}
+            Mock Set-StudentMailboxConfiguration {throw 'Must not write'}
+            $batch=Wait-LehrerMailbox -Targets $targets -SleepAction {throw 'Must not sleep'} -WhatIf
+            $batch.Missing | Should -Be @('retry@example.invalid')
+            $batch.Failed.Count | Should -Be 0
+            Should -Invoke Get-StudentMailboxState -Exactly 1
+            Should -Invoke Set-StudentMailboxConfiguration -Exactly 0
+        }
         It 'does not configure an existing personnel mailbox without Exchange differences' {
             $targets = New-CaseInsensitiveHashtable
             $targets['ltestwald@monteaufkirchen.com'] = (Get-LehrerProfile -Job L -Config $script:LehrerConfig).Exchange

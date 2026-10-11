@@ -1,5 +1,401 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.0: Dokumentationsabschluss und Gesamtprüfung, 11. Oktober 2026
+
+README, Personal-, Betriebs- und Supportanleitung dokumentieren den Personal-Update-Aufruf mit `-Confirm:$false`. Der Schalter unterdrückt PowerShell-Bestätigungen für ausgewählte Schreibaktionen. Er aktiviert keine weiteren Aktionen und umgeht keine Vorprüfung oder Schutzregel. Die eigene Namensbestätigung der Konten-TUI bleibt erforderlich. Das README fasst die Gast-, Admin-, rollenlosen und unvollständigen Bestandszeilen in einer Tabelle zusammen. Adressregeln, lesbare Jobtitel, Kinderhauspräfix, Bestandsadressschutz und Tastenbelegung sind in den bestehenden Anleitungen und im Changelog enthalten. Entwicklungsstand bleibt 0.3.0 mit `Unreleased`, die letzte veröffentlichte Version bleibt 0.2.0.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Umsetzungsplan, Changelog und aktueller Prüfnachweis ergänzt. Aufrufparameter und Weitergabe von `Confirm` anhand des bestehenden Skripts geprüft |
+| Discovery | 728 Tests erkannt, keine Testausführung in diesem Schritt |
+| Gesamtprüfung | 727 Tests bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Parser und statische Analyse erfolgreich. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden |
+| Erstlauf und Wiederholung | Erster Gesamtlauf meldete in `Invoke-ScriptAnalyzer` den Fehler `Object reference not set to an instance of an object` und hing vor der Testausführung. Prozess beendet. Separater Analyzer-Lauf prüfte alle 28 Skript- und Konfigurationsdateien erfolgreich. Vollständige Prüfung in einem frischen Prozess anschließend erfolgreich. Ursache des ersten Analyzer-Fehlers nicht festgestellt, keine Prüfschritte ausgelassen |
+| Git und Daten | `git diff --check` ohne Befund. Keine Benutzerarbeitsmappen, Exporte oder Protokolle mit Personendaten für den Commit ausgewählt. Weiterhin ausschließlich die zwei vorhandenen synthetischen XLSX-Fixtures verfolgt |
+
+Die Tests verwendeten synthetische Konten und ersetzte Fernbefehle. Keine produktiven Entra-/Exchange-Änderungen ausgeführt. Windows-Dateisperren und eine kontrollierte Mandantenabnahme bleiben offen. Frühere Nachweise unten beschreiben den jeweiligen historischen Stand.
+
+## Ergänzung 0.3.0: Personaländerungen trotz Bestandskonten ohne vollständige Namen, 10. Oktober 2026
+
+Der nächste gemeldete Update-Abbruch betraf Zeile 41 mit gültigem Job `Kinderhaus Pädagogisches Team`, aber ohne Vor- und Nachname. Die lokale Arbeitsmappe wurde ausschließlich gelesen. In den Zeilen 41 bis 46 fehlen dieselben Namensfelder, sämtliche 74 ausgefüllten Jobzellen lassen sich anhand der konfigurierten Werte zuordnen. Daraus wurde kein Entra-Kontotyp abgeleitet.
+
+Compare und Update einschließlich WhatIf überspringen nun eindeutig anhand von Objekt-ID oder UPN erkannte bestehende Mitgliedskonten mit gültigem Job und unvollständigen Namensdaten als `Workbook.Review: Unvollständige Namensdaten, nicht abgeglichen.` Vollständiger Schutzkontext und vollständig lesbare aktuelle transitive Entra-Mitgliedschaften müssen genau eine verwaltete Personalrolle bestätigen. Diese Konten bleiben unverändert, gültige Personaländerungen werden weiter verarbeitet. Unbekannte oder widersprüchliche Identitäten, unbekannte oder fehlende Jobs verwalteter Konten, rollenlose Übernahme ohne Namen, mehrere Personalrollen und unvollständige Schutzinformationen bleiben Fehler. Eine Datei ausschließlich mit übersprungenen Konten erzeugt keine Abgänge. Für einen regulären Abgleich der übersprungenen Konten sind die tatsächlichen Namensfelder erforderlich.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Drei gemischte Updatefälle, ein Schutzfall gegen Abgänge bei ausschließlich unvollständigen Bestandskonten und der tatsächliche isolierte Gesamtexport-/Update-Aufruf vor Umsetzung fehlgeschlagen. Nach Umsetzung 33 gezielte Prüfungen bestanden, einschließlich der bisherigen Ausnahme für rollenlose Konten |
+| Identität und Excel | Objekt-ID, UPN, kombinierte Identität und fehlender Vor-, Nach- oder Anzeigename geprüft. Unbekannte oder widersprüchliche Identitäten, ungültiger oder fehlender Job, fehlende oder mehrere Personalrollen, unlesbare Mitgliedschaften, unvollständiger Schutzkontext und unbekannter Kontotyp behalten die Pflichtdatenprüfung. Quelldateihashes unverändert |
+| Synthetisches Update und tatsächliche CLI | Graph-Schreibparameter für den lesbaren Jobtitel des vollständigen Kontos geprüft, unvollständige Konten ohne Mutation. Native Exportdatei mit gültigem Personalkonto, Admin, rollenlosem Konto, Gast und sechs bestehenden Personalkonten ohne Vor-/Nachnamen anschließend mit Compare und Update-WhatIf geprüft. Eine Jobtiteländerung und acht Prüfhinweise, Dateihash unverändert |
+| Gesamtprüfung | 728 Tests erkannt, 727 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Alle Fernbefehle wurden für die Tests synthetisch ersetzt. Kein produktiver Update-Lauf ausgeführt und keine Benutzerarbeitsmappe verändert. Frühere Nachweise unten beschreiben den Zustand vor dieser Korrektur.
+
+## Ergänzung 0.3.0: Personaländerungen trotz unvollständiger rollenloser Exportzeilen, 10. Oktober 2026
+
+Nach der Admin-Korrektur stoppte ein Update weiterhin mit `Preflight.Inventory`, weil eine Exportzeile keine Vornamen-, Nachnamen- oder Jobwerte enthielt. Der lesende Vergleich konnte dieselbe Zeile bereits zur Prüfung anzeigen. Compare und Update einschließlich WhatIf überspringen nun eindeutig erkannte Mitgliedskonten mit leerem Job, wenn der vollständige Schutzkontext und vollständig lesbare aktuelle transitive Entra-Mitgliedschaften bestätigen, dass keine verwaltete Personalrolle vorliegt. Der Hinweis lautet `Workbook.Review: Keine Personalrolle und kein Job, nicht abgeglichen.` Gültige Personaländerungen werden verarbeitet. Eine Datei ausschließlich mit übersprungenen Konten erzeugt keine Abgänge. Die ausdrückliche Übernahme eines zulässigen rollenlosen Kontos mit Objekt-ID und freigegebenem Job bleibt möglich.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Drei gemischte Updatefälle, ein Schutzfall gegen Abgänge bei ausschließlich rollenloser Zeile und der tatsächliche isolierte Gesamtexport-/Update-Aufruf vor Umsetzung fehlgeschlagen. Nach Korrektur 18 gezielte Prüfungen bestanden |
+| Identität und Pflichtdaten | Objekt-ID, UPN, kombinierte Identität und vollständig leere Pflichtzellen geprüft. Verwaltete Personalrollen, unvollständiger Schutzkontext, unlesbare Mitgliedschaften, unbekannter Kontotyp, unbekannte oder widersprüchliche Identität sowie ein ausdrücklich eingetragener Job behalten die strikte Validierung |
+| Synthetisches Update und CLI | Graph-Schreibparameter für den lesbaren Jobtitel des zulässigen Kontos geprüft, rollenloses Konto ohne Mutation. Native Exportdatei mit gültigem Personalkonto, Admin, rollenlosem Konto und Gast anschließend mit Compare und Update-WhatIf geprüft. Genau eine Jobtiteländerung eingeplant, Dateihash unverändert |
+| Gesamtprüfung | 707 Tests erkannt, 706 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Alle Fernbefehle wurden für die Prüfungen synthetisch ersetzt. Kein produktiver Update-Lauf ausgeführt und keine Benutzerarbeitsmappe verändert. Die frühere Abnahme unten beschreibt den damaligen Stand, bei dem unvollständige rollenlose Zeilen Update noch blockierten.
+
+## Ergänzung 0.3.0: Personaländerungen trotz geschützter Adminzeilen, 10. Oktober 2026
+
+Ein Gesamtexport konnte im lesenden Vergleich viele zulässige Änderungen anzeigen, beim Update jedoch vor allen Mutationen an `Externe Admins` abbrechen. Ursache war die strikt abgewiesene Adminjob-Zeile vor dem eigentlichen Update. Eindeutig anhand von Objekt-ID oder UPN identifizierte Konten mit bestätigter geschützter Gruppen- oder Verzeichnisrollenmitgliedschaft werden jetzt auch bei Update einschließlich WhatIf als `Workbook.Review` übersprungen. Die Bestätigung verwendet Entra-Mitgliedschaften und den vollständigen Schutzkontext. Gültige Personaländerungen werden anschließend verarbeitet, Adminkonten bleiben unverändert. Ein Adminjob allein, unbekannte oder widersprüchliche Identitäten begründen keine Ausnahme. Reine Gast-/Adminkonto-Dateien erzeugen keine Abgänge interner Konten.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Drei Updatefälle mit Adminidentität über Objekt-ID, UPN und beide Werte vor Umsetzung fehlgeschlagen. Nach Korrektur bestanden die Updatefälle. Insgesamt elf gezielte Admin-/Update-Regressionen bestanden |
+| Synthetisches Update | Graph-Schreibparameter für den Jobtitel des zulässigen Kontos geprüft, Adminkonto ohne Mutation. Anschließender Vergleich zeigt keine erneute Änderung des zulässigen Kontos |
+| Native Excel und Identität | ExterneAdmins, GlobalAdministrators und Verzeichnisrollen geprüft. Ungeschützte Konten mit Adminjob sowie unbekannte oder widersprüchliche Identitäten behalten die strikte Validierung, Quelldateihashes bleiben unverändert |
+| Tatsächlicher Skriptaufruf | Export mit zulässigem Konto und externem Admin, anschließender Compare und Update-WhatIf mit eingeplanter Jobtiteländerung und übersprungener Adminzeile geprüft. Gesamtexport mit zusätzlich unvollständigem rollenlosem Konto bleibt bei Update gesperrt |
+| Gesamtprüfung | 691 Tests erkannt, 690 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Ein erster Gesamtlauf scheiterte an einer alten Erwartung für den Adminhinweistext. Er lieferte 689 bestandene Tests, einen fehlgeschlagenen Test und einen übersprungenen Windows-Test. Der Hinweistext wird jetzt als übersprungenes Administratorkonto geprüft, der erneut ausgeführte betroffene CLI-Test bestand. Alle Fernbefehle wurden synthetisch ersetzt. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
+## Ergänzung 0.3.0: Gäste ohne Pflichtdatenwarnungen im Personalabgleich, 10. Oktober 2026
+
+Der Personalabgleich erkennt Gäste vor der Excel-Pflichtdatenprüfung anhand des Entra-Kontotyps `Guest` und einer eindeutigen Objekt-ID oder UPN. Sind beide Werte angegeben, müssen sie dasselbe Konto identifizieren. Compare und Update einschließlich WhatIf überspringen diese Zeilen ohne Warnung oder Fehler zu unvollständigen Namen und Jobs. Gäste bleiben in Liste und Export enthalten, erhalten keine Import-Prüfwarnung und erzeugen keine Profiländerungen, Neuanlagen oder Abgänge. Eine Datei ausschließlich mit Gastzeilen löst keine Abgänge interner Konten aus. Interne, unbekannte und widersprüchliche Identitäten behalten die Datenprüfung. Gastaktionen und ihre Schutzprüfungen in der TUI sowie der Ausschluss aus der Einzelpflege bleiben erhalten.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Zunächst fünf Gastfälle mit bisherigen Datenwarnungen beziehungsweise Update-Abbruch reproduziert. Ein weiterer Fall reproduzierte unerwünschte Abgänge interner Konten bei einer reinen Gastdatei. Nach Korrektur bestanden die gezielten Gastprüfungen |
+| Identität und Excel | Objekt-ID, UPN, kombinierte Identität und vollständig leere Pflichtzellen geprüft. Interne, unbekannte, widersprüchliche und nicht identifizierte Zeilen behalten die Pflichtdatenprüfung. Quelldateihashes bleiben unverändert |
+| Tatsächlicher Skriptaufruf | Gastexport, Compare und Update-WhatIf über isolierte CLI-Prozesse ohne Datenwarnungen, Fehler oder Aktionen geprüft. Ein Gesamtexport mit internem Konto, Admin, rollenlosem Konto und unvollständigem Gast erzeugt nur die zwei weiterhin erforderlichen Prüfzeilen |
+| Gesamtprüfung | 680 Tests erkannt, 679 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest auf macOS übersprungen. Discovery, Parser und statische Analyse erfolgreich. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Ein Zwischenlauf des Tests für gemischte Listen scheiterte an einem fehlenden `New-MgUser`-Mock. Dieser Test-Dummy wurde ergänzt, der erneute gezielte Test bestand. Sämtliche Fernbefehle wurden synthetisch ersetzt. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
+## Ergänzung 0.3.0: Kinderhauspräfix aus Entra-Jobtiteln entfernt, 10. Oktober 2026
+
+Die drei Kinderhausprofile erhalten bei Neuanlage und normaler Profilpflege die Entra-Jobtitel `Pädagogisches Team`, `Sekretariat` und `Vertretungskräfte`. `CompanyName` bleibt `Montessori Kinderhaus Erding`. Die Excel-Spalte `Job`, Bestandsliste und Profilzuordnung behalten die eindeutigen Jobnamen einschließlich `Kinderhaus`. Vorhandene technische oder lesbare Titel mit Kinderhauspräfix erscheinen im Vergleich als Änderung und werden erst beim gestarteten Update beziehungsweise bei Einzelpflege korrigiert. Lesende Aufrufe ändern keine Konten.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Vor Umsetzung die drei Kinderhausfälle fehlgeschlagen, vier andere Profile bestanden. Nach Umsetzung alle sieben fokussierten Fälle bestanden |
+| Personalregressionen | Neuanlage sowie Update technischer und bisher lesbarer Titel geprüft. Synthetische Graph-Schreibparameter, unveränderte Firma, Rollen und Adressen sowie zweiter Vergleich ohne Änderungen geprüft |
+| Gesamtprüfung | 663 Tests erkannt, 662 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Tatsächliche isolierte CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Es wurden ausschließlich synthetische Konten und Fernbefehle geprüft. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
+## Ergänzung 0.3.0: Lesbare Personal-Jobtitel in Entra und Berichten, 10. Oktober 2026
+
+Die vorherige Formatierung betraf die Jobzelle im Personalexport, das tatsächliche Entra-`JobTitle` erhielt weiterhin den technischen Profilwert. Neuanlage und normale Personal-Profilpflege schreiben jetzt den lesbaren Namen mit Leerzeichen statt Unterstrichen und CamelCase, etwa `Kinderhaus Pädagogisches Team` und `Externe Benutzer`. Technische Bestandstitel erscheinen im lesenden Vergleich als Änderung und werden erst beim gestarteten Update beziehungsweise bei Einzelpflege korrigiert. Bestandsliste und Vergleich zeigen ebenfalls lesbare Jobnamen. Interne Profilwerte, Rollen-IDs, Exchange-Profile und Lehrerjobkürzel bleiben erhalten. Bereits lesbare Titel erzeugen keine erneute Jobtiteländerung.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Vor Umsetzung acht neue Fälle fehlgeschlagen, der bereits identische Titel `Unterstützung` bestand. Danach alle neun fokussierten Regressionen bestanden |
+| Personalregressionen | Alle sieben freigegebenen Profile auf lesbares JobTitle bei Neuanlage und Update geprüft. Synthetische Graph-Schreibparameter, anschließender Vergleich ohne Änderungen und fehlende Adressmutationen geprüft. Bestandsliste und Vergleich bleiben lesbar, interne Jobschlüssel unverändert |
+| Gesamtprüfung | 663 Tests erkannt, 662 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Tatsächliche isolierte Personal-, Lehrer- und Schüler-CLI-Aufrufe der Suite bestanden. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Personal-Anleitung, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Es wurden ausschließlich synthetische Konten und Fernbefehle geprüft. Keine produktiven Konten oder Arbeitsmappen geändert. Frühere Nachweise unten dokumentieren den Zustand vor dieser Korrektur.
+
+## Ergänzung 0.3.0: Lesbare Jobnamen im Personalexport, 10. Oktober 2026
+
+Der Personalexport ersetzt Unterstriche durch Leerzeichen und trennt CamelCase an Wortgrenzen, einschließlich Umlauten. Beispiele: `Schule_Sekretariat` wird `Schule Sekretariat`, `Kinderhaus_PädagogischesTeam` wird `Kinderhaus Pädagogisches Team`, `ExterneBenutzer` wird `Externe Benutzer`. Beim Einlesen und bei Einzelpflege werden lesbare Namen sowie bisherige interne Werte anhand der konfigurierten Jobs eindeutig auf das kanonische Profil zurückgeführt. Groß-/Kleinschreibung und mehrfache Leerzeichen werden normalisiert. Mehrdeutige Anzeigenamen werden auch bei anders geschriebenen internen Werten abgewiesen. Der kanonische `JobTitle`, Gruppen-IDs und Exchange-Profilwerte bleiben erhalten. `Externe Admins` bleibt geschützt und wird im lesenden Vergleich als kanonisch identifizierte Prüfzeile erfasst.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD und fokussierte Tests | Regressionen für lesbare Namen vor der Umsetzung fehlgeschlagen. Nach Korrektur der wiederverwendeten Testdateinamen 272 Personal-/Export-/Lehrertests bestanden. Vier gezielt ausgeführte Mehrdeutigkeitsfälle bestanden, zwei davon zuvor mit anderer Groß-/Kleinschreibung reproduziert |
+| Native XLSX-Prüfung | Alle acht konfigurierten Jobs exportiert und rückgelesen. Lesbare Zellen, Umlaute, leere Jobs, kanonische Werte, zusätzliche Leerzeichen, Groß-/Kleinschreibung, wiederholte identische Jobs, Schutzprofile und unveränderte Inventarwerte geprüft |
+| Tatsächlicher Skriptaufruf | Isolierter Personal-CLI-Export mit `Schule Sekretariat` in der Jobzelle. Anschließender Compare und Update-WhatIf mit Exitcode 0, HasErrors false und unverändertem Quelldateihash. Gesamtexport mit geschützten, rollenlosen und Gastzeilen bleibt lesend vergleichbar, schreibender Import wird weiterhin abgewiesen |
+| Gesamtprüfung | 654 Tests erkannt, 653 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | Job-Mappingtabelle, Personal-Anleitung, README, Betriebs-/Supportanleitung, Spezifikation, Umsetzungsplan, Testbeschreibung, Changelog und Abnahme aktualisiert |
+
+Alle Konten und Fernbefehle in den Tests waren synthetisch. Bestehende produktive Arbeitsmappen und Konten wurden nicht verändert, kein Push. Ein tatsächlicher Windows-Terminal- oder Mandantentest war nicht Bestandteil dieser lokalen Prüfung.
+
+## Ergänzung 0.3.0: Backspace und Entf zum Löschen, 10. Oktober 2026
+
+Backspace und Entf öffnen in allen Konten-TUIs die bestehende Löschbestätigung für markierte gesperrte Konten. Enter startet in keiner Kontenliste mehr eine Aktion. Die Schüler-Zielauswahl übernimmt weiterhin mit Enter. Y/J bestätigt, N/Esc bricht ab. Befehlszeilen, Statushinweise und aktuelle Anleitungen verwenden die neue Belegung. Frühere Prüfstände unten behalten ihre damalige Tastaturbelegung.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD | Vor Umsetzung 26 fehlgeschlagene fokussierte Fälle, danach alle 238 TUI-/Personaltests bestanden. Beide Löschpfade, beide Tasten, Enter ohne Aktion in allen drei Populationen, Nein mit erhaltener Auswahl und aktiver Gast mit Sperrhinweis geprüft |
+| Tatsächlicher Terminalaufruf | Isolierter Personal-Einstieg mit gesperrtem synthetischem Konto im macOS-Pseudoterminal. Markieren, Enter ohne Aktion, Backspace und Entf mit Löschbestätigung, jeweils N zum Abbrechen, anschließend Backspace und Y mit WhatIf sowie Esc geprüft. Exitcode 0, genau ein WhatIf-Ergebnis und HasErrors false |
+| Gesamtprüfung | 630 Tests erkannt, 629 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Changelog, Betriebs-/Supportanleitung, vier TUI-Anleitungen, Spezifikation, Umsetzungsplan, Testbeschreibung und Abnahme aktualisiert |
+
+Keine produktiven Konten oder Arbeitsmappen verändert, kein Push. Tastaturverhalten unter Windows wurde nicht im tatsächlichen Terminal geprüft.
+
+## Ergänzung 0.3.0: Tastenbefehle in der letzten TUI-Zeile, 10. Oktober 2026
+
+Alle Kontenansichten zeigen ihre verfügbaren Tastenbefehle als letzte Ausgabezeile unter Liste, Details und Hinweisen. Die gemeinsame Ansicht deckt gesperrte Konten, Personal, Lehrer/Ganztag und Schüler ab. Schüler ergänzen K und L in derselben Befehlszeile. Klassen-/Klassenlehrer-Zielauswahl zeigt die Navigation ebenfalls unten. Hinweise zu übersprungenen Konten erscheinen in Sperr-/Entsperr-/Löschbestätigungen vor den Ja-/Nein-Befehlen.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD und fokussierte Tests | Neue Reihenfolgetests vor den jeweiligen Änderungen fehlgeschlagen. Abschließend 226 TUI-/Personaltests bestanden, darunter leere Listen, Zielauswahl und Bestätigungen mit geschützten Konten |
+| Tatsächlicher Terminalaufruf | Isolierter Schüler-Einstieg mit synthetischen Daten und WhatIf im macOS-Pseudoterminal. Kontenliste, Markieren, K-Zielauswahl, Esc zur erhaltenen Auswahl und Esc zum Beenden geprüft. Befehle jeweils zuletzt sichtbar, Exitcode 0 und HasErrors false |
+| Gesamtprüfung | 618 Tests erkannt, 617 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Discovery erfolgreich, Parser und statische Analyse ohne ungeklärte Befunde. Git-Diff ohne Whitespace-Befunde |
+| Dokumentation | README, Changelog, vier TUI-Anleitungen, Testbeschreibung und Abnahme aktualisiert |
+
+Keine produktiven Konten oder Arbeitsmappen verändert, kein Push. Die neue Ausgabe wurde unter macOS geprüft, nicht auf einem echten Windows-Terminal.
+
+## Ergänzung 0.3.0: Adressregeln für Neuanlagen, 10. Oktober 2026
+
+Schüler behalten `monteaufkirchen.com` als Domain für neue UPNs und Mailadressen. Schulteam, OGTS und übriges Personal verwenden bei Neuanlage `montessori-erding.de`. Das Schulteam (`L`, `CO-L`, `PA`, auch mit `JAS`) erhält zusätzlich denselben lokalen Namen als Alias unter `monteaufkirchen.com`. OGTS erhält keinen Schulalias. Angestellte verwenden eine Vornamensinitiale mit wachsendem Präfix bei Kollisionen, freigegebene Rollen `Externe*` verwenden `vorname.nachname` mit Zahlenfallback. ExterneAdmins bleibt geschützt.
+
+Hauptadresse und Lehrer-Alias werden gemeinsam gegen Graph- und Exchange-Belegungen geprüft und im Batch reserviert. Neue Exchange-Adressen werden unter Erhalt weiterer SMTP-/X500-Adressen geschrieben und nachgelesen. Die Schüler-Postfachschleife erhält die Adressregel nur für im aktuellen Lauf erfolgreich neu angelegte Konten. Bestehende UPNs, Mailadressen, Mail-Nicknames und Aliase bleiben unverändert. Der Schüler-Schreibpfad ignoriert diese Felder auch bei ausdrücklich angelieferten Änderungsplänen. Normale Exchange-Reparatur verändert keine Adressen. Der gezielte Abschluss eines fehlenden Alias nach einer Teilanlage steht in den [Adressregeln](ADRESSREGELN.md).
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| TDD vor Umsetzung | 17 fehlgeschlagene Adressregressionen. Danach jeweils ein weiterer fehlgeschlagener Test für den Schüler-Schreibschutz und die SMTP-Regel im gemischten Schülerbatch vor der jeweiligen Umsetzung |
+| Fokussierte Prüfung | 27 Entra-Mutationstests bestanden. Anschließend 74 Exchange- und Orchestrierungstests bestanden, einschließlich gemischtem Schülerbatch |
+| Vollständige lokale Verifikation | 607 Tests erkannt, 606 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. PowerShell-Parser erfolgreich, keine ungeklärten Analyzer-Befunde |
+| CLI und Dateien | Die Gesamtsuite umfasst die vorhandenen tatsächlichen isolierten Skriptaufrufe sowie synthetische Graph-/Exchange-Mutationen und XLSX-Roundtrips. Keine produktiven Arbeitsmappen geändert |
+| Dokumentation | README, Changelog, Schüler-/Lehrer-/Personalanleitung, Betrieb, Spezifikation, Plan, Variantenentscheidung, Testing, Contribution, Security und Support aktualisiert. Neue gemeinsame Adressregeln. Lokale Dateilinks in 17 Markdown-Dateien ohne fehlende Ziele, vorhandene relative GitHub-Navigationslinks separat eingeordnet. Git-Diff ohne Whitespace-Befunde |
+
+Der vorhandene Arbeitsstand auf `codex/0.3.0-personal` wurde erhalten und ergänzt. Keine produktiven Konten geändert, kein Push und keine Veröffentlichung. Domainfreigabe, echte Exchange-Bereitstellung und Replikation sowie Windows-Dateisperren wurden nicht live geprüft. Frühere Prüfergebnisse folgen unten.
+
+## Ergänzung 0.3.0: Enter auf aktivem Gast in der Personal-TUI, 30. September 2026
+
+Der Betreiber bestätigte, dass der ausgewählte Gast aktiv war. Der bestehende Löschpfad verlangt ein gesperrtes Konto und übersprang die Auswahl deshalb vor der Bestätigung. Die TUI lud auch nach diesem vollständig übersprungenen Vorgang den gesamten Bestand erneut und entfernte die Markierung. Der allgemeine Statushinweis erklärte den nötigen nächsten Schritt nicht.
+
+Aktive Konten erhalten jetzt den konkreten Hinweis, zuerst mit B zu sperren und danach erneut zum Löschen zu markieren. Vollständig übersprungene Aktionen und abgebrochene Bestätigungen erhalten Markierung und Cursor, ohne den Bestand erneut zu laden. Leere Aktionsergebnisse werden explizit als Array behandelt, damit der Abbruch unter StrictMode keine Count-Ausnahme erzeugt. Schutzprüfungen, Sperrpflicht und bestätigte Löschung gesperrter Gäste bleiben erhalten. Ausgeführte Aktionen, Vorschauen und mögliche Teilfehler laden den Bestand weiterhin neu.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Regression vor Änderung | Zwei neue Tests fehlgeschlagen. Unnötiges Neuladen bei Enter auf aktivem Gast und verlorene Auswahl vor anschließendem B reproduziert |
+| Fokussierte Prüfung | Sieben Tests bestanden. Aktiver Gast mit Hinweis und erhaltener Auswahl, anschließendes Sperren und Löschen, Nein ohne Neuladen sowie Gastaktionen für fehlenden Empfänger, MailUser, GuestMailUser und UserMailbox geprüft |
+| Tatsächliche TUI | Zwei isolierte macOS-Pseudoterminalprozesse über den echten Personal-Einstieg mit synthetischen Gastkonten. Aktiv: Leertaste, Enter, erhaltener Hinweis und Markierung, B, N, erhaltener Auswahlzustand, Esc. Gesperrt: Leertaste, Enter, Löschbestätigung, Y, Löschvorschau unter WhatIf und Esc. Beide Prozesse Exitcode 0 und HasErrors false |
+| Vollständige lokale Verifikation | 584 Tests erkannt, 583 bestanden, 0 fehlgeschlagen, ein vorhandener Windows-Dateisperrtest übersprungen. Parser für 52 PowerShell-Dateien ohne Fehler, keine ungeklärten Analyzer-Befunde |
+| Dokumentation und Git | Personal-Anleitung, Support, Changelog, Testbeschreibung und dieses Protokoll aktualisiert. Dateilinks in 16 Markdown-Dateien ohne fehlende Ziele. Git-Diff ohne Whitespace-Befunde |
+
+Keine produktiven Konten geändert oder gelöscht. Keine produktiven Daten in Tests, kein Push und keine Veröffentlichung. Die simulierten Schreibtests und tatsächlichen Terminalvorschauen ersetzen keine gesondert autorisierte Mandantenabnahme. Windows-Dateisperren und Windows-Tastaturdarstellung bleiben offen. Frühere Prüfergebnisse folgen unten.
+
+## Ergänzung 0.3.0: Lehrer-Exchange-Wiederholungen und Wiederanlauf, 30. September 2026
+
+Der Betreiber meldete nach einer Lehreranlage einen Exchange-Fehler, weil das Empfängerobjekt auf einem Exchange-Server nicht gefunden wurde. Die bisherige Schleife wartete fünfmal mit 60 Sekunden, behandelte jedoch eine generische Ausnahme mit dieser konkreten Servermeldung sowie manche CAS- und Schreibfehler als endgültiges `Failed`. Die tatsächlichen Ausnahmeinformationen des produktiven Fehlers wurden nicht live untersucht. Die lokale Regression bildet die gemeldete Nachricht mit synthetischem Empfänger und generischer Ausnahme nach.
+
+`config/LehrerSync.psd1` und die Standardwerte des gemeinsamen Lehrer-Batchhelfers verwenden jetzt drei Wiederholungen mit jeweils 150 Sekunden nach einer sofortigen Prüfung. Eindeutige Exchange-Empfänger-nicht-gefunden-Fehler bleiben beim Lesen, Schreiben und Rücklesen wiederholbar. Ein interner `Retryable`-Wert erhält diese Information aus den Konfigurationsergebnissen. Nach ausgeschöpften Wiederholungen folgt `Pending` mit Reparaturbefehl. Parameter-, Berechtigungs- und Verbindungsfehler sowie bestätigte Konfigurationsabweichungen bleiben sofortige Fehler. WhatIf wartet und schreibt nicht. Schüler und übriges Personal behalten ihre explizit konfigurierten fünf Wiederholungen mit 60 Sekunden.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Regression vor Änderung | 7 fokussierte Tests, 1 bestanden und 6 fehlgeschlagen. Zu kurze Standardintervalle, nicht erkannte generische Servermeldung, fehlende CAS-Behandlung und endgültiger Abbruch eines wiederholbaren Konfigurationsfehlers reproduziert |
+| Fokussierte Prüfung nach Änderung | 14 bestanden, 0 fehlgeschlagen. Erfolgreiche Fortsetzung nach Lese-/Konfigurationsfehler, vier Prüfungen mit drei simulierten 150-Sekunden-Wartezeiten, Pending-Reparaturbefehl, Mailbox-/CAS-Schreibfehler, Rückleseverlust, unverändert endgültiger Parameter-/Konfigurationsfehler und WhatIf geprüft |
+| Tatsächliche CLI | Separater Prozess mit `Invoke-SyntheticPersonalCli.ps1 -Population Teacher -Mode Exchange` ruft den echten Lehrer-Reparatureinstieg für ein bestehendes synthetisches Konto unter WhatIf auf. Exitcode 0, `Mode = ExchangeOnly`, Exchange-Aktionsvorschau und `HasErrors = false`. Fernverbindungen und Mutationen ersetzt oder gesperrt |
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich. 582 Tests erkannt, 581 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Parser und Analyzer | 52 PowerShell-Dateien einschließlich Tests ohne Parserfehler. 0 ungeklärte Analyzer-Befunde, 25 bestehende erlaubte Write-Host-Warnungen |
+| Dokumentation und Git | README, Lehreranleitung, Betrieb, Support, Testbeschreibung, Changelog und dieses Protokoll aktualisiert. Lokale Dateilinks in 16 Markdown-Dateien ohne fehlende Ziele, sieben bestehende GitHub-Issue-/Security-Routen vom lokalen Dateicheck ausgenommen. `git diff --check` ohne Befund |
+
+Alle Prüfungen verwendeten synthetische Konten und ersetzte Wartezeiten. Reale 150-Sekunden-Wartezeiten, tatsächliche Exchange-Replikation, Windows-Dateisperren und eine separat autorisierte Mandantenabnahme bleiben offen. Vorhandene Änderungen auf `codex/0.3.0-personal` wurden erhalten. Keine produktiven Mandantenänderungen, keine produktiven Testdaten, kein Push und keine Veröffentlichung. Die folgenden Abschnitte dokumentieren frühere Prüfstände.
+
+## Ergänzung 0.3.0: Administrator-Schutzgruppe umbenannt, 30. September 2026
+
+Die vom Betreiber gemeldete Gruppe heißt jetzt `SEC-A-ADM-GlobalAdministrators`. Die gemeinsame Schutzkonfiguration in `config/PersonalSync.psd1`, die synthetischen Gruppenfixtures, README, Personal-Anleitung, Spezifikation, Testbeschreibung und Changelog verwenden diesen Namen. Die vorhandene eindeutige Namensauflösung bleibt erhalten. Mitglieder der Gruppe sind in Personal-, Lehrer- und Schülerverwaltung geschützt. Eine feste Gruppen-ID wurde nicht ergänzt.
+
+162 Tests aus `PersonalSync.Tests.ps1` bestanden, 0 fehlgeschlagen. Darin enthalten sind fünf zusätzliche Fälle für direkte Administrator-Mitgliedschaft in allen drei Populationen, einen ausschließlich vorhandenen veralteten Namen und einen mehrdeutigen aktuellen Namen. Die tatsächlichen isolierten CLI-Aufrufe der Suite verwenden ebenfalls die umbenannte synthetische Gruppe. Ein fehlender oder mehrdeutiger aktueller Gruppenname sperrt Schreibaktionen weiterhin. Diese gezielte Prüfung ersetzt keine erneute vollständige Gesamtsuite, deren vorheriger Stand folgt unten.
+
+Die Prüfungen verwendeten synthetische Konten und ersetzte Fernbefehle. Keine produktiven Mandantenänderungen, keine Bearbeitung produktiver Arbeitsmappen, kein Push und keine Veröffentlichung. Die tatsächliche Gruppe und ihre ID wurden nicht live geprüft.
+
+## Ergänzung 0.3.0: Personalexport lesend vergleichen, 30. September 2026
+
+Der Betreiber meldete einen Vorprüfungsabbruch nach `-ListToExcel`, weil die exportierte Jobzelle `ExterneAdmins` kein schreibbares Profil ist. Der Export enthält bewusst geschützte und rollenlose Konten, der bisherige Adapter verlangte jedoch auch für den rein lesenden Vergleich vollständige Pflichtwerte und ein freigegebenes Profil. Die Regression wurde mit einem vollständigen synthetischen Export reproduziert.
+
+Nur der Personalmodus Compare aktiviert jetzt die Prüfzeilenverarbeitung im vorhandenen Exceladapter und Vergleich. Unvollständige Namen sowie leere, unbekannte oder geschützte Jobs werden als `Workbook.Review` mit Zeilennummer und Identität gemeldet. Auch explizit zugeordnete nicht schreibbare Konten werden so übersprungen. Zulässige Zeilen werden weiter verglichen. Bekannte explizite Prüfidentitäten sind keine Abgangskandidaten. Update einschließlich WhatIf, Einzelpflege und Lehrer-/Schülerimporte behalten ihre strikten Vorprüfungen. Admin-/Gastschutz bleibt erforderlich, eine geänderte Jobzelle gibt kein geschütztes Konto frei.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Reproduktion vor dem Fix | Beide neuen Regressionstests fehlgeschlagen. Der tatsächliche Export-Compare-Aufruf reproduzierte den Vorprüfungsabbruch beim geschützten Job, die neue Vergleichsoption war noch nicht vorhanden |
+| Fokussierte Personal-/Exporttests | 181 bestanden, 0 fehlgeschlagen |
+| Tatsächliche Export-/Compare-/Update-CLI | Isolierter Harness mit ReviewFixture exportiert ein zulässiges Konto, ExterneAdmins, ein rollenloses Konto ohne Namensbestandteile und einen Gast mit freigegebenem Job. Compare liefert 1 bestehendes Konto, 3 Workbook.Review-Warnungen, HasErrors=false und Exitcode 0. Update-WhatIf mit derselben Datei bleibt vor Mutationen gesperrt, Exitcode 1. Kein unerwarteter Fernbefehl |
+| Datei und Adapter | Dateihash nach Export, Compare und abgewiesenem Update unverändert. Prüfzeilen bleiben mit Job und Identität im lesenden Adapter erhalten. Der Standardimport wird vor und nach dem lesenden Import weiterhin abgewiesen. Lehrer akzeptieren die Prüfzeilenoption nicht |
+| Schutz und Abgänge | Gast, Adminschutz, lokale AD-Synchronisierung und Shared Mailbox erzeugen nur im ausdrücklich lesenden Vergleich Prüfhinweise. Der strikte Vergleich derselben Ziele meldet weiterhin Fehler. Eine explizit identifizierte Prüfzeile erzeugt weder Neuzugang noch falschen Abgang |
+| Vollständige lokale Verifikation | Invoke-LocalVerification erfolgreich, 566 Tests, 565 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen. Schüler-, Lehrer-, Personal- und TUI-Regressionen enthalten |
+| Frische Discovery | 566 Tests erkannt, keine Discovery-Fehler |
+| Parser und Analyzer | 52 PowerShell-Dateien ohne Parserfehler. 0 ungeklärte Analyzer-Befunde, 25 weiterhin erlaubte Warnungen für Terminalausgabe |
+| Dokumentation und Git | README, Personal-Anleitung, Spezifikation, Plan, Betrieb, Support, Sicherheit, Testing und Changelog angepasst. Lokale Dateilinks in 16 Markdown-Dateien ohne fehlende Ziele, git diff --check ohne Befund |
+
+Die Tests verwendeten ausschließlich synthetische Arbeitsmappen und ersetzte Fernbefehle. Die vorhandene produktive Personal.xlsx wurde nicht geöffnet oder verändert. Vorhandene Änderungen auf codex/0.3.0-personal wurden erhalten. Keine produktiven Mandantenänderungen, kein Push und keine Veröffentlichung. Windows-Dateisperrtest und eine separat autorisierte Mandantenprüfung bleiben offen. Die folgenden Abschnitte dokumentieren frühere Prüfstände.
+
+## Ergänzung 0.3.0: Schüler-TUI, 30. September 2026
+
+`Sync-SchuelerEntra.ps1` und `Invoke-SchuelerSync` unterstützen `-ManageAccounts` mit dem gemeinsamen Schülerbestand, Renderer und Lebenszykluscode. Direkte aktive und gesperrte Schüler-Mitgliedskonten sind verwaltbar. Lehrer-/Ganztagsmitgliedschaften und Shared Mailboxes sind ausgeschlossen. Gäste, lokale AD-Synchronisierung, geschützte Administratoren und Verzeichnisrollen bleiben gegen Änderungen geschützt. Der Detailbereich zeigt Rolle, Kontotyp, tatsächliche CLS-Gruppen, Department/Jahrgang, Klassenlehrer und UTC-Login.
+
+K wählt eine bestehende eindeutige, nicht dynamische oder lizenzierende CLS-Gruppe. Die Zielmitgliedschaft wird hinzugefügt und bestätigt, dann werden mit dem bestehenden Attributhelfer ausschließlich `Department` und `OfficeLocation` aktualisiert. Alte CLS-Mitgliedschaften werden erst nach Bestätigung dieser Schritte entfernt. L wählt ein aktives internes direktes Mitglied des Schul-Pädagogikteams und aktualisiert ausschließlich die Manager-Zuordnung mit dem bestehenden Helfer und Rückleseprüfung. Gesperrte Konten bleiben bei beiden Aktionen gesperrt. B, U und Enter verwenden die bestehenden Sperr-, Entsperr- und Löschaktionen.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Fokussierte Personal-/TUI-Tests | 200 bestanden, 0 fehlgeschlagen |
+| Schülerbestand und Anzeige | Direkte Schülerpopulation mit aktuellen CLS-Gruppen, Klassenattributen und Manager geprüft. Renderer zeigt K/L, Klasse, Jahrgang und Klassenlehrer neben Rolle, Status und Login. Fehlende CLS-Zuordnung wird ausdrücklich angezeigt |
+| Klassenwechsel | Neue Mitgliedschaft, beide Klassenattribute und Entfernung alter CLS-Mitgliedschaft geprüft. Schülerrolle, zusätzliche Lizenzgruppe und gesperrter Status erhalten. SDK-serialisierter Benutzer-Payload enthält genau die beiden Klassenattribute. Erste Klasse ohne bisherigen CLS-Bestand, bereits passende Klasse und zwei ausgewählte Schüler geprüft |
+| Klassenlehrerwechsel | Ausschließliche Manager-Änderung auf frisch bestätigtes Schulteam-Mitglied und bereits passende Manager-Zuordnung geprüft. Keine Gruppen- oder Attributmutation |
+| Frische Schutzprüfungen | Verlorene Schülerrolle, neuer Adminschutz, neue Shared Mailbox, geänderte Ausgangsklasse/Manager-Zuordnung sowie veränderte Klassen-/Lehrerziele blockieren beide Zuordnungsaktionen. Dynamische und lizenzierende Ausgangsklassen blockieren vor dem Hinzufügen |
+| Teilfehler | Nicht bestätigte neue Mitgliedschaft, Attributfehler und neuer Adminschutz nach dem Hinzufügen melden mögliche Teiländerung. Alte CLS-Mitgliedschaft wird in diesen Fällen nicht entfernt |
+| Lebenszyklus und Berechtigungen | Schüler-Sperren, Entsperren und Löschen mit synthetischen Mutationen geprüft. Nach Verlust der direkten Schülerrolle werden alle drei ohne Mutation übersprungen. Klassenwechsel fordert Benutzer- und Gruppenmitgliedschafts-Schreibscope, Klassenlehrerwechsel nur Benutzer-Schreibscope an |
+| Vorschau und Abbruch | Beide Zuordnungen unter WhatIf ohne Mutation. Esc bei Zielwahl und Nein bei Bestätigung ohne Schreibaufruf. Zielauswahl, Namensbestätigung und Aktualisierung bleiben auf die Schülerpopulation begrenzt |
+| Tatsächliche CLI | Echter Schülereinstieg im isolierten Harness erkennt ManageAccounts und weist umgeleitete Eingabe vor einer Verbindung ab. Kombinationen mit Update, ListToExcel und File werden als ungültiger Parametersatz abgewiesen |
+| Tatsächliche Terminalbedienung | Zwei macOS-Pseudoterminalaufrufe mit `Invoke-SyntheticPersonalCli.ps1 -Population Student -Mode Tui`. Leertaste, K/L, Pfeil nach unten, Enter, Y, Aktualisierung und Esc geprüft. Beide liefern die zwei Vorschauen mit `Status = WhatIf`, `Changed = false`, `HasErrors = false` und Exitcode 0. Der zweite Aufruf bestätigt die endgültige Schülerüberschrift und Bedienhinweise |
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich, 559 Tests, 558 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Discovery | 559 Tests erkannt, keine Discovery-Fehler |
+| Parser und Analyzer | 52 PowerShell-Dateien in src, tests, config und Root-Einstiegen ohne Parserfehler. 0 ungeklärte Analyzer-Befunde, 25 erlaubte Warnungen für Terminalausgabe |
+| Dokumentation und Git | README, Schüleranleitung, Betrieb, Sicherheit, Support, Testplan, Changelog, Personal-Spezifikation und Umsetzungsplan ergänzt. Lokale Dateilinks in 16 Markdown-Dateien ohne fehlende Ziele. Git-Diff ohne Whitespacefehler |
+
+Die TUI aktualisiert keine Quelldatei. Vor einem späteren Excel-Sync müssen Klasse und Klassenlehrer in der Quelle abgeglichen werden. Eine veraltete Quelle kann TUI-Zuordnungen zurücksetzen und der bisherige Schüler-Sync kann gesperrte Schüler reaktivieren. Es gibt keinen automatischen Rollback bei Teiländerungen.
+
+Alle Prüfungen verwendeten ausschließlich synthetische Konten und ersetzte Fernbefehle. Vorhandene Änderungen auf `codex/0.3.0-personal` wurden erhalten. Keine produktiven Mandantenänderungen, kein Push und keine Veröffentlichung. Windows-Tastatur/Darstellung, der übersprungene Windows-Dateisperrtest und eine gesondert autorisierte Mandantenabnahme bleiben offen. Die folgenden Abschnitte dokumentieren frühere Prüfstände.
+
+## Ergänzung 0.3.0: Lehrer-ManageAccounts, 30. September 2026
+
+`Sync-LehrerEntra.ps1` und `Invoke-LehrerSync` unterstützen `-ManageAccounts` als eigenen Parametersatz. Der Modus verwendet dieselbe Inventar-, TUI- und Aktionsumsetzung wie die Personalverwaltung, begrenzt auf aktive und gesperrte direkte Mitglieder von Schulteam und Ganztag. Schüler und Shared Mailboxes sind ausgeschlossen. Die direkte Rollenmitgliedschaft wird vor jeder Aktion erneut geprüft, der Rollenfilter bleibt nach einer Aktualisierung erhalten. Lehrer-Sync, Einzelpflege und Export behalten ihre bestehenden Aufrufe.
+
+Die Lehrerüberschrift lautet `Lehrer- und Ganztagskonten`. Rollen, Kontotyp, Status, letzte erfolgreiche Anmeldung, Bestätigungen und Fortschritt werden gemeinsam angezeigt. B sperrt und widerruft Sitzungen, U entsperrt Mitgliedskonten, Enter löscht gesperrte Konten. Administrator-, Identitäts-, Status-, Mandanten- und Empfängerschutz gelten weiterhin.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Fokussierte Personal-/TUI-Tests | 159 bestanden, 0 fehlgeschlagen |
+| Lehrerpopulation | Aktive und gesperrte direkte Schulteam-/Ganztagsmitglieder geprüft. Übrige Personalkonten, Schülerzuordnungen, Shared Mailboxes und rein indirekte Lehrer-Mitglieder ausgeschlossen |
+| Aktionen und frische Prüfung | Sperren, Entsperren und Löschen erfolgreich mit synthetischen Mutationen geprüft. Verlorene direkte Lehrerrolle, neue Admin-/Schülerzuordnung und neue Shared Mailbox blockieren jede Aktion vor der Mutation |
+| TUI-Aktualisierung | Ganztagskonto nach Sperrung weiterhin in der Lehrerpopulation, mit gesperrtem Status und korrekter Lehrerüberschrift |
+| Tatsächliche CLI | Echter Lehrereinstieg über den isolierten Harness erkennt `-ManageAccounts` und weist umgeleitete Eingabe mit der Interaktivitätsmeldung ab. Kombinationen mit `-Update`, `-ListToExcel` und `-File` werden vor einer Verbindung als ungültiger Parametersatz abgewiesen |
+| Tatsächliche Tastaturprüfung | Zwei macOS-Pseudoterminalaufrufe mit `Invoke-SyntheticPersonalCli.ps1 -Population Teacher -Mode Tui`, der zweite zusätzlich mit `-DisabledFixture`. Rolle `SEC-A-ROL-Schule_PädagogischesTeam`, Kontotyp, Status und UTC-Login sichtbar. Leertaste, B beziehungsweise U und Enter, jeweils Y, Aktualisierung und Esc geprüft. Drei Aktionsvorschauen mit `WhatIf`, beide Aufrufe Exitcode 0 und `HasErrors = false` |
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich, 518 Tests, 517 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Discovery | 518 Tests erkannt, keine Discovery-Fehler |
+| Parser und Analyzer | 51 PowerShell-Dateien in src, tests, config und Root-Einstiegen ohne Parserfehler. 0 ungeklärte Analyzer-Befunde, 18 erlaubte Warnungen für Terminalausgabe |
+| Dokumentation und Git | README, Lehreranleitung, Changelog, Betrieb, Sicherheit, Support, Testplan, Personal-Spezifikation und Umsetzungsplan aktualisiert. Repository-Dateilinks in 16 Markdown-Dateien ohne fehlende Ziele. `git diff --check` ohne Befund |
+
+Die Prüfung verwendete ausschließlich synthetische Konten und ersetzte Fernbefehle. Vorhandene lokale Änderungen auf `codex/0.3.0-personal` wurden erhalten. Keine produktiven Mandantenänderungen, kein Push und keine Veröffentlichung. Windows-Darstellung, der übersprungene Windows-Dateisperrtest und eine gesondert autorisierte Mandantenabnahme bleiben offen. Die folgenden Abschnitte dokumentieren frühere Ergänzungen.
+
+## Ergänzung 0.3.0: Rollenanzeige und Gastaktionen, 30. September 2026
+
+Die gemeinsame TUI zeigt im Detailbereich sämtliche erkannten `SEC-A-ROL-`-Gruppen oder `Keine Rollengruppe`. Der Personalmodus zeigt zusätzlich den Kontotyp. Die bereits geprüfte Anzeige der letzten erfolgreichen Anmeldung bleibt erhalten.
+
+Die Personal-TUI kann nach Bestätigung aktive Gäste sperren und gesperrte Gäste löschen, einschließlich rollenloser Gäste, empfängerloser Konten und eindeutiger `MailUser`-/`GuestMailUser`-Empfänger. Die Gastfreigabe wird nur an die Sperr- und Löschprüfungen übergeben. Gastentsperrung, normale Profilpflege und der bisherige gesperrte-Konten-Einstieg behalten ihren Gastschutz. Geänderte Identität, Kontotyp, Mandant, geschützte oder ausgeschlossene Mitgliedschaften, lokale AD-Synchronisierung und unzulässige oder veränderte Empfänger blockieren die Aktion. Exportierte Gastzeilen erhalten weiterhin die Warnung vor einem schreibenden Import, auch bei einem gültigen Job.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Fokussierte Personal-/TUI-Tests | 133 bestanden, 0 fehlgeschlagen |
+| Gastablauf | Markieren, Sperren mit Statusprüfung und Sitzungswiderruf, Neuladen, erneutes Markieren und Löschen synthetisch geprüft, jeweils ohne Empfänger sowie mit `UserMailbox`, `MailUser` und `GuestMailUser` |
+| Frische Schutzprüfungen | Block und Delete nach neuem Adminschutz, ausgeschlossener Rolle, Verzeichnisrolle, Shared Mailbox, Identitätswechsel, Kontotypwechsel, lokaler AD-Synchronisierung und mehrdeutigen Empfängern jeweils ohne Mutation übersprungen |
+| Rollenanzeige | Mehrere und unbekannte Rollengruppen, Lizenzgruppenfilter, rollenlose beziehungsweise ältere Ergebnisobjekte und beide TUI-Modi geprüft |
+| Tatsächlicher Terminalaufruf | Zwei echte Personal-Einstiege mit `Invoke-SyntheticPersonalCli.ps1 -Mode Tui -GuestFixture`, der zweite zusätzlich mit `-DisabledFixture`. Sichtbare Rolle, `Kontotyp: Guest`, Login-Zeitstempel und `GuestMailUser`. Leertaste, B beziehungsweise Enter, Y und Esc geprüft. Beide lieferten `WhatIf` und `HasErrors = false`, Exitcode 0 |
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich, 492 Tests, 491 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Discovery | 492 Tests erkannt, keine Discovery-Fehler |
+| Parser und Analyzer | 51 Dateien in src, tests, config und Root-Einstiegen ohne Parserfehler. 0 ungeklärte Analyzer-Befunde, 18 weiterhin erlaubte Warnungen für Terminalausgabe |
+| Dokumentation und Git | README, Anleitungen, Betrieb, Sicherheit, Support, Spezifikation, Brainstorming, Plan, Testplan und Changelog aktualisiert. Interne Dateilinks in 16 Markdown-Dateien ohne fehlende Ziele, GitHub-relative Routen ausgenommen. `git diff --check` ohne Befund |
+
+Alle Änderungen liegen lokal auf `codex/0.3.0-personal`. Vorhandene Änderungen wurden erhalten. Die Tests und Terminalaufrufe verwendeten ausschließlich synthetische Konten und ersetzte Fernbefehle. Es gab keine produktiven Mandantenänderungen, keinen Push und keine Veröffentlichung. Windows-Darstellung, der Windows-Dateisperrtest und eine gesondert autorisierte Mandantenprüfung bleiben offen. Die folgenden Abschnitte dokumentieren frühere Prüfstände.
+
+## Ergänzung 0.3.0: Last Login in der TUI, 29. September 2026
+
+`-ManageAccounts` zeigt im Detailbereich des aktuell mit den Pfeiltasten ausgewählten Kontos `Last Login Timestamp (UTC)`. Die gemeinsame TUI zeigt denselben Wert auch im bisherigen gesperrte-Konten-Einstieg. Der Wert stammt aus dem bereits geladenen Inventar. Bekannte Anmeldungen erscheinen als UTC-Zeitstempel, fehlende Werte als `Kein Wert` und nicht abrufbare Anmeldedaten als `Nicht abrufbar`. Ältere Ergebnisobjekte ohne Login-Felder bleiben darstellbar. Die Seitengröße reserviert eine zusätzliche Zeile für diese Anzeige.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Fokussierte TUI-/Personaltests | 109 bestanden, 0 fehlgeschlagen |
+| Neue Anzeigefälle | UTC-Konvertierung und Wechsel zwischen zwei ausgewählten Konten in Personal- und bisherigem Modus, nicht abrufbare Daten, ältere Objekte ohne Login-Felder und leerer Bestand geprüft |
+| Tatsächliche TUI | Echter Personal-Einstieg über `Invoke-SyntheticPersonalCli.ps1 -Mode Tui` im macOS-Pseudoterminal geöffnet. Sichtbare Anzeige `Last Login Timestamp (UTC): 2026-01-02T10:30:00Z`, mit Esc beendet. Ergebnis `Mode = Manage`, leere Aktionen, `HasErrors = false`. Ausschließlich synthetischer Bestand, keine Mutation |
+| Vollständige lokale Verifikation | 468 Tests, 467 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Discovery | 468 Tests erkannt |
+| Analyzer | 0 ungeklärte Befunde, weiterhin 18 erlaubte Warnungen für bestehende Terminalausgabe |
+
+README, TUI-Anleitungen, Spezifikation, Testplan und Changelog sind ergänzt. `git diff --check` und interne Dokumentationslinks sind ohne Befund. Es wurden keine produktiven Daten oder Mandanten verwendet, keine Änderungen gepusht und nichts veröffentlicht. Windows-Darstellung und eine separat autorisierte Mandantenprüfung bleiben offen. Der folgende Abschnitt dokumentiert die zuvor vollständig geprüfte Timestamp-Erweiterung in allen drei Excel-Exporten.
+
+## Ergänzung 0.3.0: Last Login Timestamp, 29. September 2026
+
+Alle drei `-ListToExcel`-Exporte hängen `Last Login Timestamp` rechts an. Schüler haben jetzt zehn Spalten (Timestamp in J), Lehrer und Personal neun (Timestamp in I). Der gemeinsame Excel-Schreiber verwendet die letzte erfolgreiche Anmeldung aus `signInActivity.lastSuccessfulSignInDateTime`, formatiert als UTC-Text mit Sekunden, beispielsweise `2026-01-02T10:30:00Z`. Namen, Job/Klasse, Passwort- und Identitätsspalten behalten ihre Positionen.
+
+`Get-EntraLastLogin` wird von der bisherigen Kontenliste sowie den neuen Rollenexporten gemeinsam verwendet. Ohne Wert bleibt die Zelle leer. Fehler beim Lesen der Anmeldedaten führen zu einer Warnung und einem erneuten Benutzerabruf ohne `signInActivity`, anschließend zu leeren Timestamp-Zellen. Auch der Personalexport gibt seine Inventarwarnung aus. Schüler-/Lehrerexporte fordern zusätzlich `AuditLog.Read.All` an. Der Zusatzwert ist informativ, wird vom Import nicht als Pflichtfeld behandelt und löst keine Sync-Aktion aus.
+
+Die Bedeutung der erfolgreichen Anmeldung und die Berechtigungs-/Lizenzanforderung wurden gegen die offizielle [signInActivity-Dokumentation](https://learn.microsoft.com/en-us/graph/api/resources/signinactivity?view=graph-rest-1.0) und [Benutzerabfrage](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0#example-11-get-users-including-their-last-sign-in-time) geprüft. Eine leere Zelle belegt nicht, dass ein Konto nie verwendet wurde.
+
+| Prüfung | Tatsächliches Ergebnis |
+|---|---|
+| Fokussierte Tests | 109 Export-, Personal- und Kontenlistentests bestanden, 0 fehlgeschlagen |
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich, 465 Tests, 464 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Discovery | 465 Tests in separatem PowerShell-Prozess erkannt |
+| Neue Abdeckung | UTC-Konvertierung, bekannte und fehlende Werte für alle drei Exportarten, keine Übernahme neuerer bloßer Anmeldeversuche, Wiederabruf bei nicht verfügbaren Anmeldedaten und sichtbare Personalexport-Warnung |
+| Tatsächliche CLI und XLSX | Timestamp-Zellen über alle drei echten Einstiege mit vollständig ersetzten Fernbefehlen geprüft. Tabellenbereiche mit zehn beziehungsweise neun Spalten, leere Passwörter und unveränderte Identitätsspalten geprüft. Alle drei Exportarten mit vorhandenen Importadaptern wieder eingelesen |
+| Parser und Analyzer | 52 PowerShell-Dateien ohne Parserfehler. 0 ungeklärte Analyzer-Befunde, weiterhin 18 erlaubte Warnungen für bestehende Terminalausgabe |
+| Dokumentation und Git | README, Anleitungen, Betrieb, Testplan, Sicherheit, Support, Mitwirkung, Spezifikation, Plan und Changelog angepasst. Interne Links in 16 Markdown-Dateien ohne fehlende Ziele. `git diff --check` ohne Befund |
+
+Die Prüfungen nutzten ausschließlich synthetische Daten und dieselben temporären Module wie die vorherigen lokalen Läufe. Keine produktiven Arbeitsmappen oder Mandanten wurden geöffnet oder geändert, kein Push und keine Veröffentlichung. Windows und eine separat autorisierte Mandantenprüfung der tatsächlichen Anmeldedaten, Berechtigungen und Lizenz bleiben offen. Die folgenden Abschnitte dokumentieren die vorherigen Exportstände mit ihren damaligen Spaltenzahlen.
+
+## Ergänzung 0.3.0: Schüler- und Lehrerexport, 29. September 2026
+
+`Sync-SchuelerEntra.ps1` und `Sync-LehrerEntra.ps1` unterstützen jetzt `-ListToExcel`, ebenso ihre öffentlichen Modulfunktionen. Ohne `-File` gelten `Schueler.xlsx` beziehungsweise `Lehrer.xlsx` im Repository-Root. Der Export ist ein eigener Parametersatz, widersprüchliche Aktionsschalter werden vor einer Verbindung abgewiesen. Die bisherigen Sync-Parameter, Aliase und Regeln bleiben erhalten. Der gemeinsame Schreiber `Export-AccountWorkbook` wird von allen drei Exporten verwendet.
+
+Exportiert werden aktive und gesperrte direkte Mitglieder der jeweiligen konfigurierten Rollen, ohne Shared Mailboxes. Lehrer-/Ganztagkonten werden bei Mehrfachrollen nur einmal ausgegeben. Schüler erhalten neun Spalten einschließlich direkter Klasse und Manager-UPN, Lehrer acht mit dem passenden vorhandenen Job. Fehlende oder widersprüchliche Werte bleiben leer und werden gemeldet. Die vorhandenen Schüler-/Lehrer-Updates können enthaltene gesperrte Konten reaktivieren, dieser Unterschied zum Personalmodus ist in den Anleitungen und Exportwarnungen ausdrücklich beschrieben.
+
+Alle Exporte haben leere Passwortzellen, verifizierte Textwerte und Blatt/Tabelle `Tabelle1` mit `TableStyleMedium14`. Vorhandene Ziele werden nicht überschrieben. `-WhatIf` erstellt weder Datei noch fehlende Ordner. Schüler-/Lehrerexporte fordern ausschließlich `User.Read.All` und `Group.Read.All` sowie eine passende lesende Exchange-Verbindung an. Die lokale Prüfung nutzte dieselben isolierten Module wie die Personalabnahme darunter.
+
+### Tatsächlich geprüfte Ergänzung
+
+| Prüfung | Ergebnis |
+|---|---|
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich, 459 Tests, 458 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Discovery | 459 Tests in separatem PowerShell-Prozess erkannt |
+| Nativer Parser | 52 PowerShell-Dateien einschließlich Konfigurationen, Tests und Analyzer-Einstellungen, 0 Fehler |
+| Fokussierter kombinierter Lauf | Zunächst 79 Export- und Personaltests erfolgreich nach Korrektur der Testisolation, danach Gesamtsuite einschließlich vier weiterer Exporttests und Dokumentationsvertrag erfolgreich |
+| Neue Abdeckung | 19 Fälle in `WorkbookExport.Tests.ps1` und ein zusätzlicher Dokumentationsvertrag |
+| Tatsächliche CLI-Aufrufe | Beide echten Sync-Einstiege über vollständig ersetzte Fernbefehle, neues Ziel, `-WhatIf`, Ablehnung vorhandener Datei mit unverändertem Hash und Ablehnung widersprüchlicher Parameter geprüft |
+| XLSX und Importadapter | Neun Schülerspalten, acht Lehrerspalten, Klasse, Klassenlehrer, Job, IDs, leere Passwörter, kanonische Jobs, leerer Bestand und Formelzeichen als Text geprüft, beide Schemata wieder eingelesen |
+| Bestand und Fehlerfälle | Gesperrte Konten, Ganztag, konkurrierende Rollen, fehlende Klassen, Managerlesefehler, verschachtelte Nichtbenutzer, SharedMailbox hinter doppelter Empfänger-ID, fehlende/unpassende Tenant-ID, fehlende Rollen, unbekannte Mitglieder, Exchange-Lesefehler und abgeschlossener Fortschritt nach Fehler geprüft |
+| Analyzer | 0 ungeklärte Befunde, weiterhin 18 erlaubte Warnungen für bestehende Terminalausgabe |
+| Git und Datenschutz | `git diff --check` ohne Befund, Branch `codex/0.3.0-personal`, weiterhin ausschließlich die zwei vorhandenen synthetischen XLSX-Fixtures verfolgt |
+| Dokumentation | README, Bedienungsanleitungen, Betrieb, Testplan, Support, Sicherheit, Mitwirkung, Plan, Spezifikation und Changelog aktualisiert. 16 Markdown-Dateien mit internen Links geprüft, keine fehlenden Ziele |
+
+Im ersten kombinierten Testversuch erwartete eine Prüfung einen englischen Parameterfehler, obwohl PowerShell einen deutschen Text ausgab. Außerdem ließ ein unvollständiger neuer Exchange-Stub bestehende Personaltests scheitern. Beide Testprobleme wurden korrigiert und der kombinierte Lauf wiederholt. Der erste Gesamtlauf wurde vor Pester wegen vier Analyzer-Befunden gestoppt. Zwei automatische Variablennamen wurden ersetzt. Zwei Delegationen der `ShouldProcess`-Prüfung haben gezielte Attribute mit Begründung erhalten, die vorhandenen Bestätigungs- und Vorschaufunktionen werden weitergereicht und geprüft. Der anschließende Gesamtlauf bestand.
+
+Die bestehenden Änderungen zur Versionierung und Personalumsetzung bleiben erhalten. Keine produktiven Arbeitsmappen wurden für Tests verwendet, keine produktiven Verbindungen oder Änderungen ausgeführt, kein Push und keine Veröffentlichung. Windows und eine separat autorisierte Mandantenprüfung bleiben offen. Die folgenden Abschnitte dokumentieren die vorherigen Prüfläufe.
+
+## Übrige Personalkonten 0.3.0, lokale Abnahme am 29. September 2026
+
+Die freigegebene Architektur und Spezifikation sind auf `codex/0.3.0-personal` implementiert. Entwicklungsstand ist 0.3.0, die letzte veröffentlichte Version bleibt 0.2.0. Es wurden keine produktiven Entra-/Exchange-Verbindungen geöffnet, keine Mandantenänderungen ausgeführt und keine Änderungen gepusht oder veröffentlicht.
+
+### Umgesetzter Umfang
+
+- Eigener Personal-Einstieg mit Einzelanlage/-pflege, optionalem Sync, Remove und Exchange-Reparatur. Gemeinsame Passwort-, Identitäts-, Lizenz-, Rollen-, Excel-, Exchange- und Berichtsfunktionen werden wiederverwendet.
+- Sieben freigegebene Profile mit sprechenden Jobwerten. ExterneAdmins und GlobalAdministrators sind sichtbar und vor Änderungen geschützt. Lehrer, CO-L, PA, Ganztag, Schüler und Shared Mailboxes sind einschließlich transitiver Ausschlussmitgliedschaften ausgenommen.
+- Ein gemeinsamer aktiver/gesperrter Bestand für Liste, Ergebnisobjekt, Export und TUI, einschließlich rollenloser Konten und sichtbar geschützter Sonderkonten.
+- `-Update` allein erstellt und aktualisiert ohne Abgangssperrung. Gesperrte Bestandskonten bleiben gesperrt. Der ausdrückliche Wiederanlauf einer passenden Teilanlage verwendet `-ResumeCreation` und Objekt-ID.
+- TUI mit `B`, `U` und Enter, Namensbestätigung, passendem Statusfilter, frischer Schutzprüfung, Teilergebnissen, abgeschlossenen Fortschrittsanzeigen und neu geladenem Bestand.
+- Neue XLSX-Datei mit den acht Lehrerspalten, Blatt und Tabelle `Tabelle1`, `TableStyleMedium14`, leeren Passwortzellen und verifizierten Textwerten. Bestehende Ziele bleiben erhalten.
+- Vorhandene und ausstehende Lizenzen bleiben erhalten. Lizenzzustand und tatsächliche Lizenzgruppe werden vor einem nötigen Standardbeitritt frisch geprüft. Eine nicht konfigurierte ABP wird ausgelassen und nicht entfernt.
+- Bestehende Schüler-, Lehrer- und Kontenverwaltungseinstiege bleiben kompatibel. Dokumentation, README, Changelog, Spezifikation und Umsetzungsplan sind aktualisiert.
+
+### Tatsächlich ausgeführte Prüfungen
+
+| Prüfung | Ergebnis |
+|---|---|
+| PowerShell | 7.6.6 auf macOS |
+| Vollständige lokale Verifikation | `tests/Invoke-LocalVerification.ps1` erfolgreich |
+| Pester-Gesamtsuite | 439 Tests, 438 bestanden, 0 fehlgeschlagen, 1 vorhandener Windows-Dateisperrtest übersprungen |
+| Frische Pester-Discovery | 439 Tests in einem separaten Prozess ohne vorher importiertes Anwendungsmodul erkannt |
+| Nativer Parser | 50 PowerShell-Quelldateien, Einstiege, Konfigurationen und Testdateien, 0 Fehler |
+| Modulmanifest | Version 0.3.0, fünf öffentliche Einstiege einschließlich `Invoke-PersonalSync` |
+| PSScriptAnalyzer | 0 ungeklärte Befunde, 18 durch die bestehende Prüfroutine erlaubte `PSAvoidUsingWriteHost`-Warnungen für Terminalausgabe |
+| Personaltests | 64 synthetische Tests für Profile, Inventar, Schutz, Sync, Lizenzierung, Excel, TUI und reale CLI-Prozesse bestanden |
+| Tatsächliche CLI-Aufrufe | Liste, PassThru, Export, Vergleich, Update-Vorschau, Add, Remove, beide UPN-Aliase, Exchange und Fehlerstatus über den echten Einstieg mit vollständig ersetzten Fernbefehlen geprüft |
+| Native XLSX-Verifikation | Tabellenstruktur/-stil, acht Spalten, Objekt-IDs, Jobwerte, leere Passwörter, Formelzeichen als Text, leerer Export und kein Dateiziel unter `-WhatIf` geprüft |
+| TUI im macOS-Pseudoterminal | Aktives synthetisches Konto mit Leertaste, `B`, `Y`, `Esc` geprüft. Gesperrtes synthetisches Konto mit Leertaste, `U`, `Y`, anschließend Leertaste, Enter, `Y`, `Esc` geprüft. Alle Aktionen unter `-WhatIf`, Ergebnisse `WhatIf`, Bestand neu geladen, Markierung zurückgesetzt, keine Fernmutation |
+| TUI-Aktionsregressionen | Synthetische Sperrung, Entsperrung und Löschung, gemischte Auswahl, Nein/Esc, Teilfehler beim Widerruf, neue Ausschlussmitgliedschaft, SharedMailbox-/Identitäts-/Tenantwechsel und fehlgeschlagene Besitzabfrage geprüft |
+| Git-Prüfung | `git diff --check` ohne Befund, Branch bestätigt. Unter Git weiterhin ausschließlich die zwei vorhandenen synthetischen XLSX-Fixtures |
+| Dokumentationslinks | Interne Dateilinks in README, Changelog und `docs/*.md` ohne fehlende Ziele |
+
+Die lokale Umgebung verwendete Pester 5.7.1, PSScriptAnalyzer 1.23.0, ImportExcel 7.8.10 sowie die Graph-Module 2.31.0. Sie wurden temporär unter `/private/tmp/entra-personal-v030-check/modules` bereitgestellt. `PSModulePath` und `XDG_DATA_HOME` waren ausschließlich für die Prüfprozesse gesetzt. Der erste Versuch ohne isolierten Benutzermodulpfad scheiterte mit `Access to the path '/Users/andre/.local/share/powershell/Modules' is denied`. Die isolierte Modulbereitstellung und expliziten Imports behoben das Umgebungsproblem. Es wurden keine Projektabhängigkeiten geändert.
+
+ImportExcel meldete lokal die bekannte AutoSize-Warnung zu `System.Drawing`. Die Implementierung benutzt kein AutoSize, die tatsächliche Dateierzeugung und Wiedereinlesung bestanden. Das Verhalten der geladenen EPPlus-Tabellen wurde anhand des gespeicherten `StyleName = TableStyleMedium14` geprüft.
+
+Die gesamte Suite enthält weiterhin die bisherigen Schüler-, Lehrer-, Exchange-, Excel- und Kontenverwaltungsregressionen. Synthetische Neuanlagen prüfen die Reihenfolge deaktivierte Anlage, früher Checkpoint, Gruppenprüfung und Aktivierung. Checkpointfehler erhalten den Sperrstatus. Eine zwischen Vergleich und Beitritt hinzugekommene Lizenz verhindert einen Standardbeitritt. Eine inzwischen fehlende Lizenz der Standardgruppe blockiert den Beitritt. Zwischen Mailbox- und CAS-Schreiben hinzugekommene Ausschlüsse verhindern den zweiten Schreibzugriff.
+
+### Offene, separate Integrationsprüfungen
+
+- PowerShell-7-Gesamtsuite unter Windows, Windows-Dateisperrverhalten und echte Windows-Tastatur-/Konsolendarstellung.
+- Autorisierte kontrollierte Mandantenabnahme ausschließlich mit isolierten synthetischen Konten. Dazu gehören tatsächliche Gruppen-/Schutz-IDs, A1Faculty-SKU, Verzeichnisrollen, Exchange-Richtlinien, Adresslistenfilter, Auditaufbewahrung, Provisionierung und Sitzungswiderruf.
+- Die tatsächliche GlobalAdministrators-ID bleibt unbestätigt. Implementiert ist die eindeutige exakte Namensauflösung mit Schreibsperre bei fehlendem oder mehrdeutigem Schutz.
+
+Diese offenen Integrationsprüfungen sind keine ausgeführten Ergebnisse. Die lokale Implementierung und Verifikation sind abgeschlossen. Die historischen Abschnitte darunter bleiben unverändert als frühere Nachweise erhalten.
+
+
 ## Personalabgleich 0.2.0
 
 Die Erweiterung benötigt eine eigene kontrollierte Windows- und Mandantenabnahme mit synthetischen Konten. Zu prüfen sind beide direkten Personalrollen, die A3-/A1-Gruppen-SKUs, Lizenzbestandsschutz bei Jobwechsel, ABP und Adresslistenfilter, Exchange-Richtlinien, die tatsächliche Purview-Auditaufbewahrung und der Erstwechsel bei genau zwölf Passwortzeichen. Ein voller Abgangstest darf nur mit einer vollständig isolierten Personalpopulation erfolgen. Die folgenden 0.1.1-Zahlen dokumentieren den früheren Schülerstand und sind keine Ergebnisse für 0.2.0.

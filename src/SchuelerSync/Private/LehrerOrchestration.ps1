@@ -1,6 +1,7 @@
 ﻿function Assert-LehrerExchangePolicy {
     param([System.Collections.IDictionary] $Config)
     foreach ($personnelProfile in $Config.Profiles.Values) {
+        if ([string]::IsNullOrWhiteSpace([string]$personnelProfile.AddressBookPolicy)) { continue }
         if (-not (Get-AddressBookPolicy -Identity $personnelProfile.AddressBookPolicy -ErrorAction Stop)) {
             throw "Adressbuchrichtlinie '$($personnelProfile.AddressBookPolicy)' fehlt."
         }
@@ -20,8 +21,9 @@
 function Wait-LehrerMailbox {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([Parameter(Mandatory)][System.Collections.IDictionary] $Targets,
-        [int] $MaxRetries = 5, [int] $RetryDelaySeconds = 60,
-        [scriptblock] $SleepAction = { param($seconds) Start-Sleep -Seconds $seconds })
+        [ValidateRange(0,100)][int] $MaxRetries = 3, [ValidateRange(0,86400)][int] $RetryDelaySeconds = 150,
+        [scriptblock] $SleepAction = { param($seconds) Start-Sleep -Seconds $seconds },
+        [System.Collections.IDictionary] $SafetyConfig)
     $pending = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($upn in $Targets.Keys) { [void]$pending.Add([string]$upn) }
     $ready = [Collections.Generic.List[object]]::new()
@@ -40,16 +42,24 @@ function Wait-LehrerMailbox {
             foreach ($upn in @($pending)) {
                 try {
                     $config = $Targets[$upn]
+                    $mailboxSafety = @{}
+                    if ($null -ne $SafetyConfig) {
+                        $targetUser = Get-MgUser -UserId $upn -Property @('id','userPrincipalName') -ErrorAction Stop
+                        $null = Assert-PersonalMutationTarget -UserId $targetUser.Id -ExpectedUpn $upn -Config $SafetyConfig
+                        $mailboxSafety = @{ SafetyConfig = $SafetyConfig; SafetyUserId = [string]$targetUser.Id }
+                    }
                     $state = Get-StudentMailboxState -UserPrincipalName $upn -Config $config
                     if (-not $state.Exists) { continue }
                     $configuration = if ($null -ne $state.PSObject.Properties['Differences'] -and @($state.Differences).Count -eq 0) {
                         New-ExchangeConfigurationResult -UserPrincipalName $upn -Status Compliant -Changed:$false `
                             -Differences @() -RemainingDifferences @() -ErrorMessage $null
                     } elseif ($WhatIfPreference) {
-                        Set-StudentMailboxConfiguration -UserPrincipalName $upn -Config $config -MailboxState $state -WhatIf
+                        Set-StudentMailboxConfiguration -UserPrincipalName $upn -Config $config -MailboxState $state @mailboxSafety -WhatIf
                     } elseif ($PSCmdlet.ShouldProcess($upn, 'Configure personnel mailbox')) {
-                        Set-StudentMailboxConfiguration -UserPrincipalName $upn -Config $config -MailboxState $state -Confirm:$false
+                        Set-StudentMailboxConfiguration -UserPrincipalName $upn -Config $config -MailboxState $state @mailboxSafety -Confirm:$false
                     } else { $null }
+                    if ($null -ne $configuration -and ($configuration.Status -eq 'MailboxNotReady' -or
+                        ($configuration.Status -eq 'Failed' -and (Get-ComparisonPropertyValue $configuration Retryable) -eq $true))) { continue }
                     if ($null -ne $configuration -and $configuration.Status -eq 'Failed') {
                         $failed.Add([pscustomobject]@{ UserPrincipalName = $upn; Error = $configuration.Error })
                     } else {
@@ -57,6 +67,7 @@ function Wait-LehrerMailbox {
                     }
                     [void]$pending.Remove($upn)
                 } catch {
+                    if (Test-ExchangeMailboxNotFoundError -ErrorRecord $_) { continue }
                     $failed.Add([pscustomobject]@{ UserPrincipalName = $upn; Error = $_.Exception.Message })
                     [void]$pending.Remove($upn)
                 }
@@ -68,7 +79,7 @@ function Wait-LehrerMailbox {
 }
 
 function ConvertTo-LehrerExchangeAction {
-    param([object] $Batch, [switch] $WhatIfMode)
+    param([object] $Batch, [switch] $WhatIfMode, [string] $EntryPoint = 'Sync-LehrerEntra.ps1')
     foreach ($item in $Batch.Ready) {
         $status = if ($null -eq $item.Configuration) { 'Skipped' } else { [string]$item.Configuration.Status }
         if ($WhatIfMode -and $status -eq 'Planned') { $status = 'WhatIf' }
@@ -76,11 +87,11 @@ function ConvertTo-LehrerExchangeAction {
     }
     foreach ($upn in $Batch.Missing) {
         New-StudentActionResult -UserPrincipalName $upn -Phase Exchange -Status $(if ($WhatIfMode) { 'WhatIf' } else { 'Pending' }) `
-            -Message 'EXO-Konfiguration ausstehend.' -RecoveryCommand ".\Sync-LehrerEntra.ps1 -ConfigureExchangeOnlineOnly -UPN '$($upn.Replace("'", "''"))'"
+            -Message 'EXO-Konfiguration ausstehend.' -RecoveryCommand ".\$EntryPoint -ConfigureExchangeOnlineOnly -UPN '$($upn.Replace("'", "''"))'"
     }
     foreach ($item in $Batch.Failed) {
         New-StudentActionResult -UserPrincipalName $item.UserPrincipalName -Phase Exchange -Status Failed -Message $item.Error `
-            -RecoveryCommand ".\Sync-LehrerEntra.ps1 -ConfigureExchangeOnlineOnly -UPN '$($item.UserPrincipalName.Replace("'", "''"))'"
+            -RecoveryCommand ".\$EntryPoint -ConfigureExchangeOnlineOnly -UPN '$($item.UserPrincipalName.Replace("'", "''"))'"
     }
 }
 
@@ -95,7 +106,7 @@ function ConvertTo-SafeLehrerComparison {
                 UserId = Get-ComparisonPropertyValue $_.User Id
                 DisplayName = if ($null -ne $_.DesiredState) { $_.DesiredState.DisplayName } else { $_.User.DisplayName }
                 UserPrincipalName = if ($null -ne $_.DesiredState) { $_.DesiredState.UserPrincipalName } else { $_.User.UserPrincipalName }
-                Job = if ($null -ne $_.Person) { Get-ComparisonPropertyValue $_.Person Job } else { Get-ComparisonPropertyValue $_.User JobTitle }
+                Job = ConvertTo-PersonalJobDisplayName -Job $(if ($null -ne $_.Person) { Get-ComparisonPropertyValue $_.Person Job } else { Get-ComparisonPropertyValue $_.User JobTitle })
                 LicenseReason = if ($null -ne $_.DesiredState) { $_.DesiredState.LicenseReason } else { 'Unverändert' }
                 Role = if ($null -ne $_.DesiredState) { $_.DesiredState.Role.DisplayName } else { @($_.SourceRoles) -join ', ' }
                 AddressBookPolicy = if ($null -ne $_.DesiredState) { $_.DesiredState.Exchange.AddressBookPolicy } else { '' }
@@ -156,7 +167,7 @@ function Write-LehrerReport {
     }
 }
 
-function Invoke-LehrerSync {
+function Invoke-PersonnelSyncCore {
     [CmdletBinding(DefaultParameterSetName = 'Sync', SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(ParameterSetName = 'Sync')][ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
@@ -170,23 +181,28 @@ function Invoke-LehrerSync {
         [Parameter(ParameterSetName = 'Add', Mandatory)][string] $Vorname,
         [Parameter(ParameterSetName = 'Add', Mandatory)][string] $Nachname,
         [Parameter(ParameterSetName = 'Add', Mandatory)]
-        [ValidatePattern('(?i)^\s*(?:L|CO-L|PA|OGTS|JAS)(?:\s*,\s*(?:L|CO-L|PA|OGTS|JAS))*\s*$')][string] $Job,
+        [ValidateNotNullOrEmpty()][string] $Job,
         [Parameter(ParameterSetName = 'Add')][string] $EntraObjectId,
         [Parameter(ParameterSetName = 'Remove', Mandatory)][switch] $Remove,
         [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)][switch] $ConfigureExchangeOnlineOnly,
         [Parameter(ParameterSetName = 'Remove', Mandatory)]
         [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
         [Alias('UPN','UserPrincipalName')][string[]] $Mail,
-        [string] $OutputFile
+        [string] $OutputFile,
+        [switch] $Personnel,
+        [switch] $ResumeCreation
     )
     $ErrorActionPreference = 'Stop'
     if ($OutputFile) {
         $OutputFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputFile)
         Assert-ComparisonReportPath -Path $OutputFile
     }
-    $progressActivity = 'Lehrerabgleich'
+    $progressActivity = if ($Personnel) { 'Personalabgleich' } else { 'Lehrerabgleich' }
     try {
-    $config = Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/LehrerSync.psd1')
+    $config = if ($Personnel) { Get-PersonalConfig } else { Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/LehrerSync.psd1') }
+    $kind = if ($Personnel) { 'Personnel' } else { 'Teacher' }
+    $protectedRoleNames = if ($Personnel) { @($config.ProtectedGroupNames) } else { @() }
+    $managedRoleIds = @($config.Roles.Values | Where-Object { $_.Name -notin $protectedRoleNames } | ForEach-Object { [string]$_.Id })
     $comparison = [pscustomobject]@{ NewPeople = @(); Departures = @(); ChangedPeople = @(); ExistingPeople = @(); Warnings = @(); Errors = @() }
     $actions = [Collections.Generic.List[object]]::new()
     $header = [Collections.Generic.List[string]]::new()
@@ -198,14 +214,19 @@ function Invoke-LehrerSync {
     $mode = if ($Add) { 'Add' } elseif ($Remove) { 'Remove' } elseif ($ConfigureExchangeOnlineOnly) { 'ExchangeOnly' } elseif ($Update) { 'Update' } else { 'Compare' }
     try {
         if ($mode -eq 'Update' -or $mode -eq 'Compare') {
+            $implicitPersonalUpdate = $Personnel -and $Update -and -not ($CreateNewUsers -or $UpdateUsers -or $DisableUsers -or $RevokeSessions)
+            if ($implicitPersonalUpdate) { $CreateNewUsers = $true; $UpdateUsers = $true }
             $selection = Resolve-UpdateSelection -Update:$Update -CreateNewUsers:$CreateNewUsers -UpdateUsers:$UpdateUsers -DisableUsers:$DisableUsers -RevokeSessions:$RevokeSessions
-            Write-Progress -Id 1 -Activity $progressActivity -Status 'Lese Excel-Datei ...' -PercentComplete 5
+            if ($implicitPersonalUpdate) { $selection.ConfigureAllActiveExchange = $true }
+            Write-Progress -Id 1 -Activity $progressActivity -Status $(if ($Personnel) { 'Bereite Excel-Datei vor ...' } else { 'Lese Excel-Datei ...' }) -PercentComplete 5
             $File = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($File)
-            $workbook = Read-StudentWorkbook -Path $File -Kind Teacher
-            if ($Update -and @($workbook.Students).Count -eq 0) { throw 'Leere Personalliste darf keinen Update-Lauf auslösen.' }
+            if (-not $Personnel) {
+                $workbook = Read-StudentWorkbook -Path $File -Kind $kind
+                if ($Update -and @($workbook.Students).Count -eq 0) { throw 'Leere Personalliste darf keinen Update-Lauf auslösen.' }
+            }
         }
         Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Microsoft Entra ID ...' -PercentComplete 10
-        $context = Connect-SchuelerGraph
+        $context = if ($Personnel) { Connect-SchuelerGraph -AdditionalScopes @('Directory.Read.All') } else { Connect-SchuelerGraph }
         $tenantId = [string](Get-ComparisonPropertyValue $context TenantId)
         if (-not $tenantId -or ($config.ExpectedTenantId -and $tenantId -ine [string]$config.ExpectedTenantId)) {
             throw 'Graph-Tenant konnte nicht bestätigt werden.'
@@ -213,22 +234,37 @@ function Invoke-LehrerSync {
         $header.Add("Entra-Tenant: $tenantId | Konto: $([string](Get-ComparisonPropertyValue $context Account))")
         Write-Progress -Id 1 -Activity $progressActivity -Status 'Lade Entra-Benutzer, Gruppen und Personalrollen ...' -PercentComplete 20
         $snapshot = Get-LehrerSnapshot -Config $config -SkipLicenseGroupValidation:($mode -in @('Remove','ExchangeOnly'))
+        if ($Personnel) {
+            $config.SessionTenantId = $tenantId
+            $config.SafetyContext = Get-PersonalProtectionContext -GroupsById $snapshot.GroupsById -Config $config
+            if (-not $config.SafetyContext.Complete -and $mode -ne 'Compare') { throw ($config.SafetyContext.Warnings -join ' ') }
+            $null = Connect-SchuelerExchangeOnline -TenantId $tenantId
+            $recipientIndex = Get-AccountRecipientIndex -Recipients @(Get-EXORecipient -ResultSize Unlimited -Properties @('ExternalDirectoryObjectId','RecipientTypeDetails') -ErrorAction Stop)
+            $snapshot | Add-Member -NotePropertyMembers @{ PersonalContext = $config.SafetyContext; ManagedRoleIds = $managedRoleIds; RecipientIndex = $recipientIndex }
+        }
+        if ($Personnel -and $mode -in @('Compare','Update')) {
+            Write-Progress -Id 1 -Activity $progressActivity -Status 'Prüfe Excel-Datei und geschützte Konten ...' -PercentComplete 25
+            $workbook = Read-StudentWorkbook -Path $File -Kind $kind -PersonnelSnapshot $snapshot -AllowPersonnelReviewRows:($mode -eq 'Compare')
+            if ($Update -and @($workbook.Students).Count -eq 0) { throw 'Leere Personalliste darf keinen Update-Lauf auslösen.' }
+        }
         if ($mode -eq 'Remove' -or $mode -eq 'ExchangeOnly') {
             if ($mode -eq 'Remove' -and $Mail.Count -ne 1) { throw '-Remove akzeptiert genau einen UPN.' }
             foreach ($address in $Mail) {
                 $upn = $address.Trim().ToLowerInvariant()
                 $user = $snapshot.UsersByUpn[$upn]
-                if ($null -eq $user -or -not $snapshot.PersonnelMemberIds.Contains([string]$user.Id)) {
+                if ($null -eq $user -or (-not $Personnel -and -not $snapshot.PersonnelMemberIds.Contains([string]$user.Id))) {
                     throw "'$upn' gehört keiner direkten Personalrolle an."
                 }
+                if ($Personnel) { Assert-PersonalSnapshotTarget -User $user -Snapshot $snapshot }
                 if ($mode -eq 'Remove') {
                     $comparison.Departures += [pscustomobject]@{ Person = $null; User = $user; DesiredState = $null; Differences = @()
                         SourceRoles = @($snapshot.PersonnelRolesByUserId[[string]$user.Id]) }
                 } else {
-                    $personnelProfile = Get-LehrerProfile -Job ([string]$user.JobTitle) -Config $config
+                    $personalJob = if ($Personnel) { @($config.Roles.Keys | Where-Object { $config.Roles[$_].Id -in @((Get-LehrerDirectGroup -Snapshot $snapshot -UserId $user.Id) | ForEach-Object { $_.Id }) }) -join ',' } else { [string]$user.JobTitle }
+                    $personnelProfile = Get-LehrerProfile -Job $personalJob -Config $config
                     $direct = @(Get-UserDirectGroup -Snapshot $snapshot -UserId $user.Id)
                     if (@($direct | Where-Object Id -eq $personnelProfile.Role.Id).Count -ne 1 -or
-                        @($direct | Where-Object { $_.DisplayName.StartsWith($config.RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) }).Count -ne 1) {
+                        @($direct | Where-Object { $(if ($Personnel) { $_.Id -in $managedRoleIds } else { $_.DisplayName.StartsWith($config.RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) }) }).Count -ne 1) {
                         throw "Personalrolle und JobTitle von '$upn' widersprechen sich."
                     }
                     $targets[$upn] = $personnelProfile.Exchange
@@ -241,7 +277,7 @@ function Invoke-LehrerSync {
         } else {
             $people = if ($mode -eq 'Add') {
                 @([pscustomobject]@{ RowNumber = 0; NameMitRufname = "$Nachname, $Vorname"; GivenName = $Vorname.Trim(); Surname = $Nachname.Trim()
-                    Job = $Job.Trim().ToUpperInvariant(); EntraObjectId = [string]$EntraObjectId; StoredUpn = ''; StoredMail = ''; Password = '' })
+                    Job = $Job.Trim(); ResumeCreation = [bool]$ResumeCreation; EntraObjectId = [string]$EntraObjectId; StoredUpn = ''; StoredMail = ''; Password = '' })
             } else { @($workbook.Students) }
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Verbinde mit Exchange Online ...' -PercentComplete 30
             $null = Connect-SchuelerExchangeOnline -TenantId $tenantId
@@ -249,7 +285,11 @@ function Invoke-LehrerSync {
             $recipients = Get-ExchangeRecipientAddress
             Write-Progress -Id 1 -Activity $progressActivity -Status 'Vergleiche Personaldaten ...' -PercentComplete 40
             $comparison = Compare-LehrerDirectory -People $people -Snapshot $snapshot -Config $config `
-                -ExchangeAddressOwners $recipients.AddressOwners -Recovery:($mode -eq 'Add' -and [bool]$EntraObjectId)
+                -ExchangeAddressOwners $recipients.AddressOwners -Recovery:($mode -eq 'Add' -and [bool]$EntraObjectId) `
+                -ReviewOnlyPersonnel:($Personnel -and $mode -eq 'Compare') -SkipPersonnelGuests:($Personnel -and $mode -in @('Compare','Update')) `
+                -SkipProtectedPersonnel:($Personnel -and $mode -in @('Compare','Update')) `
+                -SkipUnassignedPersonnel:($Personnel -and $mode -in @('Compare','Update')) `
+                -SkipIncompletePersonnel:($Personnel -and $mode -in @('Compare','Update'))
             if ($mode -eq 'Add') { $comparison.Departures = @() }
             $mailboxEntries = @($comparison.ChangedPeople) + @($comparison.ExistingPeople)
             $mailboxIndex = 0
@@ -286,7 +326,7 @@ function Invoke-LehrerSync {
                         $_.Person.StoredMail -ine $(if ($_.User.Mail) { $_.User.Mail } else { $_.User.UserPrincipalName })
                 }).Count -gt 0
                 if (($selection.CreateNewUsers -and @($comparison.NewPeople).Count -gt 0) -or $needsIdentityBackfill) {
-                    Assert-WorkbookSafeForPasswordWrite -Path $File -Kind Teacher
+                    Assert-WorkbookSafeForPasswordWrite -Path $File -Kind $kind
                 }
                 Assert-StudentWorkbookVersion -Path $File -ExpectedSourceHash $workbook.SourceHash
             }
@@ -297,7 +337,8 @@ function Invoke-LehrerSync {
     if ($snapshot) {
         $activeMembers = @($snapshot.PersonnelMemberIds | Where-Object { $snapshot.UsersById[$_].AccountEnabled -eq $true }).Count
         $header.Add("Personalrollen: $($snapshot.PersonnelMemberIds.Count) direkte Mitglieder | Aktiv: $activeMembers | Abgänge: $(@($comparison.Departures).Count)")
-        $header.Add("Quellrollen: $($config.Roles.School.Name), $($config.Roles.Ganztag.Name)")
+        $header.Add("Quellrollen: $(@($config.Roles.Values | Where-Object { $_.Id -in $managedRoleIds } | ForEach-Object { $_.Name }) -join ', ')")
+        if ($Personnel) { $header.Add('Personal-Update sperrt Abgänge nur mit ausdrücklichem -DisableUsers. Gesperrte Bestandskonten bleiben gesperrt.') }
     }
     $comparisonPrinted = $false
     if ($mode -eq 'Update' -and @($comparison.Errors).Count -eq 0) {
@@ -342,7 +383,7 @@ function Invoke-LehrerSync {
                 if ($backfill.Count -gt 0 -and @($actions | Where-Object Status -eq Failed).Count -eq 0 -and
                     $PSCmdlet.ShouldProcess($File, 'Personalidentitäten in Excel nachtragen')) {
                     try {
-                        $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $workbook.SourceHash -Kind Teacher -Updates $backfill -Confirm:$false
+                        $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $workbook.SourceHash -Kind $kind -Updates $backfill -Confirm:$false
                         $workbook.SourceHash = $written.SourceHash
                     } catch { $actions.Add((New-StudentActionResult -Phase Workbook -Status Failed -Message $_.Exception.Message)) }
                 }
@@ -357,8 +398,9 @@ function Invoke-LehrerSync {
                             continue
                         }
                         try {
+                            if ($Personnel) { $null = Assert-PersonalMutationTarget -UserId $id -ExpectedUpn $upn -Config $config }
                             $fresh = @(Get-FreshEntraUserDirectGroup -UserId $id)
-                            if (@($fresh | Where-Object { $_.Id -in @($config.Roles.School.Id, $config.Roles.Ganztag.Id) }).Count -eq 0) {
+                            if (@($fresh | Where-Object { $_.Id -in $managedRoleIds }).Count -eq 0) {
                                 throw 'Personalkonto gehört keiner direkten Personalrolle mehr an.'
                             }
                             if ($phase -eq 'Disable') {
@@ -374,7 +416,10 @@ function Invoke-LehrerSync {
                     }
                 }
                 if ($selection.ConfigureAllActiveExchange) {
-                    foreach ($entry in @($comparison.ChangedPeople) + @($comparison.ExistingPeople)) { $targets[[string]$entry.User.UserPrincipalName] = $entry.DesiredState.Exchange }
+                    foreach ($entry in @($comparison.ChangedPeople) + @($comparison.ExistingPeople)) {
+                        if ($Personnel -and @($actions | Where-Object { $_.UserId -eq $entry.User.Id -and $_.Status -in @('Skipped','Failed') }).Count -gt 0) { continue }
+                        $targets[[string]$entry.User.UserPrincipalName] = $entry.DesiredState.Exchange
+                    }
                 }
             }
         } elseif ($mode -eq 'Remove') {
@@ -387,8 +432,9 @@ function Invoke-LehrerSync {
                     continue
                 }
                 try {
+                    if ($Personnel) { $null = Assert-PersonalMutationTarget -UserId $id -ExpectedUpn $upn -Config $config }
                     $fresh = Get-FreshEntraUserDirectGroup -UserId $id
-                    if (@($fresh | Where-Object { $_.Id -in @($config.Roles.School.Id, $config.Roles.Ganztag.Id) }).Count -eq 0) { throw 'Personalkonto gehört keiner direkten Personalrolle mehr an.' }
+                    if (-not $Personnel -and @($fresh | Where-Object { $_.Id -in $managedRoleIds }).Count -eq 0) { throw 'Personalkonto gehört keiner direkten Personalrolle mehr an.' }
                     if ($phase -eq 'Disable') { $done = Disable-EntraStudent -UserId $id -Confirm:$false; if (-not $done.Verified) { throw 'Deaktivierung nicht bestätigt.' } }
                     else {
                         $response = Revoke-EntraStudentSession -UserId $id -Selected -Confirm:$false
@@ -406,8 +452,8 @@ function Invoke-LehrerSync {
             } else {
                 try {
                     $null = Connect-SchuelerExchangeOnline -TenantId $tenantId
-                    $batch = Wait-LehrerMailbox -Targets $targets -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
-                    foreach ($action in @(ConvertTo-LehrerExchangeAction -Batch $batch -WhatIfMode:$WhatIfPreference)) { $actions.Add($action) }
+                    $batch = Wait-LehrerMailbox -Targets $targets -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds -SafetyConfig $(if ($Personnel) { $config } else { $null }) @common
+                    foreach ($action in @(ConvertTo-LehrerExchangeAction -Batch $batch -WhatIfMode:$WhatIfPreference -EntryPoint $(if ($Personnel) { 'Sync-PersonalEntra.ps1' } else { 'Sync-LehrerEntra.ps1' }))) { $actions.Add($action) }
                 } catch { $actions.Add((New-StudentActionResult -Phase Exchange -Status Failed -Message $_.Exception.Message)) }
             }
         }
@@ -419,4 +465,50 @@ function Invoke-LehrerSync {
     [pscustomobject]@{ Mode = $mode; Comparison = $safe; Actions = @($actions)
         HasErrors = (@($comparison.Errors).Count -gt 0 -or @($actions | Where-Object Status -eq Failed).Count -gt 0) }
     } finally { Write-Progress -Id 1 -Activity $progressActivity -Completed }
+}
+
+function Invoke-LehrerSync {
+    [CmdletBinding(DefaultParameterSetName = 'Sync', SupportsShouldProcess, ConfirmImpact = 'High')]
+    param(
+        [Parameter(ParameterSetName = 'Sync')][Parameter(ParameterSetName = 'Export')][ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
+        [string] $File = (Join-Path $script:SchuelerSyncRepositoryRoot 'Lehrer.xlsx'),
+        [Parameter(ParameterSetName = 'Export', Mandatory)][switch] $ListToExcel,
+        [Parameter(ParameterSetName = 'Manage', Mandatory)][switch] $ManageAccounts,
+        [Parameter(ParameterSetName = 'Sync')][switch] $Update,
+        [Parameter(ParameterSetName = 'Sync')][switch] $CreateNewUsers,
+        [Parameter(ParameterSetName = 'Sync')][switch] $UpdateUsers,
+        [Parameter(ParameterSetName = 'Sync')][switch] $DisableUsers,
+        [Parameter(ParameterSetName = 'Sync')][switch] $RevokeSessions,
+        [Parameter(ParameterSetName = 'Add', Mandatory)][switch] $Add,
+        [Parameter(ParameterSetName = 'Add', Mandatory)][string] $Vorname,
+        [Parameter(ParameterSetName = 'Add', Mandatory)][string] $Nachname,
+        [Parameter(ParameterSetName = 'Add', Mandatory)]
+        [ValidatePattern('(?i)^\s*(?:L|CO-L|PA|OGTS|JAS)(?:\s*,\s*(?:L|CO-L|PA|OGTS|JAS))*\s*$')][string] $Job,
+        [Parameter(ParameterSetName = 'Add')][string] $EntraObjectId,
+        [Parameter(ParameterSetName = 'Remove', Mandatory)][switch] $Remove,
+        [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)][switch] $ConfigureExchangeOnlineOnly,
+        [Parameter(ParameterSetName = 'Remove', Mandatory)]
+        [Parameter(ParameterSetName = 'ExchangeOnly', Mandatory)]
+        [Alias('UPN','UserPrincipalName')][string[]] $Mail,
+        [Parameter(ParameterSetName = 'Sync')]
+        [Parameter(ParameterSetName = 'Add')]
+        [Parameter(ParameterSetName = 'Remove')]
+        [Parameter(ParameterSetName = 'ExchangeOnly')]
+        [string] $OutputFile
+    )
+    if ($ManageAccounts) {
+        if ([Console]::IsInputRedirected) { throw 'Die Tastaturauswahl benötigt ein interaktives Terminal.' }
+        $common = @{ WhatIf = [bool]$WhatIfPreference }
+        if ($PSBoundParameters.ContainsKey('Confirm')) { $common.Confirm = $PSBoundParameters.Confirm }
+        $inventory = Get-PersonalInventory -Population Teacher
+        foreach ($warning in $inventory.Warnings) { Write-Warning $warning }
+        $actions = @(Invoke-DisabledAccountTui -Accounts $inventory.Accounts -TenantId $inventory.TenantId -PersonalConfig $inventory.Config @common)
+        return [pscustomobject]@{ Mode = 'Manage'; Actions = $actions; HasErrors = @($actions | Where-Object Status -eq Failed).Count -gt 0 }
+    }
+    if ($ListToExcel) {
+        $common = @{ WhatIf = [bool]$WhatIfPreference }
+        if ($PSBoundParameters.ContainsKey('Confirm')) { $common.Confirm = $PSBoundParameters.Confirm }
+        return Invoke-RoleWorkbookExport -Kind Teacher -File $File @common
+    }
+    Invoke-PersonnelSyncCore @PSBoundParameters
 }

@@ -26,12 +26,16 @@ function Get-UpnCandidate {
     param(
         [Parameter(Mandatory)][string] $GivenName,
         [Parameter(Mandatory)][string] $Surname,
-        [Parameter(Mandatory)][string] $Domain
+        [Parameter(Mandatory)][string] $Domain,
+        [ValidateSet('InitialSurname','FirstLast')][string] $NamingStyle = 'InitialSurname'
     )
     $givenToken = ConvertTo-UpnToken $GivenName
     $surnameToken = ConvertTo-UpnToken $Surname
     if ([string]::IsNullOrEmpty($givenToken) -or [string]::IsNullOrEmpty($surnameToken)) {
         throw 'Vor- und Nachname müssen nach der Normalisierung nicht leer sein.'
+    }
+    if ($NamingStyle -eq 'FirstLast') {
+        return '{0}.{1}@{2}' -f $givenToken, $surnameToken, $Domain.Trim()
     }
     for ($length = 1; $length -le $givenToken.Length; $length++) {
         '{0}{1}@{2}' -f $givenToken.Substring(0, $length), $surnameToken, $Domain.Trim()
@@ -73,6 +77,10 @@ function Test-UsedAddress {
 
 function Select-AvailableUpn {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSReviewUnusedParameter', 'AliasDomains',
+        Justification = 'The parameter is consumed by the candidate address closure.'
+    )]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSReviewUnusedParameter',
         'AddressOwners',
         Justification = 'The parameter is consumed by the local availability closure.'
@@ -88,9 +96,11 @@ function Select-AvailableUpn {
         [Parameter(Mandatory)][string] $Domain,
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.HashSet[string]] $UsedAddresses,
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.IDictionary] $AddressOwners,
-        [AllowNull()][string] $CurrentObjectId
+        [AllowNull()][string] $CurrentObjectId,
+        [ValidateSet('InitialSurname','FirstLast')][string] $NamingStyle = 'InitialSurname',
+        [string[]] $AliasDomains = @()
     )
-    $candidates = @(Get-UpnCandidate $GivenName $Surname $Domain)
+    $candidates = @(Get-UpnCandidate $GivenName $Surname $Domain -NamingStyle $NamingStyle)
     $collisions = [Collections.Generic.List[string]]::new()
     $isAvailable = {
         param($candidate)
@@ -110,22 +120,30 @@ function Select-AvailableUpn {
         }
         return $true
     }
+    $candidateAddresses = {
+        param($candidate)
+        $candidate
+        foreach ($aliasDomain in $AliasDomains) { '{0}@{1}' -f ($candidate -split '@')[0], $aliasDomain.Trim() }
+    }
     foreach ($candidate in $candidates) {
-        if (& $isAvailable $candidate) {
-            [void] $UsedAddresses.Add($candidate)
+        $addresses = @(& $candidateAddresses $candidate)
+        $occupied = @($addresses | Where-Object { -not (& $isAvailable $_) })
+        if ($occupied.Count -eq 0) {
+            foreach ($address in $addresses) { [void]$UsedAddresses.Add($address) }
             return [pscustomobject]@{ Upn = $candidate; WasFallback = $false; CollisionCount = $collisions.Count; Collisions = [string[]]$collisions }
         }
-        $collisions.Add($candidate)
+        foreach ($address in $occupied) { $collisions.Add($address) }
     }
-    $fullGiven = ConvertTo-UpnToken $GivenName
-    $surnameToken = ConvertTo-UpnToken $Surname
+    $fullLocalPart = ($candidates[-1] -split '@')[0]
     for ($suffix = 2; $true; $suffix++) {
-        $candidate = '{0}{1}{2}@{3}' -f $fullGiven, $surnameToken, $suffix, $Domain.Trim()
-        if (& $isAvailable $candidate) {
-            [void] $UsedAddresses.Add($candidate)
+        $candidate = '{0}{1}@{2}' -f $fullLocalPart, $suffix, $Domain.Trim()
+        $addresses = @(& $candidateAddresses $candidate)
+        $occupied = @($addresses | Where-Object { -not (& $isAvailable $_) })
+        if ($occupied.Count -eq 0) {
+            foreach ($address in $addresses) { [void]$UsedAddresses.Add($address) }
             return [pscustomobject]@{ Upn = $candidate; WasFallback = $true; CollisionCount = $collisions.Count; Collisions = [string[]]$collisions }
         }
-        $collisions.Add($candidate)
+        foreach ($address in $occupied) { $collisions.Add($address) }
     }
 }
 

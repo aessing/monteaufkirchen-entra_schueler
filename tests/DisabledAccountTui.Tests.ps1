@@ -1,4 +1,4 @@
-BeforeDiscovery {
+﻿BeforeDiscovery {
     $repoRoot = Split-Path $PSScriptRoot -Parent
     Import-Module (Join-Path $repoRoot 'src/SchuelerSync/SchuelerSync.psd1') -ErrorAction Stop
 }
@@ -18,6 +18,105 @@ AfterAll {
         Remove-Item -Path "function:global:$name" -ErrorAction SilentlyContinue
     }
     Remove-Variable DisabledTuiStubCommands -Scope Global -ErrorAction SilentlyContinue
+}
+
+Describe 'TUI last login display' {
+    InModuleScope SchuelerSync {
+        BeforeEach {
+            $script:loginAccounts = @(
+                [pscustomobject]@{DisplayName='Lea Testwald';UPN='ltestwald@example.invalid';UserId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    AccountEnabled=$true;RecipientType='UserMailbox';RecipientStatus='Unique';ProtectionReasons=@();OwnedObjects=@()
+                    LastLogin=[datetimeoffset]'2026-01-02T12:30:00+02:00';LastLoginStatus='Bekannt'},
+                [pscustomobject]@{DisplayName='Nora Testwald';UPN='ntestwald@example.invalid';UserId='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+                    AccountEnabled=$false;RecipientType='UserMailbox';RecipientStatus='Unique';ProtectionReasons=@();OwnedObjects=@()
+                    LastLogin=[datetimeoffset]'2026-02-03T11:45:00Z';LastLoginStatus='Bekannt'}
+            )
+            $script:loginSelection = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $script:tuiLines = [Collections.Generic.List[string]]::new()
+            Mock Write-Host { $script:tuiLines.Add([string]$Object) }
+            Mock Clear-Host { }
+        }
+        It 'shows the current account login in UTC in personal mode <PersonalMode>' -ForEach @(@{PersonalMode=$true},@{PersonalMode=$false}) {
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 1 -TenantId 'synthetic-tenant' -PersonalMode:$PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Last Login Timestamp (UTC): 2026-02-03T11:45:00Z' }
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode:$PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Last Login Timestamp (UTC): 2026-01-02T10:30:00Z' }
+        }
+        It 'distinguishes missing and unavailable data and accepts legacy records without status fields' {
+            $script:loginAccounts[0].LastLogin = $null
+            $script:loginAccounts[0].LastLoginStatus = 'Nicht abrufbar'
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Last Login Timestamp (UTC): Nicht abrufbar' }
+            $script:loginAccounts[0].PSObject.Properties.Remove('LastLoginStatus')
+            $script:loginAccounts[0].PSObject.Properties.Remove('LastLogin')
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Last Login Timestamp (UTC): Kein Wert' }
+            Show-DisabledAccountSelection -Accounts @() -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Keine Konten in der Prüfliste.' }
+        }
+        It 'shows actual role groups including unknown and multiple roles in mode <PersonalMode>' -ForEach @(@{PersonalMode=$true},@{PersonalMode=$false}) {
+            $script:loginAccounts[0] | Add-Member -NotePropertyMembers @{SecAGroups=@('SEC-A-LIC-O365A1Faculty','SEC-A-ROL-Unterstützung','SEC-A-ROL-SyntheticOther');UserType='Guest'}
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode:$PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Rolle: SEC-A-ROL-SyntheticOther, SEC-A-ROL-Unterstützung' }
+            if ($PersonalMode) { Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Kontotyp: Guest' } }
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 1 -TenantId 'synthetic-tenant' -PersonalMode:$PersonalMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter { $Object -eq 'Rolle: Keine Rollengruppe' }
+        }
+        It 'ends each account selection with its available commands' -ForEach @(
+            @{Personal=$false;Student=$false;Empty=$false}
+            @{Personal=$false;Student=$false;Empty=$true}
+            @{Personal=$true;Student=$false;Empty=$false}
+            @{Personal=$true;Student=$false;Empty=$true}
+            @{Personal=$true;Student=$true;Empty=$false}
+            @{Personal=$true;Student=$true;Empty=$true}
+        ) {
+            $script:loginAccounts[0] | Add-Member -NotePropertyMembers @{ClassGroups=@();Department='';OfficeLocation='';Teacher=''}
+            $accounts = @(if (-not $Empty) { $script:loginAccounts })
+            Show-DisabledAccountSelection -Accounts $accounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode:$Personal -StudentMode:$Student -Message 'Testhinweis'
+            $footer = $script:tuiLines[-1]
+            foreach ($key in @('Pfeile:','Leertaste:','Backspace/Entf:','U:','Esc:')) { $footer | Should -Match ([regex]::Escape($key)) }
+            if ($Personal) { $footer | Should -Match 'B: sperren' }
+            else { $footer | Should -Not -Match 'B: sperren' }
+            if ($Student) { $footer | Should -Match 'K: Klasse/Jahrgang'; $footer | Should -Match 'L: Klassenlehrer' }
+            else { $footer | Should -Not -Match 'K:|L: Klassenlehrer' }
+        }
+        It 'ends student target selection with navigation commands' -ForEach @(@{Empty=$false},@{Empty=$true}) {
+            Mock Read-DisabledAccountTuiKey { 'Escape' }
+            $options = @(if (-not $Empty) { [pscustomobject]@{Label='Synthetic target'} })
+            $null = Select-StudentTuiTarget -Options $options -Title 'Ziel wählen'
+            $script:tuiLines[-1] | Should -Be 'Pfeile: bewegen  Enter: Ziel wählen  Esc: abbrechen'
+        }
+        It 'keeps confirmation commands last after warnings about skipped accounts for <Operation>' -ForEach @(
+            @{Operation='Block';Command='sperren'},@{Operation='Unlock';Command='entsperren'},@{Operation='Delete';Command='löschen'}
+        ) {
+            $accounts = @(
+                [pscustomobject]@{DisplayName='Synthetic eligible';UPN='eligible@example.invalid';UserId='eligible';OwnedObjects=@();MutationAllowed=$true;AccountEnabled=$true;UserType='Member'},
+                [pscustomobject]@{DisplayName='Synthetic protected';UPN='protected@example.invalid';UserId='protected';OwnedObjects=@();MutationAllowed=$false;AccountEnabled=$true;UserType='Member'}
+            )
+            $accounts[0].AccountEnabled=($Operation -eq 'Block')
+            Mock Read-DisabledAccountTuiKey { 'N' }
+            $null = Invoke-PersonalTuiAction -Accounts $accounts -Config @{SessionTenantId='synthetic-tenant'} -Operation $Operation
+            $script:tuiLines[-1] | Should -Be "Ja (Y/J): $Command    Nein (N/Esc): zurück zur Auswahl"
+            @($script:tuiLines | Where-Object { $_ -like 'Übersprungen: Synthetic protected*' }).Count | Should -Be 1
+        }
+        It 'shows student class, year, teacher and action keys without advertising guest actions' {
+            $script:loginAccounts[0] | Add-Member -NotePropertyMembers @{ClassGroups=@([pscustomobject]@{DisplayName='SEC-A-CLS-JK1-3g2_1'});Department='JK1-3g2_1';OfficeLocation='g2';Teacher='Nora Lehrwald <teacher@example.invalid>'}
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode -StudentMode -Title 'Schülerkonten'
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -like '*K: Klasse/Jahrgang wechseln  L: Klassenlehrer wechseln*'}
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -eq 'Klasse (CLS): SEC-A-CLS-JK1-3g2_1'}
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -eq 'Department / Jahrgang: JK1-3g2_1 / g2'}
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -eq 'Klassenlehrer: Nora Lehrwald <teacher@example.invalid>'}
+            Should -Invoke Write-Host -Exactly 0 -ParameterFilter {$Object -like 'Zulässige Konten und Gäste:*'}
+            $script:loginAccounts[0].ClassGroups=@()
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode -StudentMode
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -eq 'Klasse (CLS): Keine CLS-Gruppe'}
+        }
+        It 'shows the teacher title with the shared role, status and last login display' {
+            Show-DisabledAccountSelection -Accounts $script:loginAccounts -SelectedIds $script:loginSelection -Cursor 0 -TenantId 'synthetic-tenant' -PersonalMode -Title 'Lehrer- und Ganztagskonten'
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -eq 'Lehrer- und Ganztagskonten (2) | Tenant synthetic-tenant'}
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {$Object -eq 'Last Login Timestamp (UTC): 2026-01-02T10:30:00Z'}
+        }
+    }
 }
 
 Describe 'Gesperrte Konten: Tastaturauswahl' {
@@ -46,6 +145,44 @@ Describe 'Gesperrte Konten: Tastaturauswahl' {
             Should -Invoke Invoke-SelectedDisabledAccountDeletion -Exactly 0
         }
 
+        It 'ignores Enter in the account list without opening deletion' {
+            $script:keys = [Collections.Generic.Queue[string]]::new()
+            foreach ($key in @('Spacebar', 'Enter', 'Escape')) { $script:keys.Enqueue($key) }
+            Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
+            @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test').Count | Should -Be 0
+            Should -Invoke Show-DisabledAccountConfirmation -Exactly 0
+            Should -Invoke Invoke-SelectedDisabledAccountDeletion -Exactly 0
+        }
+
+        It 'dispatches <Key> as deletion in the <Population> account list' -ForEach @(
+            @{Key='Backspace';Population='Personnel'},@{Key='Delete';Population='Personnel'},
+            @{Key='Backspace';Population='Teacher'},@{Key='Delete';Population='Teacher'},
+            @{Key='Backspace';Population='Student'},@{Key='Delete';Population='Student'}
+        ) {
+            $script:keys = [Collections.Generic.Queue[string]]::new()
+            foreach ($key in @('Spacebar', $Key, 'Escape')) { $script:keys.Enqueue($key) }
+            Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
+            Mock Invoke-PersonalTuiAction { @() }
+            Mock Get-PersonalInventory { throw 'Cancelled deletion must retain the selection' }
+            @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test' -PersonalConfig @{ManagementPopulation=$Population}).Count | Should -Be 0
+            Should -Invoke Invoke-PersonalTuiAction -Exactly 1 -ParameterFilter {
+                $Operation -eq 'Delete' -and $Accounts.Count -eq 1 -and $Accounts[0].UserId -eq 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            }
+            Should -Invoke Get-PersonalInventory -Exactly 0
+        }
+
+        It 'ignores Enter in the <Population> account list' -ForEach @(
+            @{Population='Personnel'},@{Population='Teacher'},@{Population='Student'}
+        ) {
+            $script:keys = [Collections.Generic.Queue[string]]::new()
+            foreach ($key in @('Spacebar', 'Enter', 'Escape')) { $script:keys.Enqueue($key) }
+            Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
+            Mock Invoke-PersonalTuiAction { @() }
+            @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test' -PersonalConfig @{ManagementPopulation=$Population}).Count | Should -Be 0
+            Should -Invoke Invoke-PersonalTuiAction -Exactly 0
+            Should -Invoke Show-DisabledAccountConfirmation -Exactly 0
+        }
+
         It 'hides shared mailboxes and selects only the visible personal account' {
             $script:tuiAccounts[0].RecipientType = 'SharedMailbox'
             $script:keys = [Collections.Generic.Queue[string]]::new()
@@ -62,9 +199,9 @@ Describe 'Gesperrte Konten: Tastaturauswahl' {
             Should -Invoke Invoke-SelectedDisabledAccountUnlock -Exactly 1
         }
 
-        It 'keeps selection after No and deletes only marked accounts after Yes' {
+        It 'keeps selection after No and deletes only marked accounts after Yes using <Key>' -ForEach @(@{Key='Backspace'},@{Key='Delete'}) {
             $script:keys = [Collections.Generic.Queue[string]]::new()
-            foreach ($key in @('Spacebar', 'DownArrow', 'Enter', 'N', 'Spacebar', 'Enter', 'Y')) { $script:keys.Enqueue($key) }
+            foreach ($key in @('Spacebar', 'DownArrow', $Key, 'N', 'Spacebar', $Key, 'Y')) { $script:keys.Enqueue($key) }
             Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
             $result = @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test')
             $result.Count | Should -Be 2
@@ -76,7 +213,7 @@ Describe 'Gesperrte Konten: Tastaturauswahl' {
 
         It 'does not open confirmation when no account is selected' {
             $script:keys = [Collections.Generic.Queue[string]]::new()
-            foreach ($key in @('Enter', 'Escape')) { $script:keys.Enqueue($key) }
+            foreach ($key in @('Backspace', 'Escape')) { $script:keys.Enqueue($key) }
             Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
             $result = @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test')
             $result.Count | Should -Be 0
@@ -85,7 +222,7 @@ Describe 'Gesperrte Konten: Tastaturauswahl' {
 
         It 'unmarks an account when Space is pressed again' {
             $script:keys = [Collections.Generic.Queue[string]]::new()
-            foreach ($key in @('Spacebar', 'Spacebar', 'Enter', 'Escape')) { $script:keys.Enqueue($key) }
+            foreach ($key in @('Spacebar', 'Spacebar', 'Backspace', 'Escape')) { $script:keys.Enqueue($key) }
             Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
             $result = @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test')
             $result.Count | Should -Be 0
@@ -98,7 +235,7 @@ Describe 'Gesperrte Konten: Tastaturauswahl' {
             $script:tuiAccounts[0] | Add-Member -NotePropertyName RecipientStatus -NotePropertyValue 'None'
             $script:tuiAccounts[1].RecipientType = 'SharedMailbox'
             $script:keys = [Collections.Generic.Queue[string]]::new()
-            foreach ($key in @('Spacebar', 'Enter', 'Y')) { $script:keys.Enqueue($key) }
+            foreach ($key in @('Spacebar', 'Backspace', 'Y')) { $script:keys.Enqueue($key) }
             Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
 
             $result = @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test')
@@ -116,7 +253,7 @@ Describe 'Gesperrte Konten: Tastaturauswahl' {
             $script:tuiAccounts[1].RecipientType = ''
             $script:tuiAccounts[1] | Add-Member -NotePropertyName RecipientStatus -NotePropertyValue 'Unreadable'
             $script:keys = [Collections.Generic.Queue[string]]::new()
-            foreach ($key in @('Spacebar', 'DownArrow', 'Spacebar', 'Enter', 'Escape')) { $script:keys.Enqueue($key) }
+            foreach ($key in @('Spacebar', 'DownArrow', 'Spacebar', 'Backspace', 'Escape')) { $script:keys.Enqueue($key) }
             Mock Read-DisabledAccountTuiKey { $script:keys.Dequeue() }
 
             @(Invoke-DisabledAccountTui -Accounts $script:tuiAccounts -TenantId 'tenant-test').Count | Should -Be 0
@@ -384,6 +521,13 @@ Describe 'Gesperrte Konten: Mandantenbindung' {
             } -Exactly 1
         }
 
+        It 'requests user write scope and group write scope only for <Operation>' -ForEach @(@{Operation='Class';GroupWrite=$true},@{Operation='Teacher';GroupWrite=$false}) {
+            $script:assignmentContext=[pscustomobject]@{TenantId='tenant-test';Scopes=@('User.Read.All','Directory.Read.All','AuditLog.Read.All')}
+            Mock Get-MgContext {$script:assignmentContext}
+            Mock Connect-MgGraph {$script:assignmentContext=[pscustomobject]@{TenantId='tenant-test';Scopes=@($Scopes)}}
+            (Connect-DisabledAccountWriteGraph -TenantId 'tenant-test' -Operation $Operation).TenantId | Should -Be 'tenant-test'
+            Should -Invoke Connect-MgGraph -Exactly 1 -ParameterFilter {$Scopes -contains 'User.ReadWrite.All' -and ($Scopes -contains 'GroupMember.ReadWrite.All') -eq $GroupWrite -and $Scopes -notcontains 'User.EnableDisableAccount.All'}
+        }
         It 'rejects a changed tenant before unlocking' {
             Mock Get-MgContext {
                 [pscustomobject]@{ TenantId = 'other-tenant'; Scopes = @('User.EnableDisableAccount.All', 'User.Read.All', 'Directory.Read.All', 'AuditLog.Read.All') }

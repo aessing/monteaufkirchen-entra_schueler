@@ -61,22 +61,106 @@ function Open-StudentWorkbookPackage {
     return Open-ExcelPackage -Path $resolvedPath -ErrorAction Stop
 }
 
+function Resolve-PersonalWorkbookIdentity {
+    param([object] $Person, [object] $Snapshot)
+
+    $objectId = ([string](Get-ComparisonPropertyValue $Person EntraObjectId)).Trim()
+    $upn = ([string](Get-ComparisonPropertyValue $Person StoredUpn)).Trim()
+    $user = $null
+    if ($objectId) {
+        $user = $Snapshot.UsersById[$objectId]
+        if ($null -eq $user) { return $null }
+    }
+    if ($upn) {
+        $byUpn = $Snapshot.UsersByUpn[$upn]
+        if ($null -eq $byUpn -or ($null -ne $user -and $byUpn.Id -ine $user.Id)) { return $null }
+        $user = $byUpn
+    }
+    return $user
+}
+
+function Test-PersonalWorkbookGuest {
+    param([object] $Person, [object] $Snapshot)
+
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    return $null -ne $user -and (Get-ComparisonPropertyValue $user UserType) -eq 'Guest'
+}
+
+function Test-PersonalWorkbookProtectedAccount {
+    param([object] $Person, [object] $Snapshot)
+
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    $context = Get-ComparisonPropertyValue $Snapshot PersonalContext
+    if ($null -eq $user -or $null -eq $context -or -not $context.Complete) { return $false }
+    $memberships = @(Get-MgUserTransitiveMemberOf -UserId $user.Id -All -ErrorAction Stop)
+    foreach ($membership in $memberships) {
+        $type = [string](Get-DisabledAccountMemberValue -Member $membership -Name '@odata.type')
+        $id = [string](Get-DisabledAccountMemberValue -Member $membership -Name id)
+        if ($id -and ($type -eq '#microsoft.graph.directoryRole' -or
+                ($type -eq '#microsoft.graph.group' -and $id -in $context.ProtectedIds))) { return $true }
+    }
+    return $false
+}
+
+function Test-PersonalWorkbookUnassignedAccount {
+    param([object] $Person, [object] $Snapshot)
+
+    if (-not [string]::IsNullOrWhiteSpace([string](Get-ComparisonPropertyValue $Person Job))) { return $false }
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    $context = Get-ComparisonPropertyValue $Snapshot PersonalContext
+    if ($null -eq $user -or $user.UserType -ne 'Member' -or $null -eq $context -or
+            -not $context.Complete -or @($context.ManagedRoleIds).Count -eq 0) { return $false }
+    # A blank export job exempts only confirmed accounts outside the managed population.
+    $memberships = @(Get-MgUserTransitiveMemberOf -UserId $user.Id -All -ErrorAction Stop)
+    $safety = Get-PersonalMembershipSafety -Memberships $memberships -Context $context
+    if ($safety.Excluded -or $safety.Reasons.Count -gt 0) { return $false }
+    return @($memberships | Where-Object {
+        (Get-DisabledAccountMemberValue -Member $_ -Name id) -in $context.ManagedRoleIds
+    }).Count -eq 0
+}
+
+function Test-PersonalWorkbookIncompleteAccount {
+    param([object] $Person, [object] $Snapshot, [System.Collections.IDictionary] $Config)
+
+    $missingNames = @('NameMitRufname','GivenName','Surname' | Where-Object {
+        [string]::IsNullOrWhiteSpace([string](Get-ComparisonPropertyValue $Person $_))
+    })
+    if ($missingNames.Count -eq 0) { return $false }
+    $user = Resolve-PersonalWorkbookIdentity -Person $Person -Snapshot $Snapshot
+    $context = Get-ComparisonPropertyValue $Snapshot PersonalContext
+    if ($null -eq $user -or (Get-ComparisonPropertyValue $user UserType) -ne 'Member' -or
+            $null -eq $context -or -not $context.Complete) { return $false }
+    try { $null = Get-LehrerProfile -Job ([string](Get-ComparisonPropertyValue $Person Job)) -Config $Config }
+    catch { return $false }
+    # Skip existing personnel with missing names instead of guessing names or changing their profile.
+    $memberships = @(Get-MgUserTransitiveMemberOf -UserId $user.Id -All -ErrorAction Stop)
+    $safety = Get-PersonalMembershipSafety -Memberships $memberships -Context $context
+    if ($safety.Excluded -or $safety.Reasons.Count -gt 0) { return $false }
+    return @($memberships | Where-Object {
+        (Get-DisabledAccountMemberValue -Member $_ -Name id) -in $context.ManagedRoleIds
+    }).Count -eq 1
+}
+
 function Read-StudentWorkbook {
-    param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student')
+    param([Parameter(Mandatory)][string] $Path, [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student',
+        [switch] $AllowPersonnelReviewRows, [object] $PersonnelSnapshot)
+
+    if ($null -ne $PersonnelSnapshot -and $Kind -ne 'Personnel') { throw 'Die Gastprüfung ist ausschließlich für Personalimporte zulässig.' }
+    if ($AllowPersonnelReviewRows -and $Kind -ne 'Personnel') { throw 'Prüfzeilen sind ausschließlich im lesenden Personalvergleich zulässig.' }
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
-    $teacherConfig = if ($Kind -eq 'Teacher') {
-        Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot 'config/LehrerSync.psd1')
+    $teacherConfig = if ($Kind -in @('Teacher', 'Personnel')) {
+        Import-PowerShellDataFile (Join-Path $script:SchuelerSyncRepositoryRoot $(if ($Kind -eq 'Personnel') { 'config/PersonalSync.psd1' } else { 'config/LehrerSync.psd1' }))
     } else { $null }
     $sourceHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256 -ErrorAction Stop).Hash
     $package = $null
     try {
         $package = Open-StudentWorkbookPackage -Path $resolvedPath
         $candidates = @()
-        $mandatoryHeaders = if ($Kind -eq 'Teacher') { $script:MandatoryTeacherHeaders } else { $script:MandatoryStudentHeaders }
+        $mandatoryHeaders = if ($Kind -in @('Teacher', 'Personnel')) { $script:MandatoryTeacherHeaders } else { $script:MandatoryStudentHeaders }
         foreach ($worksheet in $package.Workbook.Worksheets) {
             $headers = Get-WorksheetHeaderMap -Worksheet $worksheet
-            if ($Kind -eq 'Teacher' -and $null -ne $worksheet.Dimension) {
+            if ($Kind -in @('Teacher', 'Personnel') -and $null -ne $worksheet.Dimension) {
                 foreach ($mandatory in $mandatoryHeaders) {
                     $count = 0
                     for ($column = 1; $column -le $worksheet.Dimension.End.Column; $column++) {
@@ -120,18 +204,50 @@ function Read-StudentWorkbook {
             foreach ($requiredHeader in $mandatoryHeaders) {
                 $values[$requiredHeader] = ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers[$requiredHeader]].Value
             }
+            $identity = [pscustomobject]@{
+                EntraObjectId = if ($headers.ContainsKey('EntraObjectId')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['EntraObjectId']].Value } else { '' }
+                StoredUpn = if ($headers.ContainsKey('UPN')) { ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value } else { '' }
+                Job = $values['Job']
+                NameMitRufname = $values['Name mit Rufname']
+                GivenName = $values['Vorname']
+                Surname = $values['Nachname']
+            }
+            $isGuest = $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookGuest -Person $identity -Snapshot $PersonnelSnapshot)
+            $isProtected = -not $isGuest -and $null -ne $PersonnelSnapshot -and (Test-PersonalWorkbookProtectedAccount -Person $identity -Snapshot $PersonnelSnapshot)
+            $isUnassigned = -not $isGuest -and -not $isProtected -and $null -ne $PersonnelSnapshot -and
+                (Test-PersonalWorkbookUnassignedAccount -Person $identity -Snapshot $PersonnelSnapshot)
+            $isIncompleteAccount = -not $isGuest -and -not $isProtected -and -not $isUnassigned -and $null -ne $PersonnelSnapshot -and
+                (Test-PersonalWorkbookIncompleteAccount -Person $identity -Snapshot $PersonnelSnapshot -Config $teacherConfig)
             $filledCount = @($values.Values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
-            if ($filledCount -eq 0) {
+            if ($filledCount -eq 0 -and -not $isGuest -and -not $isProtected -and -not $isUnassigned) {
                 continue
             }
-            if ($filledCount -ne $mandatoryHeaders.Count) {
+            $reviewReason = ''
+            if ($filledCount -ne $mandatoryHeaders.Count -and -not $isGuest -and -not $isProtected -and -not $isUnassigned -and -not $isIncompleteAccount) {
                 if ($Kind -eq 'Student') { throw "Unvollständige Schülerdaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row." }
-                throw "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
+                $reviewReason = "Unvollständige Personaldaten in Arbeitsblatt '$($worksheet.Name)', Zeile $row."
+                if (-not $AllowPersonnelReviewRows) { throw $reviewReason }
             }
 
-            if ($Kind -eq 'Teacher') {
-                try { $job = (Get-LehrerProfile -Job $values['Job'] -Config $teacherConfig).Job }
-                catch { throw "Ungültiger Job '$($values['Job'])' in Zeile $row. $($_.Exception.Message)" }
+            if ($Kind -in @('Teacher', 'Personnel')) {
+                $job = $values['Job']
+                if ($isProtected -and $job) {
+                    try { $job = Resolve-PersonalJob -Job $job -Config $teacherConfig } catch { $job = $values['Job'] }
+                }
+                if (-not $isGuest -and -not $isProtected -and -not $isUnassigned -and (-not $AllowPersonnelReviewRows -or $job)) {
+                    try {
+                        # Review rows retain their canonical identity even when the profile is protected.
+                        if ($Kind -eq 'Personnel') {
+                            $job = ($job -split ',' | ForEach-Object { Resolve-PersonalJob -Job $_ -Config $teacherConfig }) -join ', '
+                        }
+                        $job = (Get-LehrerProfile -Job $job -Config $teacherConfig).Job
+                    }
+                    catch {
+                        $jobIssue = "Ungültiger Job '$($values['Job'])' in Zeile $row. $($_.Exception.Message)"
+                        if (-not $AllowPersonnelReviewRows) { throw $jobIssue }
+                        $reviewReason = (@($reviewReason,$jobIssue) | Where-Object { $_ }) -join ' '
+                    }
+                }
             }
 
             $record = [ordered]@{
@@ -144,17 +260,14 @@ function Read-StudentWorkbook {
                 Password = if ($headers.ContainsKey('Passwort')) {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Passwort']].Value
                 } else { '' }
-                EntraObjectId = if ($headers.ContainsKey('EntraObjectId')) {
-                    ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['EntraObjectId']].Value
-                } else { '' }
-                StoredUpn = if ($headers.ContainsKey('UPN')) {
-                    ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['UPN']].Value
-                } else { '' }
+                EntraObjectId = $identity.EntraObjectId
+                StoredUpn = $identity.StoredUpn
                 StoredMail = if ($headers.ContainsKey('Mail')) {
                     ConvertTo-WorkbookCellText $worksheet.Cells[$row, $headers['Mail']].Value
                 } else { '' }
             }
-            if ($Kind -eq 'Teacher') { $record.Job = $job }
+            if ($Kind -in @('Teacher', 'Personnel')) { $record.Job = $job }
+            if ($AllowPersonnelReviewRows) { $record.ReviewReason = $reviewReason }
             $students += [pscustomobject]$record
         }
 
@@ -205,7 +318,7 @@ function Assert-WorkbookSafeForPasswordWrite {
     param(
         [Parameter(Mandatory)][string] $Path,
         [switch] $SkipGitSafetyCheck,
-        [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student'
+        [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student'
     )
 
     $resolvedPath = Resolve-StudentWorkbookPath -Path $Path
@@ -218,7 +331,7 @@ function Assert-WorkbookSafeForPasswordWrite {
             [IO.FileShare]::None
         )
     } catch {
-        $label = if ($Kind -eq 'Teacher') { 'Lehrerdatei' } else { 'Schülerdatei' }
+        $label = if ($Kind -eq 'Personnel') { 'Personaldatei' } elseif ($Kind -eq 'Teacher') { 'Lehrerdatei' } else { 'Schülerdatei' }
         throw "Die $label ist gesperrt oder nicht schreibbar: '$resolvedPath'."
     } finally {
         if ($null -ne $lockHandle) {
@@ -293,7 +406,7 @@ function Write-StudentWorkbookUpdate {
         [Parameter(Mandatory)][object[]] $Updates,
         [string] $ExpectedSourceHash,
         [switch] $SkipGitSafetyCheck,
-        [ValidateSet('Student', 'Teacher')][string] $Kind = 'Student'
+        [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student'
     )
 
     if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and safely commit workbook updates')) { return }

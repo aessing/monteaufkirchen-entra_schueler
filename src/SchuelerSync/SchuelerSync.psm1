@@ -9,8 +9,11 @@ function Invoke-SchuelerSync {
     [CmdletBinding(DefaultParameterSetName = 'Sync', SupportsShouldProcess, ConfirmImpact = 'High')]
     param(
         [Parameter(ParameterSetName = 'Sync')]
+        [Parameter(ParameterSetName = 'Export')]
         [ValidateScript({ [IO.Path]::GetExtension($_) -ieq '.xlsx' })]
         [string] $File = (Join-Path $script:SchuelerSyncRepositoryRoot 'Schueler.xlsx'),
+        [Parameter(ParameterSetName = 'Export', Mandatory)][switch] $ListToExcel,
+        [Parameter(ParameterSetName = 'Manage', Mandatory)][switch] $ManageAccounts,
         [Parameter(ParameterSetName = 'Sync')][switch] $Update,
         [Parameter(ParameterSetName = 'Sync')][switch] $CreateNewUsers,
         [Parameter(ParameterSetName = 'Sync')][switch] $DisableUsers,
@@ -35,6 +38,20 @@ function Invoke-SchuelerSync {
         [ValidateNotNullOrEmpty()][string] $OutputFile
     )
     $ErrorActionPreference = 'Stop'
+    if ($ManageAccounts) {
+        if ([Console]::IsInputRedirected) { throw 'Die Tastaturauswahl benötigt ein interaktives Terminal.' }
+        $common = @{ WhatIf = [bool]$WhatIfPreference }
+        if ($PSBoundParameters.ContainsKey('Confirm')) { $common.Confirm = $PSBoundParameters.Confirm }
+        $inventory = Get-PersonalInventory -Population Student
+        foreach ($warning in $inventory.Warnings) { Write-Warning $warning }
+        $actions = @(Invoke-DisabledAccountTui -Accounts $inventory.Accounts -TenantId $inventory.TenantId -PersonalConfig $inventory.Config @common)
+        return [pscustomobject]@{ Mode = 'Manage'; Actions = $actions; HasErrors = @($actions | Where-Object Status -eq Failed).Count -gt 0 }
+    }
+    if ($ListToExcel) {
+        $common = @{ WhatIf = [bool]$WhatIfPreference }
+        if ($PSBoundParameters.ContainsKey('Confirm')) { $common.Confirm = $PSBoundParameters.Confirm }
+        return Invoke-RoleWorkbookExport -Kind Student -File $File @common
+    }
     $progressActivity = 'Schülerabgleich'
     $reportHeader = [Collections.Generic.List[string]]::new()
     if ($PSBoundParameters.ContainsKey('OutputFile')) {
@@ -136,8 +153,10 @@ function Invoke-SchuelerSync {
                     if ($successfulActions.Count -eq 1) {
                         Write-Progress -Id 1 -Activity $progressActivity -Status 'Warte auf das Exchange-Postfach und konfiguriere es ...' -PercentComplete 75
                         $exchangeUpn = [string]$successfulActions[0].UserPrincipalName
+                        $newAccountUpns = @(if ($null -eq $manualEntry.User) { $exchangeUpn })
                         try {
                             $batch = Wait-StudentMailbox -UserPrincipalName @($exchangeUpn) -Config $config.Exchange -Configure `
+                                -NewAccountUpns $newAccountUpns `
                                 -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
                             foreach ($action in @(ConvertTo-ExchangeActionResult -Batch $batch)) { $actions.Add($action) }
                         } catch {
@@ -312,7 +331,9 @@ function Invoke-SchuelerSync {
                 }
                 if ($targetsById.Count -gt 0) {
                     try {
+                        $newAccountUpns = @($actions | Where-Object { $_.Phase -eq 'Create' -and $_.Status -eq 'Succeeded' } | ForEach-Object { $_.UserPrincipalName })
                         $batch = Wait-StudentMailbox -UserPrincipalName @($targetsById.Values) -Config $config.Exchange -Configure `
+                            -NewAccountUpns $newAccountUpns `
                             -MaxRetries $config.Exchange.MaxMailboxRetries -RetryDelaySeconds $config.Exchange.RetryDelaySeconds @common
                         foreach ($action in @(ConvertTo-ExchangeActionResult -Batch $batch)) { $actions.Add($action) }
                     } catch {
@@ -339,4 +360,4 @@ function Invoke-SchuelerSync {
     }
 }
 
-Export-ModuleMember -Function Invoke-SchuelerSync, Invoke-LehrerSync, Invoke-DisabledAccountCheck, Invoke-DisabledAccountTui
+Export-ModuleMember -Function Invoke-SchuelerSync, Invoke-LehrerSync, Invoke-PersonalSync, Invoke-DisabledAccountCheck, Invoke-DisabledAccountTui

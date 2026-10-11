@@ -75,7 +75,16 @@ function Set-LehrerAttribute {
 }
 
 function Assert-LehrerRecoveryIdentity {
-    param([string] $UserId, [object] $Person, [System.Collections.IDictionary] $Config)
+    param([string] $UserId, [object] $Person, [System.Collections.IDictionary] $Config, [string] $ExpectedUpn)
+    if ($Config.ContainsKey('PersonnelMode')) {
+        $user = Assert-PersonalMutationTarget -UserId $UserId -ExpectedUpn $ExpectedUpn -Config $Config
+        if ((Get-NormalizedStudentNameKey -Student $user) -cne (Get-NormalizedStudentNameKey -Student $Person)) { throw 'Name für die Personal-Objekt-ID stimmt nicht überein.' }
+        if ((Get-ComparisonPropertyValue $Person ResumeCreation) -eq $true) {
+            $personnelProfile = Get-LehrerProfile -Job $Person.Job -Config $Config
+            if ($user.AccountEnabled -ne $false -or $user.CompanyName -cne $personnelProfile.CompanyName -or $user.EmployeeType -cne $personnelProfile.EmployeeType) { throw 'Wiederanlauf benötigt ein gesperrtes Konto mit passendem Neuanlageprofil.' }
+        }
+        return $user
+    }
     $user = Get-MgUser -UserId $UserId -Property @('id','givenName','surname','companyName','employeeType','userType','accountEnabled') -ErrorAction Stop
     $direct = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
     $studentRole = Get-ConfiguredStudentRole
@@ -97,9 +106,15 @@ function Assert-LehrerRecoveryIdentity {
 
 function Sync-LehrerGroup {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-    param([string] $UserId, [object] $Desired, [string] $RoleGroupPrefix = 'SEC-A-ROL-')
+    param([string] $UserId, [object] $Desired, [string] $RoleGroupPrefix = 'SEC-A-ROL-', [System.Collections.IDictionary] $SafetyConfig)
     $role = Get-WritablePersonnelRole -GroupId $Desired.Role.Id
     $direct = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
+    $managedIds = if ($null -ne $SafetyConfig) { @($SafetyConfig.SafetyContext.ManagedRoleIds) } else { @() }
+    $transitionIds = @($direct | Where-Object Id -in $managedIds | ForEach-Object { $_.Id }) + [string]$role.Id
+    if ($null -ne $SafetyConfig) {
+        if ($role.Id -notin $managedIds) { throw 'Zielrolle gehört nicht zum freigegebenen Personalbereich.' }
+        $null = Assert-PersonalMutationTarget -UserId $UserId -ExpectedUpn $Desired.UserPrincipalName -Config $SafetyConfig
+    }
     $hasRole = @($direct | Where-Object Id -eq $role.Id).Count -gt 0
     if (-not $hasRole) {
         if (@($role.AssignedLicenses | Where-Object { $null -ne $_ }).Count -gt 0) { throw "Zielrolle '$($role.DisplayName)' vergibt Lizenzen." }
@@ -111,15 +126,16 @@ function Sync-LehrerGroup {
     $afterAdd = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
     if (@($afterAdd | Where-Object Id -eq $role.Id).Count -ne 1) { throw "Zielrolle für '$UserId' wurde nicht bestätigt." }
     foreach ($group in $afterAdd) {
-        if ($group.Id -eq $role.Id -or -not $group.DisplayName.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($group.Id -eq $role.Id -or $(if ($null -ne $SafetyConfig) { $group.Id -notin $managedIds } else { -not $group.DisplayName.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) })) { continue }
         $null = Get-WritablePersonnelRole -GroupId $group.Id
+        if ($null -ne $SafetyConfig) { $null = Assert-PersonalMutationTarget -UserId $UserId -ExpectedUpn $Desired.UserPrincipalName -Config $SafetyConfig -AllowedRoleIds $transitionIds }
         if ($PSCmdlet.ShouldProcess($group.DisplayName, "Remove competing role from personnel '$UserId'")) {
             Remove-MgGroupMemberDirectoryObjectByRef -GroupId $group.Id -DirectoryObjectId $UserId -ErrorAction Stop
         } else { return $false }
     }
     $final = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
     if (@($final | Where-Object Id -eq $role.Id).Count -ne 1 -or
-        @($final | Where-Object { $_.Id -ne $role.Id -and $_.DisplayName.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) {
+        @($final | Where-Object { $_.Id -ne $role.Id -and $(if ($null -ne $SafetyConfig) { $_.Id -in $managedIds } else { $_.DisplayName.StartsWith($RoleGroupPrefix, [StringComparison]::OrdinalIgnoreCase) }) }).Count -gt 0) {
         throw "Rollen für '$UserId' wurden nicht vollständig verifiziert."
     }
     return $true
@@ -127,14 +143,20 @@ function Sync-LehrerGroup {
 
 function Add-LehrerLicenseGroup {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
-    param([string] $UserId, [object] $Desired, [switch] $NewAccount)
+    param([string] $UserId, [object] $Desired, [switch] $NewAccount, [System.Collections.IDictionary] $SafetyConfig)
     $group = $Desired.LicenseGroup
     $direct = @(Get-FreshEntraUserDirectGroup -UserId $UserId)
     if (@($direct | Where-Object Id -eq $group.Id).Count -gt 0) { return $true }
-    if (-not $NewAccount) {
+    if (-not $NewAccount -or $null -ne $SafetyConfig) {
         $fresh = Get-MgUser -UserId $UserId -Property @('id','assignedLicenses','licenseAssignmentStates') -ErrorAction Stop
         $decision = Test-LehrerLicenseState -User $fresh -DirectGroups $direct
         if (-not $decision.Add) { return $true }
+    }
+    if ($null -ne $SafetyConfig) {
+        $currentGroup = Get-MgGroup -GroupId $group.Id -Property @('id','displayName','assignedLicenses','groupTypes','membershipRule') -ErrorAction Stop
+        if ($currentGroup.Id -ine $group.Id -or $currentGroup.DisplayName -cne $Desired.LicenseGroup.DisplayName -or
+            (Get-EntraGroupIsDynamic -Group $currentGroup) -or @($currentGroup.AssignedLicenses | Where-Object { $null -ne $_ }).Count -eq 0) { throw 'Lizenzgruppe ist nicht mehr bestätigt.' }
+        $null = Assert-PersonalMutationTarget -UserId $UserId -ExpectedUpn $Desired.UserPrincipalName -Config $SafetyConfig
     }
     if (-not $PSCmdlet.ShouldProcess($group.DisplayName, "Add personnel '$UserId' to license group")) { return $false }
     New-MgGroupMemberByRef -GroupId $group.Id -BodyParameter @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$UserId" } -ErrorAction Stop
@@ -148,6 +170,10 @@ function Invoke-LehrerCreate {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([object] $Entry, [System.Collections.IDictionary] $Config,
         [string] $File, [object] $WorkbookState, [Collections.Generic.HashSet[string]] $UsedPasswords)
+    $personal = $Config.ContainsKey('PersonnelMode')
+    $kind = if ($personal) { 'Personnel' } else { 'Teacher' }
+    $entryPoint = if ($personal) { 'Sync-PersonalEntra.ps1' } else { 'Sync-LehrerEntra.ps1' }
+    $safety = if ($personal) { $Config } else { $null }
     $upn = [string]$Entry.DesiredState.UserPrincipalName
     if (-not $PSCmdlet.ShouldProcess($upn, 'Create personnel account')) {
         return New-StudentActionResult -UserPrincipalName $upn -Phase Create -Status $(if ($WhatIfPreference) { 'WhatIf' } else { 'Skipped' })
@@ -169,32 +195,34 @@ function Invoke-LehrerCreate {
         if (-not $id) { throw 'Neuanlage lieferte keine Objekt-ID.' }
         $phase = 'Workbook'
         if ($File) {
-            $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $WorkbookState.SourceHash -Kind Teacher `
+            $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $WorkbookState.SourceHash -Kind $kind `
                 -Updates @([pscustomobject]@{ RowNumber = [int]$Entry.Person.RowNumber; Password = $password
                     EntraObjectId = $id; UPN = $upn; Mail = $upn }) -Confirm:$false
             $WorkbookState.SourceHash = $written.SourceHash
             $checkpointWritten = $true
         }
         $phase = 'Attributes'
+        if ($personal) { $null = Assert-PersonalMutationTarget -UserId $id -ExpectedUpn $upn -Config $Config }
         $null = Assert-LehrerAttribute -UserId $id -Desired $Entry.DesiredState -MustBeDisabled
         $phase = 'Groups'
-        if (-not (Sync-LehrerGroup -UserId $id -Desired $Entry.DesiredState -RoleGroupPrefix $Config.RoleGroupPrefix -Confirm:$false)) {
+        if (-not (Sync-LehrerGroup -UserId $id -Desired $Entry.DesiredState -RoleGroupPrefix $Config.RoleGroupPrefix -SafetyConfig $safety -Confirm:$false)) {
             throw 'Rolle konnte nicht verifiziert werden.'
         }
-        if (-not (Add-LehrerLicenseGroup -UserId $id -Desired $Entry.DesiredState -NewAccount -Confirm:$false)) {
+        if (-not (Add-LehrerLicenseGroup -UserId $id -Desired $Entry.DesiredState -NewAccount -SafetyConfig $safety -Confirm:$false)) {
             throw 'Lizenzgruppe konnte nicht verifiziert werden.'
         }
         $phase = 'Enable'
+        if ($personal) { $null = Assert-PersonalMutationTarget -UserId $id -ExpectedUpn $upn -Config $Config }
         $enabled = Enable-EntraStudent -UserId $id -WorkbookVerified -GroupsVerified -ManagerVerified -AttributesVerified -Confirm:$false
         if (-not $enabled.Verified) { throw 'Aktivierung wurde nicht bestätigt.' }
         if (-not $File) { Write-Information "Einmaliges Startpasswort für $upn`: $password" -InformationAction Continue; $revealed = $true }
         return New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase Create -Status Succeeded
     } catch {
         if (-not $File -and $id -and -not $revealed) { Write-Information "Einmaliges Startpasswort für $upn`: $password" -InformationAction Continue }
-        $recovery = if ($File -and ($checkpointWritten -or -not $id)) { ".\Sync-LehrerEntra.ps1 -File '$($File.Replace("'", "''"))' -Update -CreateNewUsers -UpdateUsers" }
+        $recovery = if (-not $personal -and $File -and ($checkpointWritten -or -not $id)) { ".\$entryPoint -File '$($File.Replace("'", "''"))' -Update -CreateNewUsers -UpdateUsers" }
             else {
-                $command = ".\Sync-LehrerEntra.ps1 -Add -Vorname '$($Entry.Person.GivenName.Replace("'", "''"))' -Nachname '$($Entry.Person.Surname.Replace("'", "''"))' -Job '$($Entry.Person.Job)'"
-                if ($id) { $command += " -EntraObjectId '$id'" }
+                $command = ".\$entryPoint -Add -Vorname '$($Entry.Person.GivenName.Replace("'", "''"))' -Nachname '$($Entry.Person.Surname.Replace("'", "''"))' -Job '$($Entry.Person.Job)'"
+                if ($id) { $command += " -EntraObjectId '$id'"; if ($personal) { $command += ' -ResumeCreation' } }
                 $command
             }
         $message = $_.Exception.Message
@@ -208,26 +236,30 @@ function Invoke-LehrerCreate {
 function Invoke-LehrerUpdate {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([object] $Entry, [System.Collections.IDictionary] $Config)
+    $personal = $Config.ContainsKey('PersonnelMode')
+    $safety = if ($personal) { $Config } else { $null }
+    $entryPoint = if ($personal) { 'Sync-PersonalEntra.ps1' } else { 'Sync-LehrerEntra.ps1' }
     $id = [string]$Entry.User.Id; $upn = [string]$Entry.User.UserPrincipalName
     if (-not $PSCmdlet.ShouldProcess($upn, 'Update personnel account')) {
         return New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase Update -Status $(if ($WhatIfPreference) { 'WhatIf' } else { 'Skipped' })
     }
     $phase = 'Identity'
     try {
-        $null = Assert-LehrerRecoveryIdentity -UserId $id -Person $Entry.Person -Config $Config
+        $null = Assert-LehrerRecoveryIdentity -UserId $id -Person $Entry.Person -Config $Config -ExpectedUpn $upn
         $phase = 'Attributes'
         if (-not (Set-LehrerAttribute -UserId $id -Desired $Entry.DesiredState -Differences $Entry.Differences -Confirm:$false)) { throw 'Attribute nicht verifiziert.' }
         $phase = 'Groups'
-        if (-not (Sync-LehrerGroup -UserId $id -Desired $Entry.DesiredState -RoleGroupPrefix $Config.RoleGroupPrefix -Confirm:$false)) { throw 'Rollen nicht verifiziert.' }
-        if ($Entry.DesiredState.AddLicenseGroup -and -not (Add-LehrerLicenseGroup -UserId $id -Desired $Entry.DesiredState -Confirm:$false)) { throw 'Lizenzgruppe nicht verifiziert.' }
-        if ($Entry.User.AccountEnabled -eq $false) {
+        if (-not (Sync-LehrerGroup -UserId $id -Desired $Entry.DesiredState -RoleGroupPrefix $Config.RoleGroupPrefix -SafetyConfig $safety -Confirm:$false)) { throw 'Rollen nicht verifiziert.' }
+        if ($Entry.DesiredState.AddLicenseGroup -and -not (Add-LehrerLicenseGroup -UserId $id -Desired $Entry.DesiredState -SafetyConfig $safety -Confirm:$false)) { throw 'Lizenzgruppe nicht verifiziert.' }
+        if ($Entry.User.AccountEnabled -eq $false -and (-not $personal -or (Get-ComparisonPropertyValue $Entry.Person ResumeCreation) -eq $true)) {
             $phase = 'Enable'
+            if ($personal) { $null = Assert-PersonalMutationTarget -UserId $id -ExpectedUpn $upn -Config $Config }
             $enabled = Enable-EntraStudent -UserId $id -WorkbookVerified -GroupsVerified -ManagerVerified -AttributesVerified -Confirm:$false
             if (-not $enabled.Verified) { throw 'Reaktivierung nicht bestätigt.' }
         }
         return New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase Update -Status Succeeded
     } catch {
         return New-StudentActionResult -UserId $id -UserPrincipalName $upn -Phase $phase -Status Failed -Message $_.Exception.Message `
-            -RecoveryCommand ".\Sync-LehrerEntra.ps1 -Add -Vorname '$($Entry.Person.GivenName.Replace("'", "''"))' -Nachname '$($Entry.Person.Surname.Replace("'", "''"))' -Job '$($Entry.Person.Job)' -EntraObjectId '$id'"
+            -RecoveryCommand ".\$entryPoint -Add -Vorname '$($Entry.Person.GivenName.Replace("'", "''"))' -Nachname '$($Entry.Person.Surname.Replace("'", "''"))' -Job '$($Entry.Person.Job)' -EntraObjectId '$id'"
     }
 }
