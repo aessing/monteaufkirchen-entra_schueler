@@ -469,6 +469,8 @@ Halte fest:
 
 ## Lokale Gesamtprüfung und CI
 
+Die Personalregression `preserves skipped Excel rows during real personnel ... writes` verwendet die tatsächlichen XLSX-Lese- und Schreibfunktionen zusammen mit synthetischen Graph-/Exchange-Befehlen. Eine gemischte Datei enthält zwei Neuanlagen mit `Externe Benutzer`, eine bestehende Personalzeile ohne vollständige gespeicherte Identität, `Externe Admins` in Zeile 5, einen Gast, ein rollenloses Konto und ein bestehendes Personalkonto mit fehlendem Vornamen. Neuanlage und Identitätsnachtrag müssen ihre Checkpoints schreiben, die Aktivierung darf erst nach rückgelesenem Passwort und Objekt-ID erfolgen. Alle übersprungenen Zellen bleiben unverändert. Direkte Rückschreibungen auf diese Zeilen werden vor dem ersten Schreiben des gesamten Batches abgewiesen. WhatIf erhält den Dateihash und erzeugt keine Konten oder Rückschreibungen.
+
 ```powershell
 ./tests/Test-PesterDiscovery.ps1
 ./tests/Invoke-LocalVerification.ps1

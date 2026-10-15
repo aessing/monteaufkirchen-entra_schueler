@@ -21,6 +21,9 @@ AfterAll {
 Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
     InModuleScope SchuelerSync {
         BeforeAll {
+            $script:RealPersonalWorkbookReader = (Get-Command Read-StudentWorkbook).ScriptBlock
+            $script:RealPersonalWorkbookWriter = (Get-Command Write-StudentWorkbookUpdate).ScriptBlock
+            $script:RealPersonalWorkbookVersionCheck = (Get-Command Assert-StudentWorkbookVersion).ScriptBlock
             function New-PersonalSyntheticUser {
                 param([string]$Id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', [bool]$Enabled = $true)
                 [pscustomobject]@{
@@ -729,6 +732,118 @@ Describe 'Personal 0.3.0: inventory, guards, sync and actions' {
             @($script:PersonalWriteOrder) | Should -Be @('CreateDisabled','Checkpoint','Enable')
             Should -Invoke New-MgGroupMemberByRef -Exactly 2
             Should -Invoke Write-StudentWorkbookUpdate -ParameterFilter {$Kind -eq 'Personnel' -and $Updates[0].EntraObjectId -and $Updates[0].Password.Length -eq 12} -Exactly 1
+        }
+        It 'preserves skipped Excel rows during real personnel <Mode> writes' -ForEach @(
+            @{Mode='Create'},@{Mode='Backfill'},@{Mode='WhatIf'}
+        ) {
+            # Exercise the real XLSX adapter rather than the default in-memory workbook mocks.
+            Mock Read-StudentWorkbook {
+                & $script:RealPersonalWorkbookReader -Path $Path -Kind $Kind -PersonnelSnapshot $PersonnelSnapshot -AllowPersonnelReviewRows:$AllowPersonnelReviewRows
+            }
+            Mock Write-StudentWorkbookUpdate {
+                param($Path,$Kind,$Updates,$ExpectedSourceHash,$PersonnelSnapshot)
+                $parameters=@{Path=$Path;Kind=$Kind;Updates=$Updates;ExpectedSourceHash=$ExpectedSourceHash;Confirm=$false}
+                if ($null -ne $PersonnelSnapshot) { $parameters.PersonnelSnapshot=$PersonnelSnapshot }
+                & $script:RealPersonalWorkbookWriter @parameters
+            }
+            Mock Assert-StudentWorkbookVersion {
+                & $script:RealPersonalWorkbookVersionCheck -Path $Path -ExpectedSourceHash $ExpectedSourceHash
+            }
+            $accounts=[Collections.Generic.List[object]]::new()
+            foreach ($givenName in @('Nora','Mara')) {
+                $accounts.Add([pscustomobject]@{DisplayName="$givenName Testwald";GivenName=$givenName;Surname='Testwald';Job='ExterneBenutzer';UserId='';UPN='';Mail=''})
+            }
+            $accounts.Add([pscustomobject]@{DisplayName='Lea Testwald';GivenName='Lea';Surname='Testwald';Job='Schule_Sekretariat';UserId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';UPN='';Mail=''})
+            foreach ($definition in @(
+                @{Id='11111111-1111-1111-1111-111111111111';Name='Adminwald';Job='ExterneAdmins';Type='Member'},
+                @{Id='22222222-2222-2222-2222-222222222222';Name='Gastwald';Job='';Type='Guest'},
+                @{Id='33333333-3333-3333-3333-333333333333';Name='Rollenlos';Job='';Type='Member'},
+                @{Id='44444444-4444-4444-4444-444444444444';Name='Unvollstaendig';Job='Schule_Sekretariat';Type='Member'}
+            )) {
+                $user=New-PersonalSyntheticUser -Id $definition.Id
+                $user.Surname=$definition.Name; $user.UserPrincipalName="$($definition.Name.ToLowerInvariant())@example.invalid"; $user.UserType=$definition.Type
+                $script:PersonalUsers[$user.Id]=$user
+                $script:PersonalMemberships[$user.Id]=if ($definition.Job) { @($script:PersonalConfig.Roles[$definition.Job].Id) } else { @() }
+                $accounts.Add([pscustomobject]@{DisplayName=$user.DisplayName;GivenName=$(if ($definition.Job -eq 'ExterneAdmins') {'Lea'} else {''});Surname=$user.Surname;Job=$definition.Job;UserId=$user.Id;UPN=$user.UserPrincipalName;Mail=''})
+            }
+            $path=Join-Path $TestDrive "Mixed-Checkpoint-$Mode.xlsx"
+            $null=Export-PersonalWorkbook -Inventory ([pscustomobject]@{Accounts=@($accounts)}) -Path $path -Confirm:$false
+            $initialHash=(Get-FileHash -LiteralPath $path).Hash
+            $unchanged=@{}
+            $package=Open-StudentWorkbookPackage -Path $path
+            try {
+                for ($row=5; $row -le 8; $row++) {
+                    for ($column=1; $column -le 9; $column++) { $unchanged["$row,$column"]=$package.Workbook.Worksheets['Tabelle1'].Cells[$row,$column].Value }
+                }
+            } finally { $package.Dispose() }
+            Mock New-MgUser {
+                $user=New-PersonalSyntheticUser -Id ([guid]::NewGuid().Guid) -Enabled:$false
+                foreach ($key in @('DisplayName','GivenName','Surname','UserPrincipalName','Mail','MailNickname','JobTitle','CompanyName','EmployeeType','UsageLocation','AgeGroup','ConsentProvidedForMinor')) { $user.$key=$BodyParameter.$key }
+                $script:PersonalUsers[$user.Id]=$user; $script:PersonalMemberships[$user.Id]=@()
+                $user
+            }
+            Mock Update-MgUser {
+                $user=$script:PersonalUsers[[string]$UserId]
+                if ($null -ne $BodyParameter) { foreach ($key in $BodyParameter.Keys) { $user.$key=$BodyParameter[$key] } }
+                else {
+                    # Activation is allowed only after this account's credentials can be read from disk.
+                    $package=Open-StudentWorkbookPackage -Path $path
+                    try {
+                        $sheet=$package.Workbook.Worksheets['Tabelle1']
+                        $row=if ($user.GivenName -eq 'Nora') {2} else {3}
+                        $sheet.Cells[$row,5].Value.Length | Should -Be 12
+                        $sheet.Cells[$row,6].Value | Should -BeExactly $UserId
+                    } finally { $package.Dispose() }
+                    $user.AccountEnabled=[bool]$AccountEnabled
+                }
+            }
+            $options=@{Update=$true;Confirm=$false}
+            if ($Mode -eq 'Backfill') { $options.UpdateUsers=$true }
+            if ($Mode -eq 'WhatIf') { $options.WhatIf=$true }
+            $result=Invoke-PersonalSync -File $path @options
+            $result.HasErrors | Should -BeFalse -Because ($result | ConvertTo-Json -Depth 6 -Compress)
+            $package=Open-StudentWorkbookPackage -Path $path
+            try {
+                $sheet=$package.Workbook.Worksheets['Tabelle1']
+                if ($Mode -eq 'Create') {
+                    @($result.Actions | Where-Object {$_.Phase -eq 'Create' -and $_.Status -eq 'Succeeded'}).Count | Should -Be 2
+                    foreach ($row in @(2,3)) {
+                        $sheet.Cells[$row,5].Value.Length | Should -Be 12
+                        $script:PersonalUsers[$sheet.Cells[$row,6].Value].AccountEnabled | Should -BeTrue
+                        $sheet.Cells[$row,4].Value | Should -BeExactly 'Externe Benutzer'
+                    }
+                }
+                if ($Mode -ne 'WhatIf') {
+                    $sheet.Cells[4,6].Value | Should -BeExactly 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                    $sheet.Cells[4,7].Value | Should -BeExactly 'ltestwald@example.invalid'
+                    $sheet.Cells[4,8].Value | Should -BeExactly 'ltestwald@example.invalid'
+                    $sheet.Cells[4,5].Value | Should -BeNullOrEmpty
+                }
+                for ($row=5; $row -le 8; $row++) {
+                    for ($column=1; $column -le 9; $column++) {
+                        $sheet.Cells[$row,$column].Value | Should -BeExactly $unchanged["$row,$column"]
+                    }
+                }
+            } finally { $package.Dispose() }
+            Should -Invoke Update-MgUser -Exactly 0 -ParameterFilter {$UserId -in @('11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222','33333333-3333-3333-3333-333333333333','44444444-4444-4444-4444-444444444444')}
+            if ($Mode -eq 'WhatIf') {
+                (Get-FileHash -LiteralPath $path).Hash | Should -BeExactly $initialHash
+                Should -Invoke Write-StudentWorkbookUpdate -Exactly 0
+                Should -Invoke New-MgUser -Exactly 0
+            } else {
+                $snapshot=Get-PersonalSyntheticSnapshot
+                $savedHash=(Get-FileHash -LiteralPath $path).Hash
+                $backupCount=@(Get-ChildItem $TestDrive -Filter "Mixed-Checkpoint-$Mode.backup-*.xlsx").Count
+                foreach ($row in @(5,6,7,8)) {
+                    $updates=@(
+                        [pscustomobject]@{RowNumber=4;EntraObjectId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';UPN='ltestwald@example.invalid';Mail='ltestwald@example.invalid';Password='Synthetic12!'},
+                        [pscustomobject]@{RowNumber=$row;EntraObjectId='55555555-5555-5555-5555-555555555555';UPN='blocked@example.invalid';Mail='blocked@example.invalid';Password='Synthetic12!'}
+                    )
+                    {Write-StudentWorkbookUpdate -Path $path -Kind Personnel -PersonnelSnapshot $snapshot -ExpectedSourceHash $savedHash -Updates $updates -Confirm:$false} | Should -Throw '*übersprungene Personalzeile*'
+                    (Get-FileHash -LiteralPath $path).Hash | Should -BeExactly $savedHash
+                    @(Get-ChildItem $TestDrive -Filter "Mixed-Checkpoint-$Mode.backup-*.xlsx").Count | Should -Be $backupCount
+                }
+            }
         }
         It 'keeps a partial creation disabled and reports explicit recovery when checkpoint saving fails' {
             $script:PersonalUsers=@{}; $script:PersonalMemberships=@{}

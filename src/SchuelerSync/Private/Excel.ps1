@@ -267,6 +267,7 @@ function Read-StudentWorkbook {
                 } else { '' }
             }
             if ($Kind -in @('Teacher', 'Personnel')) { $record.Job = $job }
+            if ($Kind -eq 'Personnel') { $record.WorkbookUpdateExcluded = $isGuest -or $isProtected -or $isUnassigned -or $isIncompleteAccount }
             if ($AllowPersonnelReviewRows) { $record.ReviewReason = $reviewReason }
             $students += [pscustomobject]$record
         }
@@ -406,11 +407,13 @@ function Write-StudentWorkbookUpdate {
         [Parameter(Mandatory)][object[]] $Updates,
         [string] $ExpectedSourceHash,
         [switch] $SkipGitSafetyCheck,
-        [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student'
+        [ValidateSet('Student', 'Teacher', 'Personnel')][string] $Kind = 'Student',
+        [object] $PersonnelSnapshot
     )
 
     if (-not $PSCmdlet.ShouldProcess($Path, 'Back up and safely commit workbook updates')) { return }
-    $context = Read-StudentWorkbook -Path $Path -Kind $Kind
+    # Reuse the strict import's identity/protection context when unrelated export rows are skipped.
+    $context = Read-StudentWorkbook -Path $Path -Kind $Kind -PersonnelSnapshot $PersonnelSnapshot
     if ([string]::IsNullOrWhiteSpace($ExpectedSourceHash)) { $ExpectedSourceHash = $context.SourceHash }
     Assert-StudentWorkbookVersion -Path $context.Path -ExpectedSourceHash $ExpectedSourceHash
     $updatesByRow = @{}
@@ -423,8 +426,12 @@ function Write-StudentWorkbookUpdate {
         if ($updatesByRow.ContainsKey($rowNumber)) {
             throw "Mehrere Excel-Rückschreibungen für Zeile $rowNumber sind nicht zulässig."
         }
-        if ($null -eq ($context.Students | Where-Object RowNumber -eq $rowNumber)) {
+        $targetRow = $context.Students | Where-Object RowNumber -eq $rowNumber
+        if ($null -eq $targetRow) {
             throw "Excel-Rückschreibung verweist auf keine gültige Datenzeile: $rowNumber."
+        }
+        if ((Get-ComparisonPropertyValue $targetRow WorkbookUpdateExcluded) -eq $true) {
+            throw "Excel-Rückschreibung für übersprungene Personalzeile $rowNumber ist nicht zulässig."
         }
         $updatesByRow[$rowNumber] = [pscustomobject]@{
             RowNumber = $rowNumber

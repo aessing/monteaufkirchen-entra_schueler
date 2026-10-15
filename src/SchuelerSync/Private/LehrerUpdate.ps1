@@ -169,7 +169,8 @@ function Add-LehrerLicenseGroup {
 function Invoke-LehrerCreate {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
     param([object] $Entry, [System.Collections.IDictionary] $Config,
-        [string] $File, [object] $WorkbookState, [Collections.Generic.HashSet[string]] $UsedPasswords)
+        [string] $File, [object] $WorkbookState, [Collections.Generic.HashSet[string]] $UsedPasswords,
+        [object] $PersonnelSnapshot)
     $personal = $Config.ContainsKey('PersonnelMode')
     $kind = if ($personal) { 'Personnel' } else { 'Teacher' }
     $entryPoint = if ($personal) { 'Sync-PersonalEntra.ps1' } else { 'Sync-LehrerEntra.ps1' }
@@ -196,6 +197,7 @@ function Invoke-LehrerCreate {
         $phase = 'Workbook'
         if ($File) {
             $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $WorkbookState.SourceHash -Kind $kind `
+                -PersonnelSnapshot $PersonnelSnapshot `
                 -Updates @([pscustomobject]@{ RowNumber = [int]$Entry.Person.RowNumber; Password = $password
                     EntraObjectId = $id; UPN = $upn; Mail = $upn }) -Confirm:$false
             $WorkbookState.SourceHash = $written.SourceHash

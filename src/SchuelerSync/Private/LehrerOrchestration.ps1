@@ -354,8 +354,9 @@ function Invoke-PersonnelSyncCore {
                 elseif ($selection.UpdateUsers) { @($comparison.ChangedPeople) } else { @() }
             $used = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
             if ($workbook) { foreach ($person in $workbook.Students) { if ($person.Password) { [void]$used.Add($person.Password) } } }
+            $personnelWorkbookSnapshot = if ($Personnel) { $snapshot } else { $null }
             foreach ($entry in $createEntries) {
-                $action = Invoke-LehrerCreate -Entry $entry -Config $config -File $(if ($workbook) { $File } else { '' }) -WorkbookState $workbook -UsedPasswords $used @common
+                $action = Invoke-LehrerCreate -Entry $entry -Config $config -File $(if ($workbook) { $File } else { '' }) -WorkbookState $workbook -UsedPasswords $used -PersonnelSnapshot $personnelWorkbookSnapshot @common
                 $actions.Add($action)
                 if ($action.Status -eq 'Succeeded') { $targets[$action.UserPrincipalName] = $entry.DesiredState.Exchange }
             }
@@ -383,7 +384,7 @@ function Invoke-PersonnelSyncCore {
                 if ($backfill.Count -gt 0 -and @($actions | Where-Object Status -eq Failed).Count -eq 0 -and
                     $PSCmdlet.ShouldProcess($File, 'Personalidentitäten in Excel nachtragen')) {
                     try {
-                        $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $workbook.SourceHash -Kind $kind -Updates $backfill -Confirm:$false
+                        $written = Write-StudentWorkbookUpdate -Path $File -ExpectedSourceHash $workbook.SourceHash -Kind $kind -Updates $backfill -PersonnelSnapshot $personnelWorkbookSnapshot -Confirm:$false
                         $workbook.SourceHash = $written.SourceHash
                     } catch { $actions.Add((New-StudentActionResult -Phase Workbook -Status Failed -Message $_.Exception.Message)) }
                 }
