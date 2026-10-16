@@ -12,6 +12,7 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- GitHub-Actions-Checkout von 4.2.2 auf 7.0.1 aktualisiert und weiterhin auf einen vollständigen Commit-Hash festgeschrieben. Die CI-Matrix für Windows und macOS sowie deaktivierte persistente Git-Zugangsdaten bleiben erhalten.
 - Modulmanifest und aktuelle Bedienungsdokumentation auf 0.3.1 gesetzt. Wiederanlauf nach fehlgeschlagenem Passwort-/Identitätscheckpoint erläutert. Veröffentlichungsdatum und Vergleichslink von 0.3.0 an den vorhandenen Tag vom 11. Oktober 2026 angepasst.
 
 ## [0.3.0] - 2026-10-11
