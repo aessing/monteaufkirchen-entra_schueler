@@ -4,7 +4,17 @@ Alle wesentlichen Änderungen an diesem Projekt werden in dieser Datei dokumenti
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
-## [0.3.0] - Unreleased
+## [0.3.1] - 2026-10-16
+
+### Fixed
+
+- Excel-Rückschreibungen für Personalneuanlagen und bestehende Konten behalten den Identitäts- und Schutzkontext der Vorprüfung. Eine bestätigte Adminzeile wie `Externe Admins` an anderer Stelle der Datei blockiert das Sichern von Passwort und Identität gültiger Konten nicht mehr. Übersprungene Gast-, Admin-, rollenlose und unvollständige Bestandszeilen bleiben unverändert und werden als Rückschreibeziel abgewiesen.
+
+### Changed
+
+- Modulmanifest und aktuelle Bedienungsdokumentation auf 0.3.1 gesetzt. Wiederanlauf nach fehlgeschlagenem Passwort-/Identitätscheckpoint erläutert. Veröffentlichungsdatum und Vergleichslink von 0.3.0 an den vorhandenen Tag vom 11. Oktober 2026 angepasst.
+
+## [0.3.0] - 2026-10-11
 
 ### Added
 
@@ -31,11 +41,10 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 - Personal-`-Update` ohne Aktionsschalter erstellt und aktualisiert. Abgangssperrung und Sitzungswiderruf benötigen ausdrückliche Aktionsschalter. Gesperrte Bestandskonten bleiben im normalen Personal-Sync gesperrt. Die bisherigen Schüler-/Lehrer-Sync-Regeln bleiben erhalten.
 - Personalrollenwechsel entfernt ausschließlich verwaltete Rollen. Vorhandene und ausstehende Lizenzen bleiben erhalten und werden vor einem Standardgruppenbeitritt frisch geprüft. Eine nicht konfigurierte AddressBookPolicy wird bei Vorprüfung, Vergleich und Schreiben ausgelassen, bestehende Zuweisungen werden nicht entfernt.
 - Gemeinsamer Administratorschutz verwendet `SEC-A-ADM-GlobalAdministrators` mit eindeutiger Namensauflösung in Personal-, Lehrer- und Schülerverwaltung.
-- Entwicklungsstand im Modul und in der Dokumentation auf 0.3.0 gesetzt. Betriebs-, Test-, Sicherheits- und Supportanleitungen aktualisiert. Die letzte veröffentlichte Version bleibt 0.2.0.
+- Modul und Dokumentation auf 0.3.0 gesetzt. Betriebs-, Test-, Sicherheits- und Supportanleitungen aktualisiert.
 
 ### Fixed
 
-- Excel-Rückschreibungen für Personalneuanlagen und bestehende Konten behalten den Identitäts- und Schutzkontext der Vorprüfung. Eine bestätigte Adminzeile wie `Externe Admins` an anderer Stelle der Datei blockiert das Sichern von Passwort und Identität gültiger Konten nicht mehr. Übersprungene Gast-, Admin-, rollenlose und unvollständige Bestandszeilen bleiben unverändert und werden als Rückschreibeziel abgewiesen.
 - Eindeutig erkannte bestehende Personalkonten mit gültigem Job und fehlenden Namensdaten blockieren Updates der übrigen Konten nicht mehr. Compare und Update einschließlich WhatIf überspringen diese mit `Workbook.Review`, ohne ihr Profil zu ändern. Vollständiger Schutzkontext und aktuelle vollständig lesbare transitive Mitgliedschaften müssen genau eine verwaltete Personalrolle bestätigen. Unbekannte oder widersprüchliche Identitäten, ungültige oder fehlende Jobs, mehrere Personalrollen und unvollständige Schutzinformationen bleiben Fehler. Ausschließlich übersprungene Konten erzeugen keine Abgänge.
 - Eindeutig erkannte Mitgliedskonten ohne Job und nachweislich ohne verwaltete Personalrolle blockieren Personal-Updates nicht mehr durch fehlende Namensfelder im Gesamtexport. Compare und Update einschließlich WhatIf überspringen sie mit `Workbook.Review`. Die Bestätigung nutzt den vollständigen Schutzkontext und aktuelle vollständig lesbare transitive Entra-Mitgliedschaften. Gültige Personaländerungen werden verarbeitet, übersprungene Konten bleiben unverändert. Verwaltete Konten mit fehlendem Job, unbekannte oder widersprüchliche Identitäten und unvollständige Sicherheitsinformationen bleiben strikt geprüft. Eine Datei ausschließlich mit übersprungenen Konten erzeugt keine Abgänge.
 - Bestätigte geschützte Adminkonten blockieren den Personal-Update-Lauf nicht mehr durch ihre Exportzeile `Externe Admins`. Compare und Update einschließlich WhatIf überspringen eindeutig identifizierte Konten mit bestätigter geschützter Gruppen- oder Verzeichnisrollenmitgliedschaft als `Workbook.Review`, gültige Personaländerungen werden weiter verarbeitet. Adminkonten bleiben unverändert. Unbekannte, widersprüchliche oder ungeschützte Adminjob-Zeilen behalten die strikte Validierung. Reine Gast-/Adminkonto-Dateien erzeugen keine Abgänge interner Konten.
@@ -135,7 +144,8 @@ die Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 - Passwörter werden nicht in Berichte, Ergebnisobjekte oder `-OutputFile` geschrieben
 - Abgänge werden deaktiviert und Sitzungen widerrufen, Benutzerkonten, Gruppen und Lizenzen werden nicht gelöscht
 
-[0.3.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.2.0...HEAD
+[0.3.1]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/aessing/monteaufkirchen-entra_schueler/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aessing/monteaufkirchen-entra_schueler/releases/tag/v0.1.0

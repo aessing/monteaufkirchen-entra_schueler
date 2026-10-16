@@ -21,12 +21,13 @@ BeforeAll {
 }
 
 Describe 'Documentation contract' {
-    It 'keeps the v0.3.0 development metadata and previous release consistent' {
-        $manifest.ModuleVersion | Should -Be '0.3.0'
-        $readme | Should -Match 'Aktuelle Entwicklungsversion:\s*\*\*0\.3\.0\*\*'
-        $readme | Should -Match 'Letzte veröffentlichte Version:\s*\*\*0\.2\.0\*\*'
-        $changelog | Should -Match '## \[0\.3\.0\] - Unreleased'
-        $changelog | Should -Match '\[0\.3\.0\]:.+compare/v0\.2\.0\.\.\.HEAD'
+    It 'keeps the v0.3.1 release metadata and previous releases consistent' {
+        $manifest.ModuleVersion | Should -Be '0.3.1'
+        $readme | Should -Match 'Aktuelle Version:\s*\*\*0\.3\.1\*\*'
+        $changelog | Should -Match '## \[0\.3\.1\] - 2026-10-16'
+        $changelog | Should -Match '\[0\.3\.1\]:.+compare/v0\.3\.0\.\.\.v0\.3\.1'
+        $changelog | Should -Match '## \[0\.3\.0\] - 2026-10-11'
+        $changelog | Should -Match '\[0\.3\.0\]:.+compare/v0\.2\.0\.\.\.v0\.3\.0'
         $changelog | Should -Match '## \[0\.2\.0\] - 2026-09-27'
         $changelog | Should -Match '## \[0\.1\.1\] - 2026-09-12'
         $changelog | Should -Match '\[0\.2\.0\]:.+compare/v0\.1\.1\.\.\.v0\.2\.0'

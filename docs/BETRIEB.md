@@ -1,5 +1,11 @@
 # Betrieb und Wiederanlauf
 
+## Personal-Excel-Checkpoint ab 0.3.1
+
+Bei Personalneuanlagen und Identitätsnachträgen wird die gesamte Arbeitsmappe erneut mit dem Identitäts- und Schutzkontext der Vorprüfung gelesen. Bestätigte geschützte Konten und andere zulässig übersprungene Bestandszeilen verhindern die Rückschreibung gültiger Zeilen nicht mehr. Die übersprungenen Zeilen selbst bleiben als Schreibziel gesperrt. Quellhash, Sicherung und Verifikation der temporären Datei gelten unverändert.
+
+Nach einem früheren `Workbook Failed` mit fehlender Passwortsicherung bleiben bereits angelegte Konten gesperrt. Vor dem Wiederanlauf das Startpasswort administrativ zurücksetzen und sicher übergeben, die vorhandene Objekt-ID in Excel nachtragen und gezielt mit `-ResumeCreation` fortsetzen. Dieser Schalter erzeugt kein neues Passwort. [Detailliertes Vorgehen](ENTRA-PERSONAL-SYNC.md#wiederanlauf-und-prüfstand).
+
 ## Adressen bei Neuanlagen (0.3.0)
 
 Schüler erhalten UPN und Mail unter `monteaufkirchen.com`. Schulteam, OGTS und übriges Personal verwenden `montessori-erding.de`. Nur das Schulteam (`L`, `CO-L`, `PA`, auch mit `JAS`) erhält zusätzlich den gleichnamigen Alias unter `monteaufkirchen.com`. Angestellte verwenden Vornamensinitiale plus Nachname mit wachsendem Präfix bei Belegung. Freigegebene Rollen `Externe*` verwenden `vorname.nachname` mit Zahl ab `2` bei Belegung.

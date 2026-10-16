@@ -1,5 +1,19 @@
 # Abnahmestand und VM-Protokoll
 
+## Ergänzung 0.3.1: Excel-Checkpoint und Wiederanlauf, 16. Oktober 2026
+
+Die Korrektur aus `f8f4e67` erhält den Personal-Identitäts- und Schutzkontext auch bei Excel-Rückschreibungen. Vor der Korrektur reproduzierte eine synthetische gemischte Datei exakt den gemeldeten Fehler: Zwei Neuanlagen mit `Externe Benutzer` scheiterten beim Passwort-/Identitätscheckpoint an `Externe Admins` in Zeile 5. Auch der Identitätsnachtrag für bestehende Konten war betroffen.
+
+Die Regression verwendet echte XLSX-Lese- und Schreibfunktionen und synthetische Graph-/Exchange-Befehle. Sie prüft zwei aufeinanderfolgende Neuanlagen, den Identitätsnachtrag und WhatIf. Passwort und Objekt-ID müssen vor der Aktivierung rückgelesen werden. Bestätigte Admin-, Gast-, rollenlose und unvollständige Bestandszeilen bleiben unverändert. Direkte Schreibversuche auf diese Zeilen brechen den gesamten Batch vor der ersten Dateiänderung ab.
+
+Am 15. Oktober 2026 bestand der korrigierte Stand lokal 730 von 731 Tests, ohne Fehlschlag. Der bestehende Windows-Dateisperrtest wurde auf macOS übersprungen. Discovery, Parser, statische Analyse und `git diff --check` waren erfolgreich.
+
+Die erneute Releaseprüfung vom 16. Oktober 2026 mit Modulversion 0.3.1 entdeckte alle 731 Tests und bestand anschließend 730 Tests ohne Fehlschlag. Der Windows-Dateisperrtest wurde auf macOS erneut übersprungen. Parser und statische Analyse waren erfolgreich, ausschließlich die ausdrücklich erlaubten `Write-Host`-Hinweise blieben bestehen. Verwendet wurden die festgeschriebenen CI-Modulversionen in einem temporären Modul- und Benutzerverzeichnis. Die 13 Dokumentationstests bestanden auch separat.
+
+Im anschließend ausdrücklich autorisierten Betriebslauf vom 15. Oktober wurden zwei gesperrte Teilanlagen über ihre vorhandenen Objekt-IDs wieder aufgenommen. Die administrativ zurückgesetzten Startpasswörter wurden in der ignorierten Arbeitsmappe gesichert, der Erstwechsel wurde aus Entra bestätigt. Beide Konten wurden aktiviert und mit der vorgesehenen Personalrolle, jeweils einer Lizenz ohne Lizenzfehler und dem passenden Exchange-Profil zurückgelesen. Der vollständige Excel-Update-Lauf verglich 69 Konten ohne Fehler oder offene Profiländerungen und bestätigte 69 konforme Exchange-Postfächer. Elf reguläre Prüfhinweise betrafen geschützte Admins, rollenlose Konten und unvollständige Namensdaten. Namen, individuelle Objekt-IDs und Zugangsdaten werden hier nicht dokumentiert.
+
+Dieser Betriebsnachweis ersetzt keine vollständige Windows-Abnahme oder Tests sämtlicher Mandantenfälle. Die folgenden Abschnitte dokumentieren ihre jeweiligen früheren Prüfstände.
+
 ## Ergänzung 0.3.0: Dokumentationsabschluss und Gesamtprüfung, 11. Oktober 2026
 
 README, Personal-, Betriebs- und Supportanleitung dokumentieren den Personal-Update-Aufruf mit `-Confirm:$false`. Der Schalter unterdrückt PowerShell-Bestätigungen für ausgewählte Schreibaktionen. Er aktiviert keine weiteren Aktionen und umgeht keine Vorprüfung oder Schutzregel. Die eigene Namensbestätigung der Konten-TUI bleibt erforderlich. Das README fasst die Gast-, Admin-, rollenlosen und unvollständigen Bestandszeilen in einer Tabelle zusammen. Adressregeln, lesbare Jobtitel, Kinderhauspräfix, Bestandsadressschutz und Tastenbelegung sind in den bestehenden Anleitungen und im Changelog enthalten. Entwicklungsstand bleibt 0.3.0 mit `Unreleased`, die letzte veröffentlichte Version bleibt 0.2.0.

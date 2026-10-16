@@ -2,7 +2,13 @@
 
 # Entra-Synchronisation für Schüler und Personal
 
-Aktuelle Entwicklungsversion: **0.3.0**. Letzte veröffentlichte Version: **0.2.0**.
+Aktuelle Version: **0.3.1** vom 16. Oktober 2026. Änderungen stehen im [Changelog](CHANGELOG.md).
+
+## Korrektur in 0.3.1: Personalidentitäten in Excel sichern
+
+Personalneuanlagen und Identitätsnachträge verwenden beim erneuten Einlesen der Arbeitsmappe denselben Identitäts- und Schutzkontext wie die Vorprüfung. Eine bestätigte Adminzeile wie `Externe Admins` an anderer Stelle der Datei blockiert das Sichern gültiger Konten nicht mehr. Zulässig übersprungene Bestandszeilen bleiben unverändert und können nicht als Rückschreibeziel verwendet werden.
+
+Bereits gesperrt angelegte Konten mit fehlgeschlagenem Excel-Checkpoint benötigen weiterhin einen administrativen Passwortreset, die vorhandene Objekt-ID in Excel und einen ausdrücklichen Wiederanlauf mit `-ResumeCreation`. Der Wiederanlauf erzeugt kein neues Passwort. [Vorgehen und Prüfungen](docs/ENTRA-PERSONAL-SYNC.md#wiederanlauf-und-prüfstand).
 
 Die Konten-TUIs zeigen die jeweils verfügbaren Tastenbefehle in der letzten Ausgabezeile. Backspace oder Entf öffnet die Löschbestätigung. Enter hat in den Kontenlisten keine Aktion und übernimmt weiterhin Ziele in der Schüler-Zielauswahl. Die Schüleransicht ergänzt `K` für Klasse/Jahrgang und `L` für Klassenlehrer. Auch Zielauswahl und Bestätigungsdialoge enden mit ihren Bedienhinweisen.
 

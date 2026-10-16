@@ -1,4 +1,4 @@
-# Übrige Personalkonten verwalten (0.3.0)
+# Übrige Personalkonten verwalten (0.3.1)
 
 Die Konten-TUI zeigt die verfügbaren Tastenbefehle als letzte Ausgabezeile unter Liste, Details und Hinweisen. Bestätigungsdialoge enden mit den Ja-/Nein-Befehlen. Backspace und Entf öffnen die Löschbestätigung, Enter hat in der Kontenliste keine Aktion.
 
